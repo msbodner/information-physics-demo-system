@@ -1,0 +1,750 @@
+openapi: 3.0.3
+info:
+  title: InformationPhysics API
+  version: 0.1.0
+  description: >
+    Implementation-grade API surface for the InformationPhysics.ai platform.
+    Core primitives: Information Objects (IO), versioned representations, derivation DAG,
+    and the measurement workbench (SQL/retrieval/LLM/estimator instruments).
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: Health
+  - name: IO
+  - name: Operators
+  - name: Measurement
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    XTenantId:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      schema: { type: string }
+      description: Tenant partition key (enforced by auth + RLS).
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        details: { type: object, additionalProperties: true }
+    ISODateTime:
+      type: string
+      format: date-time
+    UUID:
+      type: string
+      format: uuid
+
+    # ---- Core types ----
+    InformationObject:
+      type: object
+      required: [io_id, tenant_id, type, created_at]
+      properties:
+        io_id: { $ref: "#/components/schemas/UUID" }
+        tenant_id: { type: string }
+        type: { type: string, example: Document }
+        created_at: { $ref: "#/components/schemas/ISODateTime" }
+        captured_at: { $ref: "#/components/schemas/ISODateTime" }
+        raw:
+          type: object
+          properties:
+            raw_uri: { type: string, example: "s3://infophysics/tenantA/raw/abc.pdf" }
+            raw_hash: { type: string, example: "sha256:..." }
+            mime_type: { type: string, example: "application/pdf" }
+            size_bytes: { type: integer, example: 123456 }
+        context:
+          type: object
+          properties:
+            source_system: { type: string, example: "ACC" }
+            source_object_id: { type: string, example: "acc:projects/123/docs/456" }
+            author: { type: string, example: "Jane Smith" }
+            time_range:
+              type: object
+              properties:
+                start: { $ref: "#/components/schemas/ISODateTime" }
+                end: { $ref: "#/components/schemas/ISODateTime" }
+            permissions_ref: { type: string, example: "policy:tenantA:projects:123" }
+            policy_scope_id: { type: string, example: "projects_123" }
+        representations:
+          type: object
+          properties:
+            extracted_text_versions: { type: array, items: { type: string } }
+            chunk_versions: { type: array, items: { type: string } }
+            embedding_versions: { type: array, items: { type: string } }
+            summary_versions: { type: array, items: { type: string } }
+            view_versions: { type: array, items: { type: string } }
+        lineage:
+          type: object
+          properties:
+            lineage_root: { $ref: "#/components/schemas/UUID" }
+            derivations: { type: array, items: { $ref: "#/components/schemas/UUID" } }
+
+    DerivationEvent:
+      type: object
+      required: [event_id, tenant_id, operator, timestamp, inputs, outputs]
+      properties:
+        event_id: { $ref: "#/components/schemas/UUID" }
+        tenant_id: { type: string }
+        operator: { type: string, example: "extract" }
+        timestamp: { $ref: "#/components/schemas/ISODateTime" }
+        inputs:
+          type: array
+          items:
+            type: object
+            required: [io_id]
+            properties:
+              io_id: { $ref: "#/components/schemas/UUID" }
+              ref: { type: string, nullable: true, example: "text_ref:..." }
+        outputs:
+          type: array
+          items:
+            type: object
+            required: [ref]
+            properties:
+              io_id: { $ref: "#/components/schemas/UUID" }
+              ref: { type: string, example: "text_ref:..." }
+        parameters: { type: object, additionalProperties: true }
+        model_ref: { type: string, nullable: true, example: "gpt-4.1-mini" }
+        cost_metrics: { type: object, additionalProperties: true }
+        provenance_map: { type: object, additionalProperties: true }
+
+    Citation:
+      type: object
+      required: [io_id, locator]
+      properties:
+        io_id: { $ref: "#/components/schemas/UUID" }
+        locator: { type: string, example: "page:3 lines:120-135" }
+        quote: { type: string, nullable: true }
+        confidence: { type: number, nullable: true, example: 0.82 }
+
+    LineageBundle:
+      type: object
+      properties:
+        derivation_events: { type: array, items: { $ref: "#/components/schemas/DerivationEvent" } }
+        citations: { type: array, items: { $ref: "#/components/schemas/Citation" } }
+
+    Coverage:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        searched_io_types: { type: array, items: { type: string } }
+        time_window:
+          type: object
+          properties:
+            start: { $ref: "#/components/schemas/ISODateTime" }
+            end: { $ref: "#/components/schemas/ISODateTime" }
+        indices_used: { type: array, items: { type: string }, example: ["lexical", "vector", "entity", "temporal"] }
+        result_count: { type: integer, example: 17 }
+
+    Uncertainty:
+      type: object
+      properties:
+        confidence: { type: number, example: 0.74 }
+        gaps: { type: array, items: { type: string } }
+
+    Cost:
+      type: object
+      properties:
+        latency_ms: { type: integer, example: 832 }
+        tokens_in: { type: integer, example: 3120 }
+        tokens_out: { type: integer, example: 880 }
+        usd_estimate: { type: number, example: 0.04 }
+
+    # ---- Requests ----
+    CreateIORequest:
+      type: object
+      required: [type, raw, context]
+      properties:
+        type: { type: string, example: Document }
+        raw:
+          type: object
+          description: >
+            Either provide an upload workflow (pre-signed URL) or an existing raw_uri+hash.
+          properties:
+            upload_url: { type: string, nullable: true }
+            raw_uri: { type: string, nullable: true }
+            raw_hash: { type: string, nullable: true }
+            mime_type: { type: string, nullable: true }
+            size_bytes: { type: integer, nullable: true }
+        context:
+          type: object
+          properties:
+            source_system: { type: string, nullable: true }
+            source_object_id: { type: string, nullable: true }
+            author: { type: string, nullable: true }
+            time_range:
+              type: object
+              properties:
+                start: { $ref: "#/components/schemas/ISODateTime" }
+                end: { $ref: "#/components/schemas/ISODateTime" }
+            permissions_ref: { type: string, nullable: true }
+            policy_scope_id: { type: string, nullable: true }
+        dedupe:
+          type: object
+          properties:
+            mode:
+              type: string
+              enum: [none, hash, source_object_id, hash_or_source]
+              default: hash_or_source
+
+    CreateIOResponse:
+      type: object
+      required: [item]
+      properties:
+        item: { $ref: "#/components/schemas/InformationObject" }
+
+    ExtractRequest:
+      type: object
+      required: [io_id]
+      properties:
+        io_id: { $ref: "#/components/schemas/UUID" }
+        params:
+          type: object
+          additionalProperties: true
+          example:
+            mode: "auto"
+            ocr: true
+            language: "en"
+
+    ExtractResponse:
+      type: object
+      required: [extracted_text_ref, derivation_event]
+      properties:
+        extracted_text_ref: { type: string, example: "text_ref:3d2a..." }
+        derivation_event: { $ref: "#/components/schemas/DerivationEvent" }
+
+    ChunkRequest:
+      type: object
+      required: [io_id, extracted_text_ref]
+      properties:
+        io_id: { $ref: "#/components/schemas/UUID" }
+        extracted_text_ref: { type: string }
+        params:
+          type: object
+          additionalProperties: true
+          example:
+            strategy: "layout-aware"
+            max_tokens: 800
+            overlap_tokens: 120
+
+    ChunkResponse:
+      type: object
+      required: [chunks_ref, derivation_event]
+      properties:
+        chunks_ref: { type: string, example: "chunks_ref:7e9c..." }
+        derivation_event: { $ref: "#/components/schemas/DerivationEvent" }
+
+    EmbedRequest:
+      type: object
+      required: [io_id, chunks_ref, model_ref]
+      properties:
+        io_id: { $ref: "#/components/schemas/UUID" }
+        chunks_ref: { type: string }
+        model_ref: { type: string, example: "text-embedding-3-large" }
+        params:
+          type: object
+          additionalProperties: true
+          example:
+            normalize: true
+            store_vectors: true
+
+    EmbedResponse:
+      type: object
+      required: [embedding_ref, derivation_event]
+      properties:
+        embedding_ref: { type: string, example: "embedding_ref:11af..." }
+        derivation_event: { $ref: "#/components/schemas/DerivationEvent" }
+
+    SummarizeRequest:
+      type: object
+      required: [io_id, scope, model_ref]
+      properties:
+        io_id: { $ref: "#/components/schemas/UUID" }
+        scope: { type: string, enum: [document, section, thread, corpus] }
+        model_ref: { type: string, example: "gpt-4.1-mini" }
+        params:
+          type: object
+          additionalProperties: true
+          example:
+            style: "executive"
+            max_tokens: 500
+            require_citations: true
+
+    SummarizeResponse:
+      type: object
+      required: [summary_ref, derivation_event]
+      properties:
+        summary_ref: { type: string, example: "summary_ref:99b1..." }
+        derivation_event: { $ref: "#/components/schemas/DerivationEvent" }
+
+    LinkRequest:
+      type: object
+      required: [io_ids]
+      properties:
+        io_ids:
+          type: array
+          minItems: 2
+          items: { $ref: "#/components/schemas/UUID" }
+        params:
+          type: object
+          additionalProperties: true
+          example:
+            modes: ["explicit", "inferred"]
+            link_types: ["references", "amends", "duplicate_of"]
+            min_confidence: 0.6
+
+    LinkResponse:
+      type: object
+      required: [links_ref, derivation_event]
+      properties:
+        links_ref: { type: string, example: "links_ref:2c33..." }
+        derivation_event: { $ref: "#/components/schemas/DerivationEvent" }
+
+    ResolveEntitiesRequest:
+      type: object
+      required: [io_id]
+      properties:
+        io_id: { $ref: "#/components/schemas/UUID" }
+        params:
+          type: object
+          additionalProperties: true
+          example:
+            entity_types: ["Person", "Org", "Project", "Asset"]
+            resolver: "rules+llm"
+            min_confidence: 0.55
+
+    ResolveEntitiesResponse:
+      type: object
+      required: [entities_ref, derivation_event]
+      properties:
+        entities_ref: { type: string, example: "entities_ref:0dd2..." }
+        derivation_event: { $ref: "#/components/schemas/DerivationEvent" }
+
+    DeriveViewRequest:
+      type: object
+      required: [io_ids, schema_spec]
+      properties:
+        io_ids:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/UUID" }
+        schema_spec:
+          type: object
+          description: JSON Schema-like definition or DSL (validated server-side).
+          additionalProperties: true
+          example:
+            name: "invoice_lines_v1"
+            fields:
+              - { name: "invoice_number", type: "string", required: true }
+              - { name: "line_amount", type: "number", required: true }
+              - { name: "project_code", type: "string" }
+        loss_budget:
+          type: object
+          additionalProperties: true
+          example:
+            omitted_fields: ["freeform_notes"]
+            min_confidence: 0.7
+            redactions: ["ssn", "bank_account"]
+            coverage_target: 0.9
+        params:
+          type: object
+          additionalProperties: true
+          example:
+            backend: "lakehouse"
+            output_format: "parquet"
+
+    DeriveViewResponse:
+      type: object
+      required: [view_ref, derivation_event]
+      properties:
+        view_ref: { type: string, example: "view_ref:1f8e..." }
+        derivation_event: { $ref: "#/components/schemas/DerivationEvent" }
+
+    ValidationInvariant:
+      type: object
+      required: [name, rule]
+      properties:
+        name: { type: string, example: "provenance_conservation" }
+        rule: { type: object, additionalProperties: true }
+        severity: { type: string, enum: [warn, error], default: error }
+
+    ValidateRequest:
+      type: object
+      required: [target_ref, invariants]
+      properties:
+        target_ref: { type: string, example: "view_ref:1f8e..." }
+        invariants:
+          type: array
+          items: { $ref: "#/components/schemas/ValidationInvariant" }
+        params:
+          type: object
+          additionalProperties: true
+
+    ValidateResponse:
+      type: object
+      required: [report, derivation_event]
+      properties:
+        report:
+          type: object
+          additionalProperties: true
+          example:
+            ok: true
+            checks:
+              - name: "provenance_conservation"
+                status: "pass"
+        derivation_event: { $ref: "#/components/schemas/DerivationEvent" }
+
+    MeasureInstrument:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [sql, retrieval, llm, estimator] }
+        params:
+          type: object
+          additionalProperties: true
+          example:
+            sql:
+              view_ref: "view_ref:1f8e..."
+              statement: "SELECT project_code, SUM(line_amount) FROM invoice_lines GROUP BY 1"
+            retrieval:
+              indices: ["lexical","vector"]
+              top_k: 20
+              rerank: true
+            llm:
+              model_ref: "gpt-4.1-mini"
+              system_prompt_ref: "prompt_ref:reasoner_v1"
+              max_tokens: 900
+              require_citations: true
+
+    MeasureRequest:
+      type: object
+      required: [query, context_frame, instruments]
+      properties:
+        query: { type: string, example: "Summarize the key risks in the subcontractor insurance docs for Project 123." }
+        context_frame:
+          type: object
+          required: [tenant_id]
+          properties:
+            tenant_id: { type: string }
+            domain: { type: string, nullable: true, example: "construction" }
+            time_window:
+              type: object
+              properties:
+                start: { $ref: "#/components/schemas/ISODateTime" }
+                end: { $ref: "#/components/schemas/ISODateTime" }
+            neighborhood:
+              type: object
+              properties:
+                seed_io_ids: { type: array, items: { $ref: "#/components/schemas/UUID" } }
+                graph_radius: { type: integer, default: 2 }
+            policy_scope: { type: string, nullable: true }
+        instruments:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/MeasureInstrument" }
+        output_contract:
+          type: object
+          properties:
+            require_citations: { type: boolean, default: true }
+            include_coverage: { type: boolean, default: true }
+            include_uncertainty: { type: boolean, default: true }
+            include_cost: { type: boolean, default: true }
+
+    MeasureResponse:
+      type: object
+      required: [answer]
+      properties:
+        answer: { type: string }
+        evidence: { $ref: "#/components/schemas/LineageBundle" }
+        coverage: { $ref: "#/components/schemas/Coverage" }
+        uncertainty: { $ref: "#/components/schemas/Uncertainty" }
+        cost: { $ref: "#/components/schemas/Cost" }
+
+security:
+  - bearerAuth: []
+
+paths:
+  /v1/health:
+    get:
+      tags: [Health]
+      security: []
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /v1/io:
+    post:
+      tags: [IO]
+      summary: Capture an Information Object (preserve-first)
+      parameters: [ { $ref: "#/components/parameters/XTenantId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateIORequest" }
+            examples:
+              contract_pdf:
+                summary: Capture a contract PDF from object storage
+                value:
+                  type: Document
+                  raw:
+                    raw_uri: "s3://infophysics/tenantA/raw/contracts/msa.pdf"
+                    raw_hash: "sha256:7df4..."
+                    mime_type: "application/pdf"
+                    size_bytes: 842113
+                  context:
+                    source_system: "SharePoint"
+                    source_object_id: "sp:sites/legal/contracts/msa.pdf"
+                    author: "Legal Ops"
+                    permissions_ref: "policy:tenantA:legal"
+                    policy_scope_id: "legal"
+                  dedupe:
+                    mode: "hash_or_source"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateIOResponse" }
+        "400": { description: Bad Request, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "401": { description: Unauthorized }
+
+    get:
+      tags: [IO]
+      summary: List Information Objects
+      parameters:
+        - { $ref: "#/components/parameters/XTenantId" }
+        - name: type
+          in: query
+          schema: { type: string }
+        - name: source_system
+          in: query
+          schema: { type: string }
+        - name: created_after
+          in: query
+          schema: { $ref: "#/components/schemas/ISODateTime" }
+        - name: created_before
+          in: query
+          schema: { $ref: "#/components/schemas/ISODateTime" }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 500 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/InformationObject" } }
+
+  /v1/io/{io_id}:
+    get:
+      tags: [IO]
+      summary: Get IO by id
+      parameters:
+        - { $ref: "#/components/parameters/XTenantId" }
+        - name: io_id
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/UUID" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InformationObject" }
+        "404": { description: Not Found }
+
+  /v1/op/extract:
+    post:
+      tags: [Operators]
+      summary: Extract text (OCR/parsing). Produces a versioned extracted_text_ref.
+      parameters: [ { $ref: "#/components/parameters/XTenantId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExtractRequest" }
+            examples:
+              auto_ocr:
+                value:
+                  io_id: "00000000-0000-0000-0000-000000000001"
+                  params: { mode: "auto", ocr: true, language: "en" }
+      responses:
+        "200":
+          description: Extracted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExtractResponse" }
+
+  /v1/op/chunk:
+    post:
+      tags: [Operators]
+      summary: Chunk extracted text. Produces a versioned chunks_ref.
+      parameters: [ { $ref: "#/components/parameters/XTenantId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChunkRequest" }
+      responses:
+        "200":
+          description: Chunked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChunkResponse" }
+
+  /v1/op/embed:
+    post:
+      tags: [Operators]
+      summary: Embed chunks and register vectors in the configured vector backend.
+      parameters: [ { $ref: "#/components/parameters/XTenantId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmbedRequest" }
+      responses:
+        "200":
+          description: Embedded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmbedResponse" }
+
+  /v1/op/summarize:
+    post:
+      tags: [Operators]
+      summary: Summarize an IO (document/section/thread/corpus), versioned.
+      parameters: [ { $ref: "#/components/parameters/XTenantId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SummarizeRequest" }
+      responses:
+        "200":
+          description: Summarized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SummarizeResponse" }
+
+  /v1/op/link:
+    post:
+      tags: [Operators]
+      summary: Create explicit/inferred links between IOs.
+      parameters: [ { $ref: "#/components/parameters/XTenantId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LinkRequest" }
+      responses:
+        "200":
+          description: Linked
+          content:
+            application/json:
+              schema: { type: object, properties: { links_ref: {type: string}, derivation_event: { $ref: "#/components/schemas/DerivationEvent" } } }
+
+  /v1/op/resolve-entities:
+    post:
+      tags: [Operators]
+      summary: Extract and resolve entities/mentions for an IO.
+      parameters: [ { $ref: "#/components/parameters/XTenantId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResolveEntitiesRequest" }
+      responses:
+        "200":
+          description: Entities resolved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResolveEntitiesResponse" }
+
+  /v1/op/derive-view:
+    post:
+      tags: [Operators]
+      summary: Create schema-on-demand structured projection (versioned) with loss_budget metadata.
+      parameters: [ { $ref: "#/components/parameters/XTenantId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeriveViewRequest" }
+      responses:
+        "200":
+          description: View created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeriveViewResponse" }
+
+  /v1/op/validate:
+    post:
+      tags: [Operators]
+      summary: Validate invariants/constraints on an output ref (view/summary/etc).
+      parameters: [ { $ref: "#/components/parameters/XTenantId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ValidateRequest" }
+      responses:
+        "200":
+          description: Validation report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidateResponse" }
+
+  /v1/measure:
+    post:
+      tags: [Measurement]
+      summary: Apply instruments (SQL/retrieval/LLM/estimator) and return result + lineage bundle.
+      parameters: [ { $ref: "#/components/parameters/XTenantId" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeasureRequest" }
+            examples:
+              retrieval_plus_llm:
+                summary: RAG-style measurement with citations
+                value:
+                  query: "What are the key contract risks in the MSA?"
+                  context_frame:
+                    tenant_id: "tenantA"
+                    domain: "legal"
+                    time_window: { start: "2026-01-01T00:00:00Z", end: "2026-02-07T00:00:00Z" }
+                    neighborhood: { seed_io_ids: ["00000000-0000-0000-0000-000000000001"], graph_radius: 2 }
+                    policy_scope: "legal"
+                  instruments:
+                    - type: retrieval
+                      params: { indices: ["lexical","vector"], top_k: 25, rerank: true }
+                    - type: llm
+                      params: { model_ref: "gpt-4.1-mini", max_tokens: 900, require_citations: true }
+                  output_contract:
+                    require_citations: true
+                    include_coverage: true
+                    include_uncertainty: true
+                    include_cost: true
+      responses:
+        "200":
+          description: Measurement response
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeasureResponse" }

@@ -1,0 +1,72 @@
+version: "3.9"
+
+# ═══════════════════════════════════════════════════════════════════
+# AIO System App — Standalone Docker Package
+# Run:  docker compose up --build
+# Open: http://localhost:3000
+# ═══════════════════════════════════════════════════════════════════
+
+services:
+  # ── PostgreSQL Database ────────────────────────────────────────
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: InfophysicsDB2024Secure
+      POSTGRES_DB: infophysics
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d infophysics"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── FastAPI Backend ────────────────────────────────────────────
+  backend:
+    build:
+      context: ./infophysics_impl_grade
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:InfophysicsDB2024Secure@postgres:5432/infophysics
+      CORS_ORIGINS: '["http://localhost:3000","http://frontend:3000"]'
+      DEMO_TENANT_ID: tenantA
+      PORT: "8080"
+      # Set your Anthropic API key here for ChatAIO:
+      # ANTHROPIC_API_KEY: sk-ant-api03-your-key-here
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Next.js Frontend ───────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE: http://localhost:8080
+        NEXT_PUBLIC_TENANT_ID: tenantA
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      API_BASE: http://backend:8080
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

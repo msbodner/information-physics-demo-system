@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ipds-frontend",
+      "runtimeExecutable": "/Users/bodner.michaelgmail.com/.local/node-v20.11.1-darwin-arm64/bin/pnpm",
+      "runtimeArgs": ["dev"],
+      "port": 3001
+    }
+  ]
+}
