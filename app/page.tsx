@@ -8,7 +8,7 @@ import { BackendStatusBadge } from "@/components/backend-status-badge"
 import { SystemManagement } from "@/components/system-management"
 import { ChatAioDialog } from "@/components/chat-aio-dialog"
 import { useBackendStatus } from "@/hooks/use-backend-status"
-import { createIO, listIOs, summarizeAIOs, resolveEntities, createAioData, listAioData, listHslData, createHslData, listInformationElements, extractPdfToCsv, loginUser, listFieldMaps, createFieldMap, updateFieldMap, deleteFieldMap, generateFieldMaps, type EntityItem, type IORecord, type AioDataRecord, type HslDataRecord, type LoginResult, type InformationElement, type PdfExtractResult, type FieldMapKey } from "@/lib/api-client"
+import { createIO, listIOs, summarizeAIOs, resolveEntities, createAioData, listAioData, listHslData, createHslData, listInformationElements, rebuildInformationElements, extractPdfToCsv, loginUser, listFieldMaps, createFieldMap, updateFieldMap, deleteFieldMap, generateFieldMaps, type EntityItem, type IORecord, type AioDataRecord, type HslDataRecord, type LoginResult, type InformationElement, type PdfExtractResult, type FieldMapKey } from "@/lib/api-client"
 import { AppSidebar, type ViewKey } from "@/components/app-sidebar"
 import { Dashboard } from "@/components/dashboard"
 import {
@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -2008,6 +2009,318 @@ function AiFieldMapsPane({ backendIsOnline }: { backendIsOnline: boolean }) {
   )
 }
 
+// ── Bulk CSV Processing Pane ──────────────────────────────────────
+
+interface FileStatus {
+  saved: number
+  skipped: number
+  failed: number
+  rows: number
+}
+
+function BulkCsvProcessingPane({ backendIsOnline }: { backendIsOnline: boolean }) {
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [folderName, setFolderName] = useState<string>("")
+  const [prefix, setPrefix] = useState<string>("ACC")
+  const [availablePrefixes, setAvailablePrefixes] = useState<string[]>([])
+  const [processing, setProcessing] = useState(false)
+  const [progress, setProgress] = useState<{ current: number; total: number; file: string }>({ current: 0, total: 0, file: "" })
+  const [fileStatuses, setFileStatuses] = useState<Map<string, FileStatus>>(new Map())
+  const [rowCounts, setRowCounts] = useState<Map<string, number>>(new Map())
+  const [summary, setSummary] = useState<{ files: number; saved: number; skipped: number; failed: number } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFolderSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const all = Array.from(e.target.files ?? [])
+    const csvs = all.filter((f) => f.name.toLowerCase().endsWith(".csv"))
+    if (csvs.length === 0) {
+      toast.error("No CSV files found in the selected folder")
+      return
+    }
+    // Derive unique 3-char prefixes (uppercase) from filenames
+    const prefixes = new Set<string>()
+    for (const f of csvs) {
+      const p = f.name.substring(0, 3).toUpperCase()
+      prefixes.add(p)
+    }
+    const sortedPrefixes = Array.from(prefixes).sort()
+    setSelectedFiles(csvs)
+    setAvailablePrefixes(sortedPrefixes)
+    // Default to ACC if present, else first available
+    if (sortedPrefixes.includes("ACC")) {
+      setPrefix("ACC")
+    } else {
+      setPrefix(sortedPrefixes[0] ?? "ACC")
+    }
+    // Extract folder name from first file's webkitRelativePath
+    const first = csvs[0] as File & { webkitRelativePath?: string }
+    const rel = first.webkitRelativePath ?? ""
+    const folder = rel.includes("/") ? rel.split("/")[0] : "(folder)"
+    setFolderName(folder)
+    setFileStatuses(new Map())
+    setSummary(null)
+
+    // Count rows for each CSV (parse header + rows) asynchronously
+    const counts = new Map<string, number>()
+    for (const f of csvs) {
+      try {
+        const text = await f.text()
+        const parsed = parseCSV(text)
+        counts.set(f.name, parsed.rows.length)
+      } catch {
+        counts.set(f.name, 0)
+      }
+    }
+    setRowCounts(counts)
+    toast.success(`Loaded ${csvs.length} CSV files from ${folder}`)
+  }, [])
+
+  const filteredFiles = useMemo(
+    () => selectedFiles.filter((f) => f.name.substring(0, 3).toUpperCase() === prefix),
+    [selectedFiles, prefix]
+  )
+
+  const totalFilteredRows = useMemo(
+    () => filteredFiles.reduce((sum, f) => sum + (rowCounts.get(f.name) ?? 0), 0),
+    [filteredFiles, rowCounts]
+  )
+
+  const formatBytes = (b: number) => {
+    if (b < 1024) return `${b} B`
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
+    return `${(b / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  const processFiles = useCallback(async () => {
+    if (filteredFiles.length === 0) return
+    setProcessing(true)
+    setSummary(null)
+    setFileStatuses(new Map())
+    setProgress({ current: 0, total: filteredFiles.length, file: "" })
+
+    // Fetch existing aio_names to skip duplicates
+    const existing = await listAioData()
+    const existingSet = new Set(existing.map((a) => a.aio_name))
+
+    let totalSaved = 0
+    let totalSkipped = 0
+    let totalFailed = 0
+
+    for (let fi = 0; fi < filteredFiles.length; fi++) {
+      const file = filteredFiles[fi]
+      setProgress({ current: fi, total: filteredFiles.length, file: file.name })
+
+      let saved = 0
+      let skipped = 0
+      let failed = 0
+      let rowCount = 0
+
+      try {
+        const text = await file.text()
+        const { headers, rows } = parseCSV(text)
+        rowCount = rows.length
+        const mtime = new Date(file.lastModified)
+        const fileDate = mtime.toISOString().slice(0, 10)
+        const fileTime = mtime.toISOString().slice(11, 19)
+
+        // Process in small batches to avoid flooding backend
+        const BATCH = 5
+        for (let i = 0; i < rows.length; i += BATCH) {
+          const batch = rows.slice(i, i + BATCH)
+          const batchResults = await Promise.all(batch.map(async (row, idx) => {
+            const rowNum = i + idx + 1
+            const aioName = `${file.name} - Row ${rowNum}`
+            if (existingSet.has(aioName)) return { status: "skipped" as const }
+            const aioLine = csvToAio(headers, row, file.name, fileDate, fileTime)
+            const parsed = parseAioLine(aioLine)
+            const elements: (string | null)[] = Array(50).fill(null)
+            parsed.slice(0, 50).forEach((el, idx2) => { elements[idx2] = el.raw })
+            try {
+              const [aioDataResult, ioResult] = await Promise.all([
+                createAioData(aioName, elements),
+                createIO({
+                  type: "AIO",
+                  raw: { raw_uri: `data:text/aio,${encodeURIComponent(aioLine)}`, mime_type: "text/aio", size_bytes: aioLine.length },
+                  context: { source_system: "bulk-csv-processing", source_object_id: file.name },
+                }),
+              ])
+              if (aioDataResult && ioResult) {
+                existingSet.add(aioName)
+                return { status: "saved" as const }
+              }
+              return { status: "failed" as const }
+            } catch {
+              return { status: "failed" as const }
+            }
+          }))
+          batchResults.forEach((r) => {
+            if (r.status === "saved") saved++
+            else if (r.status === "skipped") skipped++
+            else failed++
+          })
+        }
+      } catch (err) {
+        console.error(`Failed to process ${file.name}:`, err)
+        failed = rowCount
+      }
+
+      totalSaved += saved
+      totalSkipped += skipped
+      totalFailed += failed
+      setFileStatuses((prev) => new Map(prev).set(file.name, { saved, skipped, failed, rows: rowCount }))
+      setProgress({ current: fi + 1, total: filteredFiles.length, file: file.name })
+    }
+
+    // Rebuild information elements to refresh the field index
+    try {
+      await rebuildInformationElements()
+    } catch (err) {
+      console.warn("Failed to rebuild information elements:", err)
+    }
+
+    setSummary({ files: filteredFiles.length, saved: totalSaved, skipped: totalSkipped, failed: totalFailed })
+    setProcessing(false)
+    if (totalSaved > 0) {
+      toast.success(`Imported ${totalSaved} new AIOs across ${filteredFiles.length} files`)
+    } else if (totalSkipped > 0 && totalFailed === 0) {
+      toast.info(`All ${totalSkipped} rows were duplicates — nothing new to import`)
+    } else if (totalFailed > 0) {
+      toast.error(`${totalFailed} row(s) failed to import`)
+    }
+  }, [filteredFiles])
+
+  if (!backendIsOnline) {
+    return <p className="text-sm text-muted-foreground py-8 text-center">Backend offline. Connect to process CSV files.</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-sm text-muted-foreground">
+          Select a folder of CSV files and batch-convert them to AIOs. Duplicate rows (same aio_name) are automatically skipped.
+        </p>
+      </div>
+
+      {/* Folder selector + prefix picker */}
+      <Card>
+        <CardContent className="pt-6 space-y-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".csv"
+              onChange={handleFolderSelect}
+              className="hidden"
+              {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+            />
+            <Button onClick={() => fileInputRef.current?.click()} disabled={processing} className="gap-2">
+              <Upload className="w-4 h-4" />Select CSV Folder
+            </Button>
+            {folderName && (
+              <span className="text-sm text-muted-foreground">
+                Folder: <strong className="text-foreground">{folderName}</strong> — {selectedFiles.length} CSV file{selectedFiles.length !== 1 ? "s" : ""}
+              </span>
+            )}
+            {availablePrefixes.length > 0 && (
+              <div className="flex items-center gap-2 ml-auto">
+                <Label className="text-sm">Prefix:</Label>
+                <Select value={prefix} onValueChange={setPrefix} disabled={processing}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePrefixes.map((p) => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          {/* Filtered files list */}
+          {selectedFiles.length > 0 && (
+            <div className="rounded-lg border border-border overflow-hidden">
+              <div className="bg-muted/50 px-4 py-2 text-xs font-medium text-foreground">
+                Files matching &quot;{prefix}&quot; ({filteredFiles.length} found, {totalFilteredRows} total rows)
+              </div>
+              <div className="divide-y divide-border max-h-[320px] overflow-auto">
+                {filteredFiles.length === 0 ? (
+                  <p className="px-4 py-6 text-sm text-muted-foreground text-center">No files match this prefix</p>
+                ) : (
+                  filteredFiles.map((f) => {
+                    const status = fileStatuses.get(f.name)
+                    const rows = rowCounts.get(f.name) ?? 0
+                    return (
+                      <div key={f.name} className="px-4 py-2 flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <FileSpreadsheet className="w-4 h-4 text-primary shrink-0" />
+                          <span className="font-medium text-foreground truncate">{f.name}</span>
+                          <span className="text-xs text-muted-foreground shrink-0">{rows} rows</span>
+                          <span className="text-xs text-muted-foreground shrink-0">{formatBytes(f.size)}</span>
+                        </div>
+                        {status && (
+                          <div className="flex items-center gap-2 text-xs shrink-0">
+                            {status.saved > 0 && <Badge variant="outline" className="text-emerald-600 border-emerald-300">+{status.saved} saved</Badge>}
+                            {status.skipped > 0 && <Badge variant="outline" className="text-amber-600 border-amber-300">{status.skipped} skipped</Badge>}
+                            {status.failed > 0 && <Badge variant="outline" className="text-red-600 border-red-300">{status.failed} failed</Badge>}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Process button */}
+          {filteredFiles.length > 0 && (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                {processing
+                  ? `Processing ${progress.current + 1} / ${progress.total}: ${progress.file}`
+                  : "Click Process to import all matching files"}
+              </p>
+              <Button onClick={processFiles} disabled={processing} className="gap-2">
+                {processing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                {processing ? "Processing..." : "Process Files"}
+              </Button>
+            </div>
+          )}
+
+          {/* Progress bar */}
+          {processing && progress.total > 0 && (
+            <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${(progress.current / progress.total) * 100}%` }}
+              />
+            </div>
+          )}
+
+          {/* Summary */}
+          {summary && (
+            <div className="rounded-lg border border-border bg-muted/30 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles className="w-4 h-4 text-emerald-600" />
+                <p className="text-sm font-semibold text-foreground">Import Complete</p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                <div><span className="text-muted-foreground">Files:</span> <strong>{summary.files}</strong></div>
+                <div><span className="text-muted-foreground">New AIOs:</span> <strong className="text-emerald-600">{summary.saved}</strong></div>
+                <div><span className="text-muted-foreground">Duplicates:</span> <strong className="text-amber-600">{summary.skipped}</strong></div>
+                <div><span className="text-muted-foreground">Failures:</span> <strong className={summary.failed > 0 ? "text-red-600" : ""}>{summary.failed}</strong></div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 // ── Research & Development — Compound HSL Builder ─────────────────
 
 function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: { onBack: () => void; backendIsOnline: boolean; onSysAdmin: () => void }) {
@@ -2180,6 +2493,7 @@ function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: { onBac
           <TabsList className="mb-6">
             <TabsTrigger value="compound-hsl" className="gap-2"><Layers className="w-4 h-4" />Compound HSL Builder</TabsTrigger>
             <TabsTrigger value="ai-field-maps" className="gap-2"><Network className="w-4 h-4" />AI Field Maps</TabsTrigger>
+            <TabsTrigger value="bulk-csv" className="gap-2"><FileSpreadsheet className="w-4 h-4" />Bulk CSV Processing</TabsTrigger>
           </TabsList>
 
           <TabsContent value="compound-hsl" className="space-y-6">
@@ -2321,6 +2635,10 @@ function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: { onBac
 
           <TabsContent value="ai-field-maps">
             <AiFieldMapsPane backendIsOnline={backendIsOnline} />
+          </TabsContent>
+
+          <TabsContent value="bulk-csv">
+            <BulkCsvProcessingPane backendIsOnline={backendIsOnline} />
           </TabsContent>
         </Tabs>
       </main>
