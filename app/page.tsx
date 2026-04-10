@@ -2027,7 +2027,7 @@ function BulkCsvProcessingPane({ backendIsOnline }: { backendIsOnline: boolean }
   const [progress, setProgress] = useState<{ current: number; total: number; file: string }>({ current: 0, total: 0, file: "" })
   const [fileStatuses, setFileStatuses] = useState<Map<string, FileStatus>>(new Map())
   const [rowCounts, setRowCounts] = useState<Map<string, number>>(new Map())
-  const [summary, setSummary] = useState<{ files: number; saved: number; skipped: number; failed: number } | null>(null)
+  const [summary, setSummary] = useState<{ files: number; saved: number; skipped: number; failed: number; csvsSaved: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFolderSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2098,13 +2098,20 @@ function BulkCsvProcessingPane({ backendIsOnline }: { backendIsOnline: boolean }
     setFileStatuses(new Map())
     setProgress({ current: 0, total: filteredFiles.length, file: "" })
 
-    // Fetch existing aio_names to skip duplicates
-    const existing = await listAioData()
+    // Fetch existing aio_names + existing saved CSV names for dedup
+    const [existing, existingCsvs] = await Promise.all([
+      listAioData(),
+      listIOs({ type: "CSV", source_system: "bulk-csv-processing", limit: 500 }).catch(() => [] as IORecord[]),
+    ])
     const existingSet = new Set(existing.map((a) => a.aio_name))
+    const existingCsvNames = new Set(
+      existingCsvs.map((r) => r.context?.source_object_id).filter(Boolean) as string[]
+    )
 
     let totalSaved = 0
     let totalSkipped = 0
     let totalFailed = 0
+    let csvsSaved = 0
 
     for (let fi = 0; fi < filteredFiles.length; fi++) {
       const file = filteredFiles[fi]
@@ -2123,7 +2130,24 @@ function BulkCsvProcessingPane({ backendIsOnline }: { backendIsOnline: boolean }
         const fileDate = mtime.toISOString().slice(0, 10)
         const fileTime = mtime.toISOString().slice(11, 19)
 
-        // Process in small batches to avoid flooding backend
+        // ── Step 1: Save the original CSV file to the IO registry (once per file) ──
+        if (!existingCsvNames.has(file.name)) {
+          try {
+            const csvResult = await createIO({
+              type: "CSV",
+              raw: { raw_uri: `data:text/csv,${encodeURIComponent(text)}`, mime_type: "text/csv", size_bytes: text.length },
+              context: { source_system: "bulk-csv-processing", source_object_id: file.name },
+            })
+            if (csvResult) {
+              csvsSaved++
+              existingCsvNames.add(file.name)
+            }
+          } catch (err) {
+            console.warn(`Could not save CSV "${file.name}":`, err)
+          }
+        }
+
+        // ── Step 2: Process rows into AIOs (batched) ──
         const BATCH = 5
         for (let i = 0; i < rows.length; i += BATCH) {
           const batch = rows.slice(i, i + BATCH)
@@ -2178,10 +2202,13 @@ function BulkCsvProcessingPane({ backendIsOnline }: { backendIsOnline: boolean }
       console.warn("Failed to rebuild information elements:", err)
     }
 
-    setSummary({ files: filteredFiles.length, saved: totalSaved, skipped: totalSkipped, failed: totalFailed })
+    setSummary({ files: filteredFiles.length, saved: totalSaved, skipped: totalSkipped, failed: totalFailed, csvsSaved })
     setProcessing(false)
-    if (totalSaved > 0) {
-      toast.success(`Imported ${totalSaved} new AIOs across ${filteredFiles.length} files`)
+    if (totalSaved > 0 || csvsSaved > 0) {
+      const parts: string[] = []
+      if (csvsSaved > 0) parts.push(`${csvsSaved} CSV file${csvsSaved !== 1 ? "s" : ""}`)
+      if (totalSaved > 0) parts.push(`${totalSaved} AIO${totalSaved !== 1 ? "s" : ""}`)
+      toast.success(`Imported ${parts.join(" and ")}`)
     } else if (totalSkipped > 0 && totalFailed === 0) {
       toast.info(`All ${totalSkipped} rows were duplicates — nothing new to import`)
     } else if (totalFailed > 0) {
@@ -2307,8 +2334,9 @@ function BulkCsvProcessingPane({ backendIsOnline }: { backendIsOnline: boolean }
                 <Sparkles className="w-4 h-4 text-emerald-600" />
                 <p className="text-sm font-semibold text-foreground">Import Complete</p>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
                 <div><span className="text-muted-foreground">Files:</span> <strong>{summary.files}</strong></div>
+                <div><span className="text-muted-foreground">CSVs saved:</span> <strong className="text-blue-600">{summary.csvsSaved}</strong></div>
                 <div><span className="text-muted-foreground">New AIOs:</span> <strong className="text-emerald-600">{summary.saved}</strong></div>
                 <div><span className="text-muted-foreground">Duplicates:</span> <strong className="text-amber-600">{summary.skipped}</strong></div>
                 <div><span className="text-muted-foreground">Failures:</span> <strong className={summary.failed > 0 ? "text-red-600" : ""}>{summary.failed}</strong></div>
