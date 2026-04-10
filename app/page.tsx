@@ -11,6 +11,7 @@ import { useBackendStatus } from "@/hooks/use-backend-status"
 import { createIO, listIOs, summarizeAIOs, resolveEntities, createAioData, listAioData, listHslData, createHslData, listInformationElements, rebuildInformationElements, extractPdfToCsv, loginUser, listFieldMaps, createFieldMap, updateFieldMap, deleteFieldMap, generateFieldMaps, type EntityItem, type IORecord, type AioDataRecord, type HslDataRecord, type LoginResult, type InformationElement, type PdfExtractResult, type FieldMapKey } from "@/lib/api-client"
 import { AppSidebar, type ViewKey } from "@/components/app-sidebar"
 import { Dashboard } from "@/components/dashboard"
+import { SplashScreen } from "@/components/splash-screen"
 import {
   Database, ArrowRight, Layers, Cpu, Globe, BookOpen, FileText, Zap,
   ArrowLeft, Search, X, Download, Atom, Network, Binary, Loader2, Settings, FileSpreadsheet, LogOut, Lock, Eye, EyeOff, MessageSquare, Upload, Brain, Sparkles, Plus, Pencil, Trash2,
@@ -3143,6 +3144,7 @@ export default function HomePage() {
   const [csvPreviewFile, setCsvPreviewFile] = useState<string | null>(null)
   const [csvPreviewHeaders, setCsvPreviewHeaders] = useState<string[]>([])
   const [csvPreviewRows, setCsvPreviewRows] = useState<string[][]>([])
+  const [showSplash, setShowSplash] = useState(true)
   const { isOnline: backendIsOnline } = useBackendStatus()
 
   const saveAIOsToBackend = useCallback(async (files: ConvertedFile[]) => {
@@ -3332,6 +3334,11 @@ export default function HomePage() {
     setCurrentUser(null)
     if (currentView === "sysadmin") setCurrentView("home")
   }, [currentView])
+
+  // Show splash screen on initial load
+  if (showSplash) {
+    return <SplashScreen onEnter={() => setShowSplash(false)} />
+  }
 
   // Wrap any view in the persistent sidebar shell
   const withShell = (content: React.ReactNode) => (
