@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const path = require("path");
 const { spawn, execSync } = require("child_process");
 const net = require("net");
@@ -459,6 +459,82 @@ function shutdown() {
   stopPostgres();
   log("Shutdown complete.");
 }
+
+// ── Storage Settings IPC ─────────────────────────────────────────
+// The renderer asks main to open a native directory picker and to
+// write files into user-chosen directories. Paths are persisted in a
+// small JSON file inside userData so they survive app restarts.
+function getStorageConfigPath() {
+  return path.join(app.getPath("userData"), "storage-dirs.json");
+}
+
+function readStorageConfig() {
+  try {
+    const p = getStorageConfigPath();
+    if (!fs.existsSync(p)) return {};
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch (e) {
+    log(`storage config read error: ${e.message}`);
+    return {};
+  }
+}
+
+function writeStorageConfig(cfg) {
+  try {
+    fs.writeFileSync(getStorageConfigPath(), JSON.stringify(cfg, null, 2));
+  } catch (e) {
+    log(`storage config write error: ${e.message}`);
+  }
+}
+
+ipcMain.handle("storage:chooseDirectory", async (_event, target) => {
+  const result = await dialog.showOpenDialog({
+    title: `Choose directory for ${target.toUpperCase()} files`,
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  const dir = result.filePaths[0];
+  const cfg = readStorageConfig();
+  cfg[target] = dir;
+  writeStorageConfig(cfg);
+  log(`Storage dir for ${target} set to ${dir}`);
+  return dir;
+});
+
+ipcMain.handle("storage:setDirectory", async (_event, { target, dir }) => {
+  const cfg = readStorageConfig();
+  if (dir) cfg[target] = dir;
+  else delete cfg[target];
+  writeStorageConfig(cfg);
+  return { ok: true };
+});
+
+ipcMain.handle("storage:getDirectory", async (_event, target) => {
+  const cfg = readStorageConfig();
+  return cfg[target] || null;
+});
+
+ipcMain.handle("storage:saveFile", async (_event, { target, filename, content }) => {
+  const cfg = readStorageConfig();
+  const dir = cfg[target];
+  if (!dir) return { ok: false, error: `No directory configured for ${target}` };
+  if (!fs.existsSync(dir)) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch (e) {
+      return { ok: false, error: `Could not create directory: ${e.message}` };
+    }
+  }
+  const safeFilename = String(filename).replace(/[/\\:*?"<>|]/g, "_");
+  const fullPath = path.join(dir, safeFilename);
+  try {
+    fs.writeFileSync(fullPath, content, "utf8");
+    log(`Saved ${fullPath}`);
+    return { ok: true, path: fullPath };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 
 // ── App Lifecycle ────────────────────────────────────────────────
 app.on("ready", async () => {

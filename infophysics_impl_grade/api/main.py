@@ -1013,6 +1013,73 @@ def update_api_key_setting(payload: ApiKeyRequest):
 
 
 # ---------------------------------------------------------------------------
+# Storage Settings (directory paths for AIO/HSL/MRO/PDF downloads)
+# ---------------------------------------------------------------------------
+
+class StorageSettings(BaseModel):
+    aio_dir: str = ""
+    hsl_dir: str = ""
+    mro_dir: str = ""
+    pdf_dir: str = ""
+
+
+class StorageSettingsRequest(BaseModel):
+    aio_dir: Optional[str] = None
+    hsl_dir: Optional[str] = None
+    mro_dir: Optional[str] = None
+    pdf_dir: Optional[str] = None
+
+
+_STORAGE_KEY_MAP = {
+    "aio_dir": "storage_aio_dir",
+    "hsl_dir": "storage_hsl_dir",
+    "mro_dir": "storage_mro_dir",
+    "pdf_dir": "storage_pdf_dir",
+}
+
+
+@app.get("/v1/settings/storage", response_model=StorageSettings)
+def get_storage_settings():
+    result = StorageSettings()
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT key, value FROM system_settings WHERE key = ANY(%s)",
+                (list(_STORAGE_KEY_MAP.values()),),
+            )
+            rows = {row[0]: row[1] for row in cur.fetchall()}
+    for attr, setting_key in _STORAGE_KEY_MAP.items():
+        setattr(result, attr, rows.get(setting_key, "") or "")
+    return result
+
+
+@app.put("/v1/settings/storage")
+def update_storage_settings(payload: StorageSettingsRequest):
+    now = datetime.now(timezone.utc)
+    updates = []
+    data = payload.model_dump()
+    for attr, setting_key in _STORAGE_KEY_MAP.items():
+        value = data.get(attr)
+        if value is not None:
+            updates.append((setting_key, value, now))
+    if not updates:
+        return {"ok": True, "updated": 0}
+    with db() as conn:
+        with conn.cursor() as cur:
+            for setting_key, value, ts in updates:
+                cur.execute(
+                    """
+                    INSERT INTO system_settings (key, value, updated_at)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+                    """,
+                    (setting_key, value, ts),
+                )
+        conn.commit()
+    return {"ok": True, "updated": len(updates)}
+
+
+# ---------------------------------------------------------------------------
 # Roles
 # ---------------------------------------------------------------------------
 

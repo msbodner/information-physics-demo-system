@@ -396,6 +396,26 @@ export async function updateApiKeySetting(apiKey: string): Promise<{ ok: boolean
   })
 }
 
+// Storage settings (AIO/HSL/MRO/PDF directories)
+export interface StorageSettings {
+  aio_dir: string
+  hsl_dir: string
+  mro_dir: string
+  pdf_dir: string
+}
+
+export async function getStorageSettings(): Promise<StorageSettings | null> {
+  return safeFetch<StorageSettings>("/api/settings/storage")
+}
+
+export async function updateStorageSettings(patch: Partial<StorageSettings>): Promise<{ ok: boolean; updated: number } | null> {
+  return safeFetch<{ ok: boolean; updated: number }>("/api/settings/storage", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  })
+}
+
 // Information Elements
 export interface InformationElement {
   element_id: string

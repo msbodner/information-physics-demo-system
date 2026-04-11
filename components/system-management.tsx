@@ -6,6 +6,7 @@ import {
   ArrowLeft, Plus, Pencil, Trash2, Eye, EyeOff, Save,
   Users, Key, Loader2, ShieldCheck, User, Lock, FileSpreadsheet, FileText,
   Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network,
+  Brain, FolderOpen, Download, Printer, CheckCircle2, AlertCircle, X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,9 +24,13 @@ import {
   listSavedPrompts, createSavedPrompt, updateSavedPrompt, deleteSavedPrompt,
   listInformationElements, createInformationElement, updateInformationElement, deleteInformationElement, rebuildInformationElements,
   getApiKeySetting, updateApiKeySetting, loginUser, listIOs,
+  getStorageSettings, updateStorageSettings,
+  listMroObjects, deleteMroObject,
   type User as SystemUser, type Role, type AioDataRecord, type HslDataRecord,
   type LoginResult, type IORecord, type SavedPrompt, type InformationElement,
+  type StorageSettings, type MroObject,
 } from "@/lib/api-client"
+import { chooseDirectory, clearDirectory, saveFile, detectMechanism, describeMechanism, type StorageTarget, type StorageMechanism } from "@/lib/storage-adapter"
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -1561,6 +1566,386 @@ function ArchitecturePane() {
   )
 }
 
+// ── Storage Settings Pane ────────────────────────────────────────
+
+const STORAGE_TARGETS: { key: StorageTarget; label: string; description: string; settingsKey: keyof StorageSettings }[] = [
+  { key: "aio", label: "AIO Files", description: "Downloaded .aio bracket-notation objects", settingsKey: "aio_dir" },
+  { key: "hsl", label: "HSL Files", description: "Downloaded .hsl semantic layer files", settingsKey: "hsl_dir" },
+  { key: "mro", label: "MRO Files", description: "Exported Memory Result Objects", settingsKey: "mro_dir" },
+  { key: "pdf", label: "PDF Files", description: "ChatAIO session exports and MRO PDFs", settingsKey: "pdf_dir" },
+]
+
+function StorageSettingsPane() {
+  const [settings, setSettings] = useState<StorageSettings>({ aio_dir: "", hsl_dir: "", mro_dir: "", pdf_dir: "" })
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<StorageTarget | null>(null)
+  const [mechanism, setMechanism] = useState<StorageMechanism>("downloads")
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const result = await getStorageSettings()
+    if (result) setSettings(result)
+    setMechanism(detectMechanism())
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleChoose = useCallback(async (target: StorageTarget, settingsKey: keyof StorageSettings) => {
+    setBusy(target)
+    try {
+      const result = await chooseDirectory(target)
+      if (result.label) {
+        const patch = { [settingsKey]: result.label } as Partial<StorageSettings>
+        const saved = await updateStorageSettings(patch)
+        if (saved?.ok) {
+          setSettings((s) => ({ ...s, [settingsKey]: result.label ?? "" }))
+          toast.success(`${target.toUpperCase()} directory set to ${result.label}`)
+        } else {
+          toast.error("Failed to save setting")
+        }
+      } else if (result.mechanism === "downloads") {
+        toast.info("Your browser does not support direct filesystem access. Files will save to Downloads folder.")
+      }
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    }
+    setBusy(null)
+  }, [])
+
+  const handleClear = useCallback(async (target: StorageTarget, settingsKey: keyof StorageSettings) => {
+    setBusy(target)
+    try {
+      await clearDirectory(target)
+      const patch = { [settingsKey]: "" } as Partial<StorageSettings>
+      const saved = await updateStorageSettings(patch)
+      if (saved?.ok) {
+        setSettings((s) => ({ ...s, [settingsKey]: "" }))
+        toast.success(`${target.toUpperCase()} directory cleared`)
+      }
+    } catch (err) {
+      toast.error(`Failed: ${(err as Error).message}`)
+    }
+    setBusy(null)
+  }, [])
+
+  if (loading) {
+    return <p className="text-sm text-muted-foreground py-8 text-center"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading...</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Choose where downloaded files should be saved. Each object type can use its own directory, or leave any unset to fall back to your browser&apos;s Downloads folder.
+      </p>
+
+      <div className="rounded-lg border border-border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-[#0f3460] text-white">
+            <tr>
+              <th className="text-left px-4 py-2.5 font-medium w-32">Target</th>
+              <th className="text-left px-4 py-2.5 font-medium">Current Directory</th>
+              <th className="text-left px-4 py-2.5 font-medium w-48">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {STORAGE_TARGETS.map((t) => {
+              const value = settings[t.settingsKey]
+              const isBusy = busy === t.key
+              return (
+                <tr key={t.key} className="hover:bg-muted/30 align-top">
+                  <td className="px-4 py-3">
+                    <div className="font-semibold text-foreground uppercase">{t.key}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{t.label}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {value ? (
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span className="font-mono text-xs text-foreground break-all">{value}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span className="text-xs italic">Not set — uses Downloads folder</span>
+                      </div>
+                    )}
+                    <div className="text-xs text-muted-foreground mt-1">{t.description}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="outline" disabled={isBusy} onClick={() => handleChoose(t.key, t.settingsKey)} className="gap-1.5 h-8 text-xs">
+                        {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
+                        Choose
+                      </Button>
+                      {value && (
+                        <Button size="sm" variant="ghost" disabled={isBusy} onClick={() => handleClear(t.key, t.settingsKey)} className="h-8 w-8 p-0 text-red-500" title="Clear">
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="rounded-lg border border-border bg-muted/30 p-4">
+        <div className="flex items-start gap-2">
+          <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">Active save mechanism: {
+              mechanism === "electron" ? "Electron desktop app" :
+              mechanism === "fs-access" ? "Browser File System Access API" :
+              "Downloads folder fallback"
+            }</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{describeMechanism(mechanism)}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Saved MROs Pane ──────────────────────────────────────────────
+
+function buildMroText(mro: MroObject): string {
+  const lines: string[] = []
+  lines.push(`MRO File: ${mro.mro_key}`)
+  lines.push(`Created: ${mro.created_at}`)
+  lines.push(`Confidence: ${mro.confidence}`)
+  lines.push(`Matched AIOs: ${mro.matched_aios_count}`)
+  if (mro.seed_hsls) lines.push(`Seed HSLs: ${mro.seed_hsls}`)
+  lines.push("")
+  lines.push("── Query ──")
+  lines.push(mro.query_text)
+  if (mro.intent) { lines.push(""); lines.push("── Intent ──"); lines.push(mro.intent) }
+  if (mro.search_terms) { lines.push(""); lines.push("── Search Terms ──"); lines.push(typeof mro.search_terms === "string" ? mro.search_terms : JSON.stringify(mro.search_terms, null, 2)) }
+  lines.push("")
+  lines.push("── Result ──")
+  lines.push(mro.result_text)
+  if (mro.context_bundle) { lines.push(""); lines.push("── Context Bundle ──"); lines.push(mro.context_bundle) }
+  return lines.join("\n")
+}
+
+function buildMroPdfHtml(mro: MroObject): string {
+  const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  const terms = mro.search_terms
+    ? (typeof mro.search_terms === "string" ? mro.search_terms : JSON.stringify(mro.search_terms, null, 2))
+    : ""
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>MRO: ${escape(mro.mro_key)}</title>
+<style>
+  body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 13px; color: #1a1a2e; background: #fff; margin: 0 auto; padding: 48px 40px; }
+  h1 { color: #0f3460; font-size: 22px; margin-bottom: 8px; }
+  .meta { color: #64748b; font-size: 11px; margin-bottom: 24px; border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; }
+  .meta strong { color: #0f3460; }
+  h2 { color: #0f3460; font-size: 14px; margin-top: 20px; margin-bottom: 8px; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+  .content { white-space: pre-wrap; line-height: 1.5; }
+  .mono { font-family: Menlo, monospace; font-size: 11px; background: #f1f5f9; padding: 8px; border-radius: 4px; white-space: pre-wrap; }
+  .footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 10px; color: #94a3b8; }
+</style>
+</head><body>
+<h1>Memory Result Object</h1>
+<div class="meta">
+  <strong>Key:</strong> ${escape(mro.mro_key)}<br/>
+  <strong>Created:</strong> ${escape(mro.created_at)} &nbsp;|&nbsp;
+  <strong>Confidence:</strong> ${escape(mro.confidence)} &nbsp;|&nbsp;
+  <strong>Matched AIOs:</strong> ${mro.matched_aios_count}
+  ${mro.seed_hsls ? `<br/><strong>Seed HSLs:</strong> ${escape(mro.seed_hsls)}` : ""}
+</div>
+<h2>Query</h2>
+<div class="content">${escape(mro.query_text)}</div>
+${mro.intent ? `<h2>Intent</h2><div class="content">${escape(mro.intent)}</div>` : ""}
+${terms ? `<h2>Search Terms</h2><div class="mono">${escape(terms)}</div>` : ""}
+<h2>Result</h2>
+<div class="content">${escape(mro.result_text)}</div>
+${mro.context_bundle ? `<h2>Context Bundle</h2><div class="mono">${escape(mro.context_bundle)}</div>` : ""}
+<div class="footer">Generated by Information Physics Demo System V3.0 · InformationPhysics.ai · ${new Date().toLocaleString()}</div>
+</body></html>`
+}
+
+function SavedMrosPane() {
+  const [mros, setMros] = useState<MroObject[]>([])
+  const [loading, setLoading] = useState(true)
+  const [viewMro, setViewMro] = useState<MroObject | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<MroObject | null>(null)
+  const [printMro, setPrintMro] = useState<MroObject | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setMros(await listMroObjects())
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleDownload = useCallback(async (mro: MroObject) => {
+    const text = buildMroText(mro)
+    const filename = `mro-${mro.mro_key.replace(/[^a-zA-Z0-9-]/g, "_")}-${mro.mro_id.slice(0, 8)}.mro`
+    const result = await saveFile("mro", filename, text, "text/plain")
+    if (result.ok) toast.success(result.message ?? "Downloaded")
+    else toast.error(result.message ?? "Download failed")
+  }, [])
+
+  const handlePrint = useCallback((mro: MroObject) => {
+    setPrintMro(mro)
+    // Defer print until iframe has loaded the new HTML
+    setTimeout(() => {
+      const iframe = document.getElementById("mro-print-iframe") as HTMLIFrameElement | null
+      iframe?.contentWindow?.print()
+    }, 400)
+  }, [])
+
+  const handleDelete = useCallback(async () => {
+    if (!deleteConfirm) return
+    const ok = await deleteMroObject(deleteConfirm.mro_id)
+    if (ok) { toast.success("MRO deleted"); setDeleteConfirm(null); load() }
+    else toast.error("Delete failed")
+  }, [deleteConfirm, load])
+
+  if (loading) {
+    return <p className="text-sm text-muted-foreground py-8 text-center"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading...</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {mros.length} MRO{mros.length !== 1 ? "s" : ""} saved from ChatAIO sessions
+        </p>
+        <Button size="sm" variant="outline" onClick={load} className="gap-2"><RefreshCw className="w-3.5 h-3.5" />Refresh</Button>
+      </div>
+
+      {mros.length === 0 ? (
+        <Card>
+          <CardContent className="pt-6 text-center space-y-3">
+            <Brain className="w-12 h-12 mx-auto text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No saved MROs yet.</p>
+            <p className="text-xs text-muted-foreground">Open ChatAIO, run a query, and click <strong>Save MRO</strong> to preserve the retrieval episode here.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-[#0f3460] text-white">
+              <tr>
+                <th className="text-left px-4 py-2.5 font-medium w-48">MRO Key</th>
+                <th className="text-left px-4 py-2.5 font-medium">Query</th>
+                <th className="text-left px-4 py-2.5 font-medium w-20">Matched</th>
+                <th className="text-left px-4 py-2.5 font-medium w-40">Created</th>
+                <th className="text-left px-4 py-2.5 font-medium w-44">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {mros.map((mro) => (
+                <tr key={mro.mro_id} className="hover:bg-muted/30 align-top">
+                  <td className="px-4 py-3 font-mono text-xs">{mro.mro_key}</td>
+                  <td className="px-4 py-3">
+                    <div className="text-sm truncate max-w-md">{mro.query_text}</div>
+                  </td>
+                  <td className="px-4 py-3 text-sm">{mro.matched_aios_count}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">{mro.created_at.substring(0, 19)}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setViewMro(mro)} title="View"><Eye className="w-3.5 h-3.5" /></Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleDownload(mro)} title="Download"><Download className="w-3.5 h-3.5" /></Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handlePrint(mro)} title="Print PDF"><Printer className="w-3.5 h-3.5" /></Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => setDeleteConfirm(mro)} title="Delete"><Trash2 className="w-3.5 h-3.5" /></Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* View MRO Dialog */}
+      <Dialog open={!!viewMro} onOpenChange={(open) => { if (!open) setViewMro(null) }}>
+        <DialogContent className="!max-w-[90vw] w-[90vw] sm:!max-w-4xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Brain className="w-5 h-5" />{viewMro?.mro_key}</DialogTitle>
+          </DialogHeader>
+          {viewMro && (
+            <div className="overflow-y-auto flex-1 space-y-4 pr-2">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><span className="text-muted-foreground">Created:</span> <span className="font-mono text-xs">{viewMro.created_at.substring(0, 19)}</span></div>
+                <div><span className="text-muted-foreground">Confidence:</span> <Badge variant="outline">{viewMro.confidence}</Badge></div>
+                <div><span className="text-muted-foreground">Matched AIOs:</span> <strong>{viewMro.matched_aios_count}</strong></div>
+                <div><span className="text-muted-foreground">Policy:</span> <span className="font-mono text-xs">{viewMro.policy_scope}</span></div>
+              </div>
+              <div>
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Query</Label>
+                <div className="mt-1 p-3 bg-muted/50 rounded text-sm whitespace-pre-wrap">{viewMro.query_text}</div>
+              </div>
+              {viewMro.seed_hsls && (
+                <div>
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Seed HSLs</Label>
+                  <div className="mt-1 p-3 bg-muted/50 rounded text-sm font-mono text-xs">{viewMro.seed_hsls}</div>
+                </div>
+              )}
+              {viewMro.search_terms && (
+                <div>
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Search Terms</Label>
+                  <pre className="mt-1 p-3 bg-muted/50 rounded text-xs font-mono overflow-auto">{typeof viewMro.search_terms === "string" ? viewMro.search_terms : JSON.stringify(viewMro.search_terms, null, 2)}</pre>
+                </div>
+              )}
+              <div>
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Result</Label>
+                <div className="mt-1 p-3 bg-muted/50 rounded text-sm whitespace-pre-wrap">{viewMro.result_text}</div>
+              </div>
+              {viewMro.context_bundle && (
+                <div>
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">Context Bundle</Label>
+                  <pre className="mt-1 p-3 bg-muted/50 rounded text-xs font-mono overflow-auto max-h-[200px]">{viewMro.context_bundle}</pre>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            {viewMro && (
+              <>
+                <Button variant="outline" onClick={() => handleDownload(viewMro)} className="gap-2"><Download className="w-4 h-4" />Download</Button>
+                <Button variant="outline" onClick={() => handlePrint(viewMro)} className="gap-2"><Printer className="w-4 h-4" />Print PDF</Button>
+              </>
+            )}
+            <Button onClick={() => setViewMro(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <Dialog open={!!deleteConfirm} onOpenChange={(open) => { if (!open) setDeleteConfirm(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete MRO</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            Delete MRO <strong className="font-mono">{deleteConfirm?.mro_key}</strong>? This cannot be undone, but source AIOs and HSLs are not affected.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} className="gap-2"><Trash2 className="w-4 h-4" />Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Hidden print iframe */}
+      {printMro && (
+        <iframe
+          id="mro-print-iframe"
+          srcDoc={buildMroPdfHtml(printMro)}
+          style={{ position: "fixed", left: "-9999px", width: "1px", height: "1px", border: 0 }}
+          title="MRO Print"
+        />
+      )}
+    </div>
+  )
+}
+
 // ── System Management Page ─────────────────────────────────────────
 
 interface SystemManagementProps {
@@ -1608,6 +1993,8 @@ export function SystemManagement({ onBack }: SystemManagementProps) {
             <TabsTrigger value="aios" className="gap-2"><FileText className="w-4 h-4" />Saved AIOs</TabsTrigger>
             <TabsTrigger value="saved-prompts" className="gap-2"><Bookmark className="w-4 h-4" />Saved Prompts</TabsTrigger>
             <TabsTrigger value="info-elements" className="gap-2"><Atom className="w-4 h-4" />Info Elements</TabsTrigger>
+            <TabsTrigger value="saved-mros" className="gap-2"><Brain className="w-4 h-4" />Saved MROs</TabsTrigger>
+            <TabsTrigger value="storage" className="gap-2"><FolderOpen className="w-4 h-4" />Storage</TabsTrigger>
             <TabsTrigger value="architecture" className="gap-2"><Network className="w-4 h-4" />Architecture</TabsTrigger>
           </TabsList>
 
@@ -1653,6 +2040,14 @@ export function SystemManagement({ onBack }: SystemManagementProps) {
           <TabsContent value="info-elements">
             <Card><CardHeader><CardTitle className="flex items-center gap-2"><Atom className="w-5 h-5" />Information Elements</CardTitle></CardHeader>
               <CardContent><InformationElementsPane /></CardContent></Card>
+          </TabsContent>
+          <TabsContent value="saved-mros">
+            <Card><CardHeader><CardTitle className="flex items-center gap-2"><Brain className="w-5 h-5" />Saved MROs</CardTitle></CardHeader>
+              <CardContent><SavedMrosPane /></CardContent></Card>
+          </TabsContent>
+          <TabsContent value="storage">
+            <Card><CardHeader><CardTitle className="flex items-center gap-2"><FolderOpen className="w-5 h-5" />Storage Settings</CardTitle></CardHeader>
+              <CardContent><StorageSettingsPane /></CardContent></Card>
           </TabsContent>
           <TabsContent value="architecture">
             <Card><CardHeader><CardTitle className="flex items-center gap-2"><Network className="w-5 h-5" />System Architecture</CardTitle></CardHeader>
