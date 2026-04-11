@@ -32,7 +32,7 @@ import {
   type StorageSettings, type MroObject,
 } from "@/lib/api-client"
 import { chooseDirectory, clearDirectory, saveFile, detectMechanism, describeMechanism, type StorageTarget, type StorageMechanism } from "@/lib/storage-adapter"
-import { parseMroContextBundle, TABLE_NAMES, TABLE_LABELS, collectAllFields, type ResearchResult, type TableName } from "@/lib/mro-research-parser"
+import { parseMroContextBundle, buildDerivedResearchObject, isResearchResultEmpty, TABLE_NAMES, TABLE_LABELS, collectAllFields, type ResearchResult, type TableName } from "@/lib/mro-research-parser"
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -1769,6 +1769,126 @@ ${mro.context_bundle ? `<h2>Context Bundle</h2><div class="mono">${escape(mro.co
 </body></html>`
 }
 
+function buildResearchText(mro: MroObject, r: ResearchResult): string {
+  const lines: string[] = []
+  const title = r.derived ? "Derived Research Object" : "Research Object"
+  lines.push(`${title}: ${mro.mro_key}`)
+  lines.push(`Query: ${mro.query_text}`)
+  lines.push(`Created: ${mro.created_at}`)
+  lines.push("")
+  if (r.derived) {
+    if (r.key_facts && r.key_facts.length) {
+      lines.push("── Key Facts ──")
+      for (const f of r.key_facts) lines.push(`${f.field}: ${f.value}`)
+      lines.push("")
+    }
+    if (r.sections && r.sections.length) {
+      lines.push("── Sections ──")
+      for (const s of r.sections) {
+        lines.push(`## ${s.heading}`)
+        lines.push(s.content)
+        lines.push("")
+      }
+    }
+    if (r.raw_result) {
+      lines.push("── Raw Result ──")
+      lines.push(r.raw_result)
+      lines.push("")
+    }
+  }
+  for (const name of TABLE_NAMES) {
+    const rows = r[name]
+    if (!rows || rows.length === 0) continue
+    const fields = collectAllFields(rows)
+    if (fields.length === 0) continue
+    lines.push(`── ${TABLE_LABELS[name]} (${rows.length}) ──`)
+    for (const row of rows) {
+      for (const f of fields) {
+        const v = row[f]
+        if (v) lines.push(`  ${f}: ${v}`)
+      }
+      lines.push("")
+    }
+  }
+  return lines.join("\n")
+}
+
+function buildResearchPdfHtml(mro: MroObject, r: ResearchResult): string {
+  const escape = (s: string) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  const title = r.derived ? "Derived Research Object" : "Research Object"
+  let body = ""
+  if (r.derived) {
+    body += `<div class="notice"><strong>Derived Research Object</strong> — best-effort extraction from the MRO result text (no context bundle present).</div>`
+    if (r.key_facts && r.key_facts.length) {
+      body += `<h2>Key Facts</h2><table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>`
+      for (const f of r.key_facts) body += `<tr><td><strong>${escape(f.field)}</strong></td><td>${escape(f.value)}</td></tr>`
+      body += `</tbody></table>`
+    }
+    if (r.sections && r.sections.length) {
+      body += `<h2>Sections</h2>`
+      for (const s of r.sections) {
+        body += `<h3>${escape(s.heading)}</h3><div class="content">${escape(s.content)}</div>`
+      }
+    }
+  }
+  for (const name of TABLE_NAMES) {
+    const rows = r[name]
+    if (!rows || rows.length === 0) continue
+    const fields = collectAllFields(rows)
+    if (fields.length === 0) continue
+    if (r.derived && name === "metadata") {
+      // render metadata as facts list
+      body += `<h2>${TABLE_LABELS[name]}</h2><table><tbody>`
+      for (const f of fields) body += `<tr><td><strong>${escape(f)}</strong></td><td>${escape(rows[0][f] ?? "")}</td></tr>`
+      body += `</tbody></table>`
+      continue
+    }
+    body += `<h2>${TABLE_LABELS[name]} <span class="count">(${rows.length})</span></h2>`
+    body += `<table><thead><tr>`
+    for (const f of fields) body += `<th>${escape(f)}</th>`
+    body += `</tr></thead><tbody>`
+    for (const row of rows) {
+      body += `<tr>`
+      for (const f of fields) body += `<td>${escape(row[f] ?? "")}</td>`
+      body += `</tr>`
+    }
+    body += `</tbody></table>`
+  }
+  if (r.derived && r.raw_result) {
+    body += `<h2>Raw Result Text</h2><pre class="mono">${escape(r.raw_result)}</pre>`
+  }
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>${escape(title)}: ${escape(mro.mro_key)}</title>
+<style>
+  body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 12px; color: #1a1a2e; background: #fff; margin: 0 auto; padding: 40px; }
+  h1 { color: #0f3460; font-size: 20px; margin-bottom: 6px; }
+  .meta { color: #64748b; font-size: 11px; margin-bottom: 20px; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; }
+  .meta strong { color: #0f3460; }
+  .notice { background: #fef3c7; border: 1px solid #fbbf24; color: #78350f; padding: 10px 14px; border-radius: 6px; font-size: 11px; margin-bottom: 18px; }
+  h2 { color: #0f3460; font-size: 14px; margin-top: 22px; margin-bottom: 8px; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+  h2 .count { color: #94a3b8; font-weight: normal; font-size: 11px; }
+  h3 { color: #1a1a2e; font-size: 12px; margin-top: 14px; margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; page-break-inside: auto; }
+  thead { background: #0f3460; color: #fff; }
+  th, td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; font-size: 11px; vertical-align: top; word-break: break-word; }
+  .content { white-space: pre-wrap; line-height: 1.5; font-size: 11px; }
+  .mono { font-family: Menlo, monospace; font-size: 10px; background: #f1f5f9; padding: 10px; border-radius: 4px; white-space: pre-wrap; max-height: none; }
+  .footer { margin-top: 30px; padding-top: 10px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 10px; color: #94a3b8; }
+</style>
+</head><body>
+<h1>${escape(title)}</h1>
+<div class="meta">
+  <strong>MRO Key:</strong> ${escape(mro.mro_key)}<br/>
+  <strong>Query:</strong> ${escape(mro.query_text)}<br/>
+  <strong>Created:</strong> ${escape(mro.created_at)} &nbsp;|&nbsp;
+  <strong>Confidence:</strong> ${escape(mro.confidence)} &nbsp;|&nbsp;
+  <strong>Matched AIOs:</strong> ${mro.matched_aios_count}
+</div>
+${body}
+<div class="footer">Generated by Information Physics Demo System V3.0 · ${new Date().toLocaleString()}</div>
+</body></html>`
+}
+
 function SavedMrosPane() {
   const [mros, setMros] = useState<MroObject[]>([])
   const [loading, setLoading] = useState(true)
@@ -1795,17 +1915,30 @@ function SavedMrosPane() {
   }, [])
 
   const handleResearch = useCallback((mro: MroObject) => {
-    // Use the context_bundle if present; otherwise build one from the MRO fields
-    // (matches the bracket-notation format that chat-aio-dialog's handleSaveMro writes)
-    const source = mro.context_bundle && mro.context_bundle.trim().length > 0
-      ? mro.context_bundle
-      : buildMroText(mro)
     try {
-      const parsed = parseMroContextBundle(source)
+      const hasBundle = !!mro.context_bundle && mro.context_bundle.trim().length > 0
+      let result: ResearchResult
+      if (hasBundle) {
+        result = parseMroContextBundle(mro.context_bundle as string)
+        // If the bundle parsed but produced no structured rows, fall back
+        // to a Derived Research Object extracted from result_text.
+        if (isResearchResultEmpty(result)) {
+          result = buildDerivedResearchObject(mro)
+        }
+      } else {
+        // No context_bundle — build a Derived Research Object directly.
+        result = buildDerivedResearchObject(mro)
+      }
       setResearchMro(mro)
-      setResearchResult(parsed)
-      const totalRows = TABLE_NAMES.reduce((sum, name) => sum + parsed[name].length, 0)
-      toast.success(`Research extracted ${totalRows} rows across 7 tables`)
+      setResearchResult(result)
+      if (result.derived) {
+        const factCount = result.key_facts?.length ?? 0
+        const sectionCount = result.sections?.length ?? 0
+        toast.success(`Derived Research Object: ${factCount} facts, ${sectionCount} sections`)
+      } else {
+        const totalRows = TABLE_NAMES.reduce((sum, name) => sum + result[name].length, 0)
+        toast.success(`Research extracted ${totalRows} rows across 7 tables`)
+      }
     } catch (err) {
       toast.error(`Research failed: ${(err as Error).message}`)
     }
@@ -1966,15 +2099,88 @@ function SavedMrosPane() {
           </DialogHeader>
           {researchResult && (
             <div className="overflow-y-auto flex-1 space-y-5 pr-2">
-              <p className="text-xs text-muted-foreground">
-                Structured tables extracted from the MRO context bundle using the Information Physics research parser.
-                Query: <span className="font-medium text-foreground">{researchMro?.query_text}</span>
-              </p>
+              {researchResult.derived ? (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+                  <div className="font-semibold mb-1">Derived Research Object</div>
+                  <div>
+                    This MRO has no context bundle (or the bundle held no structured tables),
+                    so the following is a best-effort extraction from the result text:
+                    metadata from MRO fields, key facts parsed from <code>**Label:** value</code> patterns,
+                    and markdown sections from headings.
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Structured tables extracted from the MRO context bundle using the Information Physics research parser.
+                  Query: <span className="font-medium text-foreground">{researchMro?.query_text}</span>
+                </p>
+              )}
+
+              {/* Derived-only: Key Facts table */}
+              {researchResult.derived && researchResult.key_facts && researchResult.key_facts.length > 0 && (
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <div className="bg-muted/50 px-4 py-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm text-foreground">Key Facts</span>
+                      <Badge variant="outline" className="text-xs">{researchResult.key_facts.length} facts</Badge>
+                    </div>
+                    <span className="text-xs text-muted-foreground font-mono">key_facts</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-[#0f3460] text-white">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium w-1/3">Field</th>
+                          <th className="text-left px-3 py-2 font-medium">Value</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {researchResult.key_facts.map((row, i) => (
+                          <tr key={i} className="hover:bg-muted/30">
+                            <td className="px-3 py-2 align-top font-medium">{row.field}</td>
+                            <td className="px-3 py-2 align-top break-words">{row.value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Derived-only: Markdown sections */}
+              {researchResult.derived && researchResult.sections && researchResult.sections.length > 0 && (
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <div className="bg-muted/50 px-4 py-2 flex items-center justify-between">
+                    <span className="font-semibold text-sm text-foreground">Sections</span>
+                    <Badge variant="outline" className="text-xs">{researchResult.sections.length}</Badge>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {researchResult.sections.map((s, i) => (
+                      <div key={i} className="px-4 py-3">
+                        <div className="font-semibold text-sm mb-1">{s.heading}</div>
+                        <pre className="whitespace-pre-wrap text-xs text-muted-foreground font-sans">{s.content}</pre>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Derived-only: Raw result text */}
+              {researchResult.derived && researchResult.raw_result && (
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <div className="bg-muted/50 px-4 py-2">
+                    <span className="font-semibold text-sm text-foreground">Raw Result Text</span>
+                  </div>
+                  <pre className="px-4 py-3 whitespace-pre-wrap text-xs font-mono max-h-96 overflow-y-auto">{researchResult.raw_result}</pre>
+                </div>
+              )}
 
               {TABLE_NAMES.map((tableName) => {
                 const rows = researchResult[tableName]
                 const fields = collectAllFields(rows)
                 const isEmpty = rows.length === 0 || (rows.length === 1 && Object.keys(rows[0]).length === 0)
+                // In derived mode, hide empty structured tables except metadata
+                if (researchResult.derived && isEmpty && tableName !== "metadata") return null
                 return (
                   <div key={tableName} className="rounded-lg border border-border overflow-hidden">
                     <div className="bg-muted/50 px-4 py-2 flex items-center justify-between">
@@ -2013,22 +2219,54 @@ function SavedMrosPane() {
               })}
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="flex-wrap gap-2">
             {researchResult && researchMro && (
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  // Serialize all tables as a single JSON file
-                  const json = JSON.stringify(researchResult, null, 2)
-                  const filename = `research-${researchMro.mro_key.replace(/[^a-zA-Z0-9-]/g, "_")}.json`
-                  const result = await saveFile("mro", filename, json, "application/json")
-                  if (result.ok) toast.success(result.message ?? "Downloaded")
-                  else toast.error(result.message ?? "Download failed")
-                }}
-                className="gap-2"
-              >
-                <Download className="w-4 h-4" />Download JSON
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    const json = JSON.stringify(researchResult, null, 2)
+                    const prefix = researchResult.derived ? "derived-research" : "research"
+                    const filename = `${prefix}-${researchMro.mro_key.replace(/[^a-zA-Z0-9-]/g, "_")}.json`
+                    const result = await saveFile("mro", filename, json, "application/json")
+                    if (result.ok) toast.success(result.message ?? "Downloaded")
+                    else toast.error(result.message ?? "Download failed")
+                  }}
+                  className="gap-2"
+                >
+                  <Download className="w-4 h-4" />Download JSON
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    const text = buildResearchText(researchMro, researchResult)
+                    const prefix = researchResult.derived ? "derived-research" : "research"
+                    const filename = `${prefix}-${researchMro.mro_key.replace(/[^a-zA-Z0-9-]/g, "_")}.txt`
+                    const result = await saveFile("mro", filename, text, "text/plain")
+                    if (result.ok) toast.success(result.message ?? "Downloaded")
+                    else toast.error(result.message ?? "Download failed")
+                  }}
+                  className="gap-2"
+                >
+                  <Download className="w-4 h-4" />Download Text
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const html = buildResearchPdfHtml(researchMro, researchResult)
+                    const iframe = document.getElementById("research-print-iframe") as HTMLIFrameElement | null
+                    if (iframe && iframe.contentDocument) {
+                      iframe.contentDocument.open()
+                      iframe.contentDocument.write(html)
+                      iframe.contentDocument.close()
+                      setTimeout(() => iframe.contentWindow?.print(), 400)
+                    }
+                  }}
+                  className="gap-2"
+                >
+                  <Printer className="w-4 h-4" />Print PDF
+                </Button>
+              </>
             )}
             <Button onClick={() => { setResearchMro(null); setResearchResult(null) }}>Close</Button>
           </DialogFooter>
@@ -2044,6 +2282,13 @@ function SavedMrosPane() {
           title="MRO Print"
         />
       )}
+
+      {/* Hidden research print iframe — content is injected on demand */}
+      <iframe
+        id="research-print-iframe"
+        style={{ position: "fixed", left: "-9999px", width: "1px", height: "1px", border: 0 }}
+        title="Research Print"
+      />
     </div>
   )
 }

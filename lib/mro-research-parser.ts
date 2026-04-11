@@ -11,6 +11,11 @@
 
 export type TableRow = Record<string, string>
 
+export interface DerivedSection {
+  heading: string
+  content: string
+}
+
 export interface ResearchResult {
   metadata: TableRow[]
   employee_profile: TableRow[]
@@ -19,6 +24,11 @@ export interface ResearchResult {
   rfis: TableRow[]
   submittals: TableRow[]
   invoices: TableRow[]
+  // Derived-mode extras (populated when context_bundle is missing/empty)
+  derived?: boolean
+  key_facts?: TableRow[]
+  sections?: DerivedSection[]
+  raw_result?: string
 }
 
 export const TABLE_NAMES = [
@@ -248,6 +258,150 @@ export const TABLE_LABELS: Record<TableName, string> = {
   rfis: "Open RFIs",
   submittals: "Recent Submittals",
   invoices: "Financial Summary / Invoices",
+}
+
+// ── derived research object ────────────────────────────────────
+// When an MRO has no context_bundle (or a useless one), best-effort
+// extract whatever structure is present in result_text so the user
+// still sees a formalized Derived Research Object.
+
+interface MroLike {
+  mro_key?: string | null
+  query_text?: string | null
+  intent?: string | null
+  seed_hsls?: string | null
+  matched_aios_count?: number | null
+  search_terms?: Record<string, unknown> | null
+  result_text?: string | null
+  confidence?: string | null
+  created_at?: string | null
+}
+
+function extractKeyFacts(text: string): TableRow[] {
+  const facts: TableRow[] = []
+  const seen = new Set<string>()
+  // Pattern 1: **Key:** value (bold markdown label)
+  const boldRe = /\*\*([^:*\n]{1,60}):\*\*\s*([^\n|]{1,400})/g
+  let m: RegExpExecArray | null
+  while ((m = boldRe.exec(text)) !== null) {
+    const key = m[1].trim()
+    const value = m[2].trim().replace(/\s{2,}/g, " ")
+    if (!key || !value) continue
+    const dedup = key.toLowerCase()
+    if (seen.has(dedup)) continue
+    seen.add(dedup)
+    facts.push({ field: key, value })
+  }
+  // Pattern 2: bare "Key: value" lines (no bold), only capture labels that look field-ish
+  const lineRe = /^[-*•\s]*([A-Z][A-Za-z0-9 /_\-]{1,50}):\s*([^\n]{1,400})$/gm
+  while ((m = lineRe.exec(text)) !== null) {
+    const key = m[1].trim()
+    const value = m[2].trim().replace(/^\*\*|\*\*$/g, "").trim()
+    if (!key || !value || value === "**") continue
+    if (/^https?:/i.test(value)) continue
+    const dedup = key.toLowerCase()
+    if (seen.has(dedup)) continue
+    seen.add(dedup)
+    facts.push({ field: key, value })
+  }
+  return facts
+}
+
+function extractMarkdownSections(text: string): DerivedSection[] {
+  const sections: DerivedSection[] = []
+  // Match ## or ### headings and capture content until the next heading of same-or-higher level
+  const headingRe = /^(#{2,3})\s+(.+)$/gm
+  const matches: { level: number; heading: string; start: number; end: number }[] = []
+  let m: RegExpExecArray | null
+  while ((m = headingRe.exec(text)) !== null) {
+    matches.push({
+      level: m[1].length,
+      heading: m[2].trim(),
+      start: m.index,
+      end: m.index + m[0].length,
+    })
+  }
+  for (let i = 0; i < matches.length; i++) {
+    const cur = matches[i]
+    const next = matches[i + 1]
+    const contentStart = cur.end
+    const contentEnd = next ? next.start : text.length
+    const content = text.substring(contentStart, contentEnd).trim()
+    if (cur.heading) {
+      sections.push({ heading: cur.heading, content })
+    }
+  }
+  return sections
+}
+
+export function buildDerivedResearchObject(mro: MroLike): ResearchResult {
+  const resultText = normalizeText(mro.result_text ?? "")
+  const keyFacts = extractKeyFacts(resultText)
+  const sections = extractMarkdownSections(resultText)
+
+  // Try to opportunistically reuse structured parsers on the result text —
+  // sometimes the result itself contains `## Projects Assigned` etc.
+  const projects = parseProjectBlocks(resultText)
+  const issues = parseGenericTable(resultText, "### Open Issues / Observations", [
+    "### Open RFIs",
+    "### Recent Submittals Reviewed",
+    "## Financial Summary",
+  ])
+  const rfis = parseGenericTable(resultText, "### Open RFIs", [
+    "### Recent Submittals Reviewed",
+    "## Financial Summary",
+  ])
+  const submittals = parseGenericTable(resultText, "### Recent Submittals Reviewed", [
+    "## Financial Summary",
+  ])
+  const invoices = parseGenericTable(resultText, "## Financial Summary", [])
+  const employee = resultText ? [extractEmployeeProfile(resultText)] : []
+  const employeeHasData = employee.length > 0 && Object.keys(employee[0]).length > 0
+
+  let searchTermsStr = ""
+  if (mro.search_terms) {
+    try {
+      searchTermsStr = JSON.stringify(mro.search_terms)
+    } catch {
+      searchTermsStr = String(mro.search_terms)
+    }
+  }
+
+  return {
+    metadata: [{
+      mro_key: mro.mro_key ?? "",
+      query: mro.query_text ?? "",
+      intent: mro.intent ?? "",
+      search_terms: searchTermsStr,
+      seed_hsls: mro.seed_hsls ?? "",
+      matched_aios: mro.matched_aios_count != null ? String(mro.matched_aios_count) : "",
+      confidence: mro.confidence ?? "",
+      timestamp: mro.created_at ?? "",
+    }],
+    employee_profile: employeeHasData ? employee : [],
+    projects,
+    issues_observations: issues,
+    rfis,
+    submittals,
+    invoices,
+    derived: true,
+    key_facts: keyFacts,
+    sections,
+    raw_result: resultText,
+  }
+}
+
+// Returns true if a parsed ResearchResult has no useful structured content
+// beyond metadata. Used to decide whether to fall back to derived extraction.
+export function isResearchResultEmpty(r: ResearchResult): boolean {
+  const nonMeta =
+    r.employee_profile.length +
+    r.projects.length +
+    r.issues_observations.length +
+    r.rfis.length +
+    r.submittals.length +
+    r.invoices.length
+  return nonMeta === 0
 }
 
 // Collects all unique keys in order of first appearance
