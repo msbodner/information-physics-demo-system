@@ -521,26 +521,26 @@ function AioDataPane() {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialog.open} onOpenChange={(o) => setDialog((d) => ({ ...d, open: o }))}>
-        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+        <DialogContent className="!max-w-[95vw] w-[95vw] sm:!max-w-6xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{dialog.mode === "add" ? "Add AIO Record" : "Edit AIO Record"}</DialogTitle>
           </DialogHeader>
-          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+          <div className="overflow-y-auto flex-1 space-y-4 pr-2">
             <div className="space-y-1">
               <Label>AIO Name</Label>
               <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Record name..." />
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-3">{filledCount} of {AIO_COUNT} elements filled</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
                 {Array.from({ length: AIO_COUNT }, (_, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground w-24 shrink-0">Element {i + 1}</span>
+                  <div key={i} className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground w-20 shrink-0 font-medium">#{i + 1}</span>
                     <Input
                       value={formElements[i] ?? ""}
                       onChange={(e) => setElem(i, e.target.value)}
-                      placeholder={`Element ${i + 1}`}
-                      className="h-7 text-xs"
+                      placeholder={`Element ${i + 1} — e.g. [FieldName.Value]`}
+                      className="h-9 text-sm font-mono flex-1"
                     />
                   </div>
                 ))}

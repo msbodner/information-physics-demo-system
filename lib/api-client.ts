@@ -287,8 +287,8 @@ export async function deleteRole(roleId: string): Promise<boolean> {
 }
 
 // AIO Data
-export async function listAioData(): Promise<AioDataRecord[]> {
-  const result = await safeFetch<AioDataRecord[]>("/api/aio-data")
+export async function listAioData(limit = 1000): Promise<AioDataRecord[]> {
+  const result = await safeFetch<AioDataRecord[]>(`/api/aio-data?limit=${limit}`)
   return result ?? []
 }
 
@@ -314,8 +314,8 @@ export async function deleteAioData(aioId: string): Promise<boolean> {
 }
 
 // HSL Data
-export async function listHslData(): Promise<HslDataRecord[]> {
-  const result = await safeFetch<HslDataRecord[]>("/api/hsl-data")
+export async function listHslData(limit = 1000): Promise<HslDataRecord[]> {
+  const result = await safeFetch<HslDataRecord[]>(`/api/hsl-data?limit=${limit}`)
   return result ?? []
 }
 
@@ -456,8 +456,8 @@ export interface MroObject {
   updated_at: string
 }
 
-export async function listMroObjects(): Promise<MroObject[]> {
-  const result = await safeFetch<MroObject[]>("/api/mro-objects")
+export async function listMroObjects(limit = 1000): Promise<MroObject[]> {
+  const result = await safeFetch<MroObject[]>(`/api/mro-objects?limit=${limit}`)
   return result ?? []
 }
 

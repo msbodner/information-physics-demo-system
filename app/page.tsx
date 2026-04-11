@@ -2102,7 +2102,7 @@ function BulkCsvProcessingPane({ backendIsOnline }: { backendIsOnline: boolean }
     // Fetch existing aio_names + existing saved CSV names for dedup
     const [existing, existingCsvs] = await Promise.all([
       listAioData(),
-      listIOs({ type: "CSV", source_system: "bulk-csv-processing", limit: 500 }).catch(() => [] as IORecord[]),
+      listIOs({ type: "CSV", source_system: "csv-converter", limit: 500 }).catch(() => [] as IORecord[]),
     ])
     const existingSet = new Set(existing.map((a) => a.aio_name))
     const existingCsvNames = new Set(
@@ -2137,7 +2137,7 @@ function BulkCsvProcessingPane({ backendIsOnline }: { backendIsOnline: boolean }
             const csvResult = await createIO({
               type: "CSV",
               raw: { raw_uri: `data:text/csv,${encodeURIComponent(text)}`, mime_type: "text/csv", size_bytes: text.length },
-              context: { source_system: "bulk-csv-processing", source_object_id: file.name },
+              context: { source_system: "csv-converter", source_object_id: file.name },
             })
             if (csvResult) {
               csvsSaved++
@@ -2166,7 +2166,7 @@ function BulkCsvProcessingPane({ backendIsOnline }: { backendIsOnline: boolean }
                 createIO({
                   type: "AIO",
                   raw: { raw_uri: `data:text/aio,${encodeURIComponent(aioLine)}`, mime_type: "text/aio", size_bytes: aioLine.length },
-                  context: { source_system: "bulk-csv-processing", source_object_id: file.name },
+                  context: { source_system: "csv-converter", source_object_id: file.name },
                 }),
               ])
               if (aioDataResult && ioResult) {

@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server"
 
 const API_BASE = process.env.API_BASE ?? "http://localhost:8080"
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const res = await fetch(`${API_BASE}/v1/mro-objects`)
+    const { searchParams } = new URL(request.url)
+    const qs = searchParams.toString()
+    const res = await fetch(`${API_BASE}/v1/mro-objects${qs ? `?${qs}` : ""}`)
     const data = await res.json()
     return NextResponse.json(data, { status: res.status })
   } catch {
