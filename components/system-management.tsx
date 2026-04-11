@@ -7,6 +7,7 @@ import {
   Users, Key, Loader2, ShieldCheck, User, Lock, FileSpreadsheet, FileText,
   Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network,
   Brain, FolderOpen, Download, Printer, CheckCircle2, AlertCircle, X,
+  Search, Microscope,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -31,6 +32,7 @@ import {
   type StorageSettings, type MroObject,
 } from "@/lib/api-client"
 import { chooseDirectory, clearDirectory, saveFile, detectMechanism, describeMechanism, type StorageTarget, type StorageMechanism } from "@/lib/storage-adapter"
+import { parseMroContextBundle, TABLE_NAMES, TABLE_LABELS, collectAllFields, type ResearchResult, type TableName } from "@/lib/mro-research-parser"
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -1773,6 +1775,8 @@ function SavedMrosPane() {
   const [viewMro, setViewMro] = useState<MroObject | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<MroObject | null>(null)
   const [printMro, setPrintMro] = useState<MroObject | null>(null)
+  const [researchMro, setResearchMro] = useState<MroObject | null>(null)
+  const [researchResult, setResearchResult] = useState<ResearchResult | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1788,6 +1792,23 @@ function SavedMrosPane() {
     const result = await saveFile("mro", filename, text, "text/plain")
     if (result.ok) toast.success(result.message ?? "Downloaded")
     else toast.error(result.message ?? "Download failed")
+  }, [])
+
+  const handleResearch = useCallback((mro: MroObject) => {
+    // Use the context_bundle if present; otherwise build one from the MRO fields
+    // (matches the bracket-notation format that chat-aio-dialog's handleSaveMro writes)
+    const source = mro.context_bundle && mro.context_bundle.trim().length > 0
+      ? mro.context_bundle
+      : buildMroText(mro)
+    try {
+      const parsed = parseMroContextBundle(source)
+      setResearchMro(mro)
+      setResearchResult(parsed)
+      const totalRows = TABLE_NAMES.reduce((sum, name) => sum + parsed[name].length, 0)
+      toast.success(`Research extracted ${totalRows} rows across 7 tables`)
+    } catch (err) {
+      toast.error(`Research failed: ${(err as Error).message}`)
+    }
   }, [])
 
   const handlePrint = useCallback((mro: MroObject) => {
@@ -1836,7 +1857,7 @@ function SavedMrosPane() {
                 <th className="text-left px-4 py-2.5 font-medium">Query</th>
                 <th className="text-left px-4 py-2.5 font-medium w-20">Matched</th>
                 <th className="text-left px-4 py-2.5 font-medium w-40">Created</th>
-                <th className="text-left px-4 py-2.5 font-medium w-44">Actions</th>
+                <th className="text-left px-4 py-2.5 font-medium w-52">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -1851,6 +1872,7 @@ function SavedMrosPane() {
                   <td className="px-4 py-3">
                     <div className="flex gap-1">
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setViewMro(mro)} title="View"><Eye className="w-3.5 h-3.5" /></Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-blue-600" onClick={() => handleResearch(mro)} title="Research — extract structured tables from context bundle"><Microscope className="w-3.5 h-3.5" /></Button>
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleDownload(mro)} title="Download"><Download className="w-3.5 h-3.5" /></Button>
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handlePrint(mro)} title="Print PDF"><Printer className="w-3.5 h-3.5" /></Button>
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => setDeleteConfirm(mro)} title="Delete"><Trash2 className="w-3.5 h-3.5" /></Button>
@@ -1929,6 +1951,86 @@ function SavedMrosPane() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={handleDelete} className="gap-2"><Trash2 className="w-4 h-4" />Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Research Results Dialog */}
+      <Dialog open={!!researchMro && !!researchResult} onOpenChange={(open) => { if (!open) { setResearchMro(null); setResearchResult(null) } }}>
+        <DialogContent className="!max-w-[95vw] w-[95vw] sm:!max-w-6xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Microscope className="w-5 h-5 text-blue-600" />
+              Research: {researchMro?.mro_key}
+            </DialogTitle>
+          </DialogHeader>
+          {researchResult && (
+            <div className="overflow-y-auto flex-1 space-y-5 pr-2">
+              <p className="text-xs text-muted-foreground">
+                Structured tables extracted from the MRO context bundle using the Information Physics research parser.
+                Query: <span className="font-medium text-foreground">{researchMro?.query_text}</span>
+              </p>
+
+              {TABLE_NAMES.map((tableName) => {
+                const rows = researchResult[tableName]
+                const fields = collectAllFields(rows)
+                const isEmpty = rows.length === 0 || (rows.length === 1 && Object.keys(rows[0]).length === 0)
+                return (
+                  <div key={tableName} className="rounded-lg border border-border overflow-hidden">
+                    <div className="bg-muted/50 px-4 py-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm text-foreground">{TABLE_LABELS[tableName]}</span>
+                        <Badge variant="outline" className="text-xs">{rows.length} row{rows.length !== 1 ? "s" : ""}</Badge>
+                      </div>
+                      <span className="text-xs text-muted-foreground font-mono">{tableName}</span>
+                    </div>
+                    {isEmpty ? (
+                      <div className="px-4 py-6 text-xs text-muted-foreground italic text-center">No data extracted for this section</div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-[#0f3460] text-white">
+                            <tr>
+                              {fields.map((f) => (
+                                <th key={f} className="text-left px-3 py-2 font-medium whitespace-nowrap">{f}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {rows.map((row, i) => (
+                              <tr key={i} className="hover:bg-muted/30">
+                                {fields.map((f) => (
+                                  <td key={f} className="px-3 py-2 align-top max-w-[280px] break-words">{row[f] ?? ""}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <DialogFooter>
+            {researchResult && researchMro && (
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  // Serialize all tables as a single JSON file
+                  const json = JSON.stringify(researchResult, null, 2)
+                  const filename = `research-${researchMro.mro_key.replace(/[^a-zA-Z0-9-]/g, "_")}.json`
+                  const result = await saveFile("mro", filename, json, "application/json")
+                  if (result.ok) toast.success(result.message ?? "Downloaded")
+                  else toast.error(result.message ?? "Download failed")
+                }}
+                className="gap-2"
+              >
+                <Download className="w-4 h-4" />Download JSON
+              </Button>
+            )}
+            <Button onClick={() => { setResearchMro(null); setResearchResult(null) }}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
