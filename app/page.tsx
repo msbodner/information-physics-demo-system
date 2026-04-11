@@ -125,10 +125,14 @@ function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdmin: () 
   const [activeSection, setActiveSection] = useState<string>("overview")
   const sections = [
     { id: "overview", label: "Overview", icon: Globe },
-    { id: "home-page", label: "Home Page", icon: BookOpen },
+    { id: "sidebar-nav", label: "Sidebar Navigation", icon: Network },
+    { id: "dashboard", label: "Dashboard Home", icon: Database },
     { id: "csv-converter", label: "CSV Converter", icon: FileText },
+    { id: "pdf-import", label: "PDF Import", icon: FileSpreadsheet },
     { id: "hsp", label: "Hyper-Semantic Processor", icon: Cpu },
     { id: "hsl", label: "HSL — Creating & Viewing", icon: Layers },
+    { id: "chataio", label: "ChatAIO — AI Search", icon: MessageSquare },
+    { id: "rd", label: "R & D — Three Tabs", icon: Atom },
     { id: "system-admin", label: "System Admin", icon: Settings },
     { id: "csv-format", label: "CSV Format", icon: FileSpreadsheet },
     { id: "aio-format", label: "AIO Format", icon: Database },
@@ -164,53 +168,110 @@ function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdmin: () 
 
             {/* ── OVERVIEW ── */}
             {activeSection === "overview" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />Overview — AIO Generator V3.0</CardTitle></CardHeader>
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />Overview — Information Physics Demo System V3.0</CardTitle></CardHeader>
               <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p>AIO Generator V3.0 converts CSV files into <strong>Associated Information Objects (AIOs)</strong> — the fundamental unit of the Information Physics Standard Model. Each CSV row becomes a single self-describing AIO string, stored in a PostgreSQL database and searchable through the Hyper-Semantic Processor. V3.0 adds the R &amp; D Compound HSL Builder for multi-field AND queries and an Information Elements directory tracking all unique field names across your data.</p>
-                <h4 className="text-foreground font-medium mt-4">What the app does</h4>
-                <ol className="list-decimal list-inside space-y-2">
-                  <li><strong>Convert</strong> — Upload CSVs; every row becomes an AIO bracketstring.</li>
-                  <li><strong>Store</strong> — AIOs are saved to two backend tables: <code className="bg-muted px-1 rounded">aio_data</code> (parsed elements) and <code className="bg-muted px-1 rounded">information_objects</code> (full encoded URI).</li>
-                  <li><strong>Search</strong> — The Hyper-Semantic Processor lets you click any element value to find every AIO that shares it — across all files and sessions.</li>
-                  <li><strong>Link</strong> — Create HSL (Hyper-Semantic Layer) records that capture which AIOs share a common element, forming a provenance-chain of semantic relationships.</li>
-                  <li><strong>Administer</strong> — Manage users, roles, AIO data, and HSL data via the System Admin panel.</li>
-                </ol>
-                <h4 className="text-foreground font-medium mt-4">Key Benefits</h4>
+                <p><strong>Information Physics Demo System V3.0</strong> is a complete full-stack platform for capturing, linking, searching, and reasoning over enterprise data in the Information Physics Standard Model. It converts CSV and PDF sources into <strong>Associated Information Objects (AIOs)</strong>, links them through the <strong>Hyper-Semantic Layer (HSL)</strong>, retrieves them via AI-powered search, and preserves successful retrieval episodes as <strong>Memory Result Objects (MROs)</strong>.</p>
+
+                <h4 className="text-foreground font-medium mt-4">New in V3.0</h4>
                 <ul className="list-disc list-inside space-y-1">
-                  <li><strong>Application-agnostic</strong> — AIOs are not tied to any schema or application.</li>
-                  <li><strong>Self-describing</strong> — Every AIO carries its own semantic metadata.</li>
-                  <li><strong>Cross-file matching</strong> — Find relationships across any number of source CSVs.</li>
-                  <li><strong>Persistent</strong> — All data survives browser refresh; reload from the backend at any time.</li>
+                  <li><strong>Persistent navy sidebar</strong> — always-visible grouped navigation (Data / Discovery / Knowledge / Admin). No more Back buttons.</li>
+                  <li><strong>Live Dashboard home page</strong> — real-time counts of AIOs / HSLs / MROs / Fields, quick-action cards, recent activity feed, system health panel.</li>
+                  <li><strong>MRO persistence</strong> — save ChatAIO sessions as governed episodic memory objects with full search-term metadata and HSL/AIO lineage.</li>
+                  <li><strong>Four-phase AIO Search algebra</strong> — parse prompt → match HSLs → gather AIOs → synthesize focused answer. Produces precise, provenance-traceable responses.</li>
+                  <li><strong>AI Field Maps</strong> — Claude AI clusters semantically similar field names (e.g. Invoice / Invoice Number / Invoice # → &ldquo;Invoice&rdquo;) with manual CRUD override.</li>
+                  <li><strong>Bulk CSV Processing</strong> — select a folder, filter by filename prefix, batch-convert hundreds of rows with automatic de-duplication.</li>
+                  <li><strong>PDF Import</strong> — Claude extracts tabular data from PDFs (invoices, reports) into CSV form, ready for AIO conversion.</li>
+                  <li><strong>Information Elements directory</strong> — unique field-name index with per-field row counts and inline value viewer.</li>
+                  <li><strong>Compound HSL Builder</strong> — multi-field AND queries that find AIOs matching ALL selected field-value pairs.</li>
+                </ul>
+
+                <h4 className="text-foreground font-medium mt-4">The Five-Step Pipeline</h4>
+                <ol className="list-decimal list-inside space-y-2">
+                  <li><strong>Capture</strong> — Upload CSVs, drop PDFs, or bulk-import a folder. Each row becomes an AIO bracketstring.</li>
+                  <li><strong>Preserve</strong> — AIOs are saved to PostgreSQL with full provenance: <code className="bg-muted px-1 rounded">aio_data</code> (parsed elements), <code className="bg-muted px-1 rounded">information_objects</code> (full URI), and the original CSV is saved to the IO registry.</li>
+                  <li><strong>Link</strong> — HSLs record which AIOs share common elements, forming an auditable semantic topology. Compound HSLs link multiple fields with AND logic.</li>
+                  <li><strong>Retrieve</strong> — ChatAIO runs two search modes: broad (Send) and focused (AIO Search four-phase algebra). Both use Claude Sonnet 4.6.</li>
+                  <li><strong>Remember</strong> — Successful retrieval episodes become MROs with query cue, seed HSLs, traversed AIOs, and synthesis result — all explicitly linked to their source evidence.</li>
+                </ol>
+
+                <h4 className="text-foreground font-medium mt-4">Core Principles</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>Preserve-first</strong> — observations are kept in their full contextual state, not flattened to a fixed schema.</li>
+                  <li><strong>Self-describing</strong> — every AIO carries its own semantic labels, provenance, and temporal context.</li>
+                  <li><strong>Late-binding</strong> — the same AIO can be re-indexed, re-clustered, and re-projected as questions evolve.</li>
+                  <li><strong>Auditable</strong> — every derived answer traces back to source observations via provenance lineage.</li>
+                  <li><strong>Recursive memory</strong> — MROs allow the system to remember its own successful acts of recollection.</li>
                 </ul>
               </CardContent></Card>
             )}
 
-            {/* ── HOME PAGE ── */}
-            {activeSection === "home-page" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><BookOpen className="w-5 h-5" />Home Page — Buttons & Navigation</CardTitle></CardHeader>
-              <CardContent className="space-y-5 text-sm text-muted-foreground leading-relaxed">
-                <p>The home page is the main launch pad. All primary actions start here.</p>
+            {/* ── SIDEBAR NAVIGATION ── */}
+            {activeSection === "sidebar-nav" && (
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Network className="w-5 h-5" />Sidebar Navigation</CardTitle></CardHeader>
+              <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                <p>The persistent navy sidebar on the left is the primary navigation for the entire app. It replaces the old header + Back-button pattern from V2. No matter where you are, you can jump to any page in one click.</p>
 
-                <h4 className="text-foreground font-medium">Header — top bar</h4>
+                <h4 className="text-foreground font-medium mt-2">Grouped sections</h4>
                 <div className="space-y-3 pl-2 border-l-2 border-border">
-                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Backend Connected / Offline badge</p><p>Shows whether the PostgreSQL backend is reachable. Green = connected; red = offline. When offline, saves are skipped and duplicate detection is disabled, but conversion still works locally.</p></div>
-                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Username + Logout</p><p>Appear after a successful System Admin login. Click <strong>Logout</strong> to end your session and return to the home page.</p></div>
-                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">System Admin button</p><p>Opens the Admin Login modal if you are not yet authenticated. Enter your email and password (default: <code className="bg-muted px-1 rounded">bodner.michael@gmail.com</code> / <code className="bg-muted px-1 rounded">Infophysics2024</code>). On success, navigates to the System Admin panel. Use the eye icon to show/hide your password.</p></div>
+                  <div>
+                    <p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Dashboard</p>
+                    <p>Home page with live stats, quick actions, recent activity, and system health. See the <strong>Dashboard Home</strong> section for details.</p>
+                  </div>
+                  <div>
+                    <p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Data</p>
+                    <p>Import CSV, Import PDFs, HSL Builder, ChatAIO — everything related to getting data into the system and querying it.</p>
+                  </div>
+                  <div>
+                    <p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Discovery</p>
+                    <p>R &amp; D — experimental tools for exploring relationships across your AIO corpus (Compound HSL Builder, AI Field Maps, Bulk CSV Processing).</p>
+                  </div>
+                  <div>
+                    <p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Knowledge</p>
+                    <p>User Guide, Workflow description, Information Physics Reference, AIO Reference Paper, MRO Reference Paper — all documentation in one place.</p>
+                  </div>
+                  <div>
+                    <p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Admin</p>
+                    <p>System Admin — users, roles, data tables, API keys, architecture diagram.</p>
+                  </div>
                 </div>
 
-                <h4 className="text-foreground font-medium mt-2">Primary action buttons</h4>
-                <div className="space-y-3 pl-2 border-l-2 border-border">
-                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Load New CSVs for Conversion</p><p>Opens the CSV Converter page where you can drag-and-drop or browse for CSV files to upload and convert to AIOs.</p></div>
-                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Create New HSLs</p><p>Loads all previously saved AIOs from the backend database into memory, then navigates directly to the Hyper-Semantic Processor so you can create new HSL records without re-uploading any CSVs.</p></div>
-                </div>
+                <h4 className="text-foreground font-medium mt-4">Footer</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>Backend status dot</strong> — green if the FastAPI backend is reachable; amber if offline.</li>
+                  <li><strong>Username</strong> — shown after System Admin login.</li>
+                  <li><strong>Version</strong> — V3.0.</li>
+                </ul>
 
-                <h4 className="text-foreground font-medium mt-2">Navigation buttons</h4>
-                <div className="space-y-3 pl-2 border-l-2 border-border">
-                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">User Guide</p><p>Opens this guide.</p></div>
-                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Workflow Description</p><p>Opens a technical deep-dive into each stage of the AIO pipeline — parsing, conversion, storage, deduplication, retrieval, semantic processing, and HSL formation.</p></div>
-                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Information Physics Reference</p><p>A reference document covering the theoretical foundations of AIOs, the Hyper-Semantic Model, and Information Physics.</p></div>
-                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">AIO Reference Paper</p><p>The full academic-style paper introducing the AIO as the quantum particle of Information Physics.</p></div>
-                </div>
+                <h4 className="text-foreground font-medium mt-4">Responsive behavior</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>Desktop (≥1024px):</strong> sidebar is always visible, 240px wide. Click the chevron to collapse to a 64px icon rail.</li>
+                  <li><strong>Mobile / narrow:</strong> sidebar hides by default. Tap the hamburger icon in the top-left to open the drawer; tap outside to dismiss.</li>
+                </ul>
+              </CardContent></Card>
+            )}
+
+            {/* ── DASHBOARD ── */}
+            {activeSection === "dashboard" && (
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Database className="w-5 h-5" />Dashboard Home</CardTitle></CardHeader>
+              <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                <p>The Dashboard is the default home page. It replaces the V2 marketing hero with live data about your system.</p>
+
+                <h4 className="text-foreground font-medium mt-2">Stat cards (top row)</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>AIOs</strong> (blue) — total count of AIO records in the <code className="bg-muted px-1 rounded">aio_data</code> table.</li>
+                  <li><strong>HSLs</strong> (emerald) — total count of HSL records in <code className="bg-muted px-1 rounded">hsl_data</code>.</li>
+                  <li><strong>MROs</strong> (purple) — total preserved retrieval episodes in <code className="bg-muted px-1 rounded">mro_objects</code>.</li>
+                  <li><strong>Fields</strong> (amber) — unique field names in <code className="bg-muted px-1 rounded">information_elements</code>, with a sub-count of fuzzy-key groups.</li>
+                </ul>
+
+                <h4 className="text-foreground font-medium mt-4">Quick Action cards</h4>
+                <p>Four large cards for the most-used workflows: Import CSV, Import PDFs, ChatAIO, R &amp; D. Each card is a link to the corresponding page with a short description.</p>
+
+                <h4 className="text-foreground font-medium mt-4">Recent Activity feed</h4>
+                <p>Shows the 10 most recent events from across all data tables (AIO saves, HSL creations, MRO persists, field map updates) sorted by <code className="bg-muted px-1 rounded">updated_at</code>. Each entry shows the kind, label, and time-ago.</p>
+
+                <h4 className="text-foreground font-medium mt-4">System Health panel</h4>
+                <p>At-a-glance status for Backend, Database, API Key, and Anthropic. Green check = healthy; red = offline. Click <strong>Refresh</strong> in the top-right to re-fetch counts manually.</p>
               </CardContent></Card>
             )}
 
@@ -331,6 +392,115 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
               </CardContent></Card>
             )}
 
+            {/* ── PDF IMPORT ── */}
+            {activeSection === "pdf-import" && (
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><FileSpreadsheet className="w-5 h-5" />PDF Import — Extract Data with Claude AI</CardTitle></CardHeader>
+              <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                <p>The PDF Import page uses Claude AI to read PDF files (invoices, reports, forms) and extract the tabular data into CSV format. Once extracted, you can convert the CSV into AIOs through the normal CSV converter flow.</p>
+
+                <h4 className="text-foreground font-medium mt-2">How to use it</h4>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Click <strong>Import PDFs</strong> in the sidebar (requires backend + configured API key).</li>
+                  <li>Drop a PDF file or click to browse.</li>
+                  <li>Click <strong>Extract</strong>. Claude reads the PDF and returns structured rows.</li>
+                  <li>Review the extracted CSV in the preview table.</li>
+                  <li>Click <strong>Import as CSV</strong> to route the extracted data into the CSV Converter as if it had been uploaded directly.</li>
+                </ol>
+
+                <h4 className="text-foreground font-medium mt-2">Requirements</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Valid Anthropic API key configured in System Admin → API Key.</li>
+                  <li>Backend must be online (uses <code className="bg-muted px-1 rounded">/v1/op/pdf-extract</code> endpoint).</li>
+                  <li>PDFs should contain structured data (tables, forms). Plain prose PDFs may not yield useful rows.</li>
+                </ul>
+
+                <h4 className="text-foreground font-medium mt-2">What gets extracted</h4>
+                <p>Claude attempts to identify column headers and rows, returning a normalized CSV. Each line item from an invoice becomes one CSV row; each row becomes one AIO during conversion.</p>
+              </CardContent></Card>
+            )}
+
+            {/* ── CHATAIO ── */}
+            {activeSection === "chataio" && (
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><MessageSquare className="w-5 h-5" />ChatAIO — AI-Powered Search</CardTitle></CardHeader>
+              <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                <p>ChatAIO is the full-screen conversational interface for querying your AIO corpus using natural language. It uses Claude Sonnet 4.6 under the hood and offers two distinct search modes.</p>
+
+                <h4 className="text-foreground font-medium mt-2">Opening ChatAIO</h4>
+                <p>Click <strong>ChatAIO</strong> in the Data section of the sidebar. A full-screen modal overlay opens; click the X in the top-right to close it and return to the previous view.</p>
+
+                <h4 className="text-foreground font-medium mt-2">Two search modes</h4>
+                <div className="space-y-3 pl-2 border-l-2 border-border">
+                  <div>
+                    <p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Send (Broad Search)</p>
+                    <p>Sends your prompt to Claude with ALL AIO and HSL records loaded as context (up to 500). One LLM call. Best for broad, exploratory questions like &ldquo;What vendors appear in this data?&rdquo; or &ldquo;Summarize the project budgets.&rdquo;</p>
+                  </div>
+                  <div>
+                    <p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">AIO Search (Four-Phase Algebra)</p>
+                    <p>Runs the focused four-phase search algebra for precise, entity-targeted queries:</p>
+                    <ol className="list-decimal list-inside ml-3 mt-1 space-y-0.5">
+                      <li><strong>Parse</strong> — Claude extracts search terms from your prompt (names, projects, field values).</li>
+                      <li><strong>Match HSLs</strong> — Searches the HSL library for records containing those terms.</li>
+                      <li><strong>Gather AIOs</strong> — Collects only the AIOs referenced in matching HSLs.</li>
+                      <li><strong>Synthesize</strong> — Claude generates a focused answer using ONLY the gathered subset.</li>
+                    </ol>
+                    <p className="mt-1">Falls back to direct element-level search if no HSLs match. The response footer shows how many HSLs matched, how many AIOs were used as context, and the parsed search terms.</p>
+                  </div>
+                </div>
+
+                <h4 className="text-foreground font-medium mt-2">Saving MROs (Memory Result Objects)</h4>
+                <p>After any successful query, click <strong>Save MRO</strong> to persist the entire retrieval episode — query cue, seed HSLs, gathered AIOs, and synthesized result — as a governed episodic object. MROs become part of the future searchable universe, preserving the system&apos;s own acts of remembering.</p>
+                <p>View saved MROs via System Admin → MRO Data.</p>
+
+                <h4 className="text-foreground font-medium mt-2">Saved Prompts</h4>
+                <p>Click the <strong>bookmark icon</strong> to save a useful prompt. Choose &ldquo;Current Session&rdquo; (temporary) or &ldquo;Save to Database&rdquo; (persistent, shown in Saved Prompts tab). Click the <strong>history icon</strong> to browse and reuse prior prompts.</p>
+
+                <h4 className="text-foreground font-medium mt-2">Export options</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>Chat</strong> — Download the full conversation as a Markdown file.</li>
+                  <li><strong>PDF</strong> — Generate a printable PDF report of the session.</li>
+                  <li><strong>Guide</strong> — Open an inline help panel.</li>
+                </ul>
+              </CardContent></Card>
+            )}
+
+            {/* ── R & D ── */}
+            {activeSection === "rd" && (
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Atom className="w-5 h-5" />R &amp; D — Three Tabs</CardTitle></CardHeader>
+              <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                <p>The R &amp; D page contains experimental tools for exploring field relationships across your AIO corpus. It has three tabs.</p>
+
+                <h4 className="text-foreground font-medium mt-2">Tab 1: Compound HSL Builder</h4>
+                <p>Build multi-field AND queries. The page has a three-pane layout:</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>Left pane</strong> — Browse field names from the Information Elements directory. Shows the AIO count per field.</li>
+                  <li><strong>Middle pane</strong> — When you click a field name, all unique values for that field appear with occurrence counts. Click a value to add it to the query.</li>
+                  <li><strong>Right pane</strong> — Your compound query accumulates here. Each selection adds an additional AND constraint. The live match count updates as you add fields.</li>
+                </ul>
+                <p>With 2+ fields selected, click <strong>Create Compound HSL</strong> to save an HSL record containing only the AIOs that match ALL selected criteria. Click <strong>View Compound HSL</strong> to inspect the resulting file and the detailed elements of each matching AIO.</p>
+
+                <h4 className="text-foreground font-medium mt-2">Tab 2: AI Field Maps</h4>
+                <p>Groups semantically similar field names into &ldquo;Fuzzy Keys&rdquo; — e.g., Invoice, Invoice Number, Invoice #, Invoice No all map to the single key &ldquo;Invoice&rdquo;.</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Click <strong>Regenerate with AI</strong> to have Claude analyze all field names in <code className="bg-muted px-1 rounded">information_elements</code> and produce fuzzy-key clusters.</li>
+                  <li>Each row shows the fuzzy key name plus badges for all member field names.</li>
+                  <li>Use the pencil icon to edit a key (rename, change description, add/remove member fields).</li>
+                  <li>Use the trash icon to delete a key (cascade deletes all member associations).</li>
+                  <li>Click <strong>Add Key</strong> to create a manual fuzzy key with hand-picked member fields.</li>
+                </ul>
+
+                <h4 className="text-foreground font-medium mt-2">Tab 3: Bulk CSV Processing</h4>
+                <p>Batch-import an entire folder of CSV files in one pass, with automatic de-duplication.</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Click <strong>Select CSV Folder</strong> and pick a directory from your local filesystem. The browser&apos;s folder picker loads all <code className="bg-muted px-1 rounded">.csv</code> files.</li>
+                  <li>The <strong>Prefix</strong> pulldown auto-populates with the unique first-3-character filename prefixes found in the folder (e.g., ACC, NS_, QB_, D36). Default selection is <strong>ACC</strong>.</li>
+                  <li>The file list updates to show only files matching the selected prefix, along with row counts and file sizes.</li>
+                  <li>Click <strong>Process Files</strong>. The progress bar shows the current file and overall progress.</li>
+                </ol>
+                <p>Each file is processed identically to the standard CSV Converter: saves to <code className="bg-muted px-1 rounded">aio_data</code>, the <code className="bg-muted px-1 rounded">information_objects</code> registry (type=AIO), and saves the full CSV text as type=CSV. Duplicates are skipped by comparing <code className="bg-muted px-1 rounded">aio_name</code> against existing records, so you can safely re-run without creating duplicates. After all files complete, <code className="bg-muted px-1 rounded">information_elements</code> is rebuilt automatically.</p>
+                <p>The summary card shows five counts: Files, CSVs saved, New AIOs, Duplicates skipped, Failures.</p>
+              </CardContent></Card>
+            )}
+
             {/* ── SYSTEM ADMIN ── */}
             {activeSection === "system-admin" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Settings className="w-5 h-5" />System Admin Panel</CardTitle></CardHeader>
@@ -380,9 +550,48 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                   </ul>
                 </div>
 
-                <h4 className="text-foreground font-medium mt-2">Settings tab</h4>
+                <h4 className="text-foreground font-medium mt-2">MRO Data tab</h4>
+                <div className="space-y-2 pl-2 border-l-2 border-border">
+                  <p>Browses the <code className="bg-muted px-1 rounded">mro_objects</code> table — Memory Result Objects saved from ChatAIO sessions. Each row shows the query text, synthesized result, matched HSLs count, and search terms JSON.</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li><strong>View</strong> — inspect the full query, context bundle, and result.</li>
+                    <li><strong>Delete</strong> — remove an MRO (does not affect the source AIOs).</li>
+                  </ul>
+                </div>
+
+                <h4 className="text-foreground font-medium mt-2">Info Elements tab</h4>
+                <div className="space-y-2 pl-2 border-l-2 border-border">
+                  <p>Browses the <code className="bg-muted px-1 rounded">information_elements</code> table — the unique field-name index with per-field AIO counts.</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li><strong>View values</strong> — eye icon opens a dialog showing all data values for that field across every AIO.</li>
+                    <li><strong>Edit / Delete</strong> — manual adjustments.</li>
+                    <li><strong>Rebuild</strong> — scans all AIOs and rebuilds the index. Runs automatically after bulk imports.</li>
+                  </ul>
+                </div>
+
+                <h4 className="text-foreground font-medium mt-2">Saved CSVs tab</h4>
                 <div className="pl-2 border-l-2 border-border">
-                  <p>Configure the <strong>Anthropic API Key</strong> used by the ChatAIO feature and the Summarize All function. Paste your key and click Save. The key is stored securely in the <code className="bg-muted px-1 rounded">system_settings</code> table and loaded at server startup.</p>
+                  <p>Lists every original CSV file stored in <code className="bg-muted px-1 rounded">information_objects</code> with type=CSV. Click a row to preview the file contents. Both standard uploads and Bulk CSV Processing imports appear here.</p>
+                </div>
+
+                <h4 className="text-foreground font-medium mt-2">Saved AIOs tab</h4>
+                <div className="pl-2 border-l-2 border-border">
+                  <p>Lists every AIO URI record from <code className="bg-muted px-1 rounded">information_objects</code> with type=AIO. Complements the structured AIO Data view.</p>
+                </div>
+
+                <h4 className="text-foreground font-medium mt-2">Saved Prompts tab</h4>
+                <div className="pl-2 border-l-2 border-border">
+                  <p>Manages saved ChatAIO prompts stored in the <code className="bg-muted px-1 rounded">saved_prompts</code> table. View, edit, or delete prompts that were saved with the bookmark icon during chat sessions.</p>
+                </div>
+
+                <h4 className="text-foreground font-medium mt-2">API Key tab</h4>
+                <div className="pl-2 border-l-2 border-border">
+                  <p>Configure the <strong>Anthropic API Key</strong> used by ChatAIO, PDF Import, AI Field Maps, and the Summarize operator. Paste your key and click Save. The key is stored in <code className="bg-muted px-1 rounded">system_settings</code> and loaded at server startup.</p>
+                </div>
+
+                <h4 className="text-foreground font-medium mt-2">Architecture tab</h4>
+                <div className="pl-2 border-l-2 border-border">
+                  <p>Interactive SVG architecture diagram showing the full AIO / HSL / MRO model, data sources, ChatAIO retrieval, PostgreSQL tables, API endpoints, and the recursive memory loop. Useful for onboarding and presentations.</p>
                 </div>
               </CardContent></Card>
             )}
@@ -513,8 +722,10 @@ function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void; onSys
     { id: "chataio", label: "9. ChatAIO", icon: Globe },
     { id: "mro-workflow", label: "10. Memory Result Objects", icon: Layers },
     { id: "pdf-import-workflow", label: "11. PDF Import", icon: FileText },
-    { id: "sysadmin-workflow", label: "12. System Administration", icon: Settings },
-    { id: "architecture-workflow", label: "13. Architecture Diagram", icon: Globe },
+    { id: "bulk-csv-workflow", label: "12. Bulk CSV Processing", icon: FileSpreadsheet },
+    { id: "field-maps-workflow", label: "13. AI Field Maps", icon: Network },
+    { id: "sysadmin-workflow", label: "14. System Administration", icon: Settings },
+    { id: "architecture-workflow", label: "15. Architecture Diagram", icon: Globe },
     { id: "structure-models", label: "AIO, HSL & MRO Structure Models", icon: Binary },
   ]
   return (
@@ -544,24 +755,38 @@ function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void; onSys
           </nav>
           <div className="space-y-6">
             {activeSection === "overview" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />End-to-End AIO Workflow</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p>AIO Generator V3.0 is the production release — a self-contained platform with its own FastAPI backend and PostgreSQL database. It converts CSV files into Associated Information Objects through a full-stack pipeline. Each stage is described in detail in the sections to the left. At a high level, the flow is:</p>
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />End-to-End Workflow — V3.0</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                <p><strong>Information Physics Demo System V3.0</strong> is a production-ready full-stack platform implementing the complete Information Physics model: preserve observations (AIOs), build relational topology (HSLs), enable AI-grounded retrieval (ChatAIO four-phase algebra), and persist successful retrieval episodes (MROs). Each stage is described in detail in the sections to the left.</p>
+
+                <h4 className="text-foreground font-medium mt-4">The complete pipeline</h4>
                 <ol className="list-decimal list-inside space-y-2">
-                  <li><strong>Upload:</strong> User selects one or more <code className="bg-muted px-1 rounded">.csv</code> files via drag-and-drop or file picker.</li>
-                  <li><strong>Duplicate check:</strong> If the backend is online, filenames are compared against already-saved CSVs; duplicates are rejected with an error toast.</li>
-                  <li><strong>CSV Parsing:</strong> Each file is read as text and split into a header row and data rows, handling quoted fields and multi-line escaping.</li>
-                  <li><strong>AIO Conversion:</strong> Every data row is converted to a single-line AIO string of bracketed <code className="bg-muted px-1 rounded">[Key.Value]</code> elements.</li>
-                  <li><strong>Preview:</strong> The browser displays the CSV table and the generated AIO lines side-by-side for review.</li>
-                  <li><strong>Database Storage:</strong> When the backend is online, AIOs and the original CSV are persisted in two tables: <code className="bg-muted px-1 rounded">information_objects</code> (full encoded URI) and <code className="bg-muted px-1 rounded">aio_data</code> (parsed element columns).</li>
-                  <li><strong>Download:</strong> Users download individual <code className="bg-muted px-1 rounded">.aio</code> files or a batch ZIP.</li>
-                  <li><strong>Semantic Processing:</strong> The Hyper-Semantic Processor indexes all AIO elements and lets users click any value to find all AIOs that share it.</li>
-                  <li><strong>HSL Formation:</strong> Create Hyper-Semantic Layer records that capture which AIOs share common element values, with provenance and timestamps.</li>
-                  <li><strong>ChatAIO:</strong> Ask natural-language questions about your AIO data using Claude AI, with answers grounded in your stored records. Save and recall prompts across sessions.</li>
-                  <li><strong>Saved Prompts:</strong> Bookmark frequently used ChatAIO queries for quick recall. Manage saved prompts via System Admin.</li>
-                  <li><strong>R &amp; D — Compound HSL:</strong> Build multi-field AND queries by selecting field names from the Information Elements directory, picking values, and creating compound HSLs that match only AIOs containing ALL selected criteria.</li>
-                  <li><strong>Information Elements:</strong> An auto-maintained directory of all unique field names across AIOs with occurrence counts. Powers the R &amp; D field picker and is manageable via System Admin.</li>
-                  <li><strong>System Administration:</strong> Manage users, roles, AIO data, HSL data, information elements, saved prompts, and API keys through the admin panel.</li>
+                  <li><strong>Ingest (three paths):</strong>
+                    <ul className="list-disc list-inside pl-4 mt-1 space-y-1">
+                      <li><em>CSV Converter</em> — drag-and-drop single-file upload with duplicate detection.</li>
+                      <li><em>PDF Import</em> — Claude extracts tabular data from invoices/reports into CSV form.</li>
+                      <li><em>Bulk CSV Processing</em> — batch-import an entire folder with prefix filtering and automatic de-duplication.</li>
+                    </ul>
+                  </li>
+                  <li><strong>Parse:</strong> Each file is read as text and split into a header row plus data rows with quote-aware handling.</li>
+                  <li><strong>Convert:</strong> Every row becomes a single-line AIO bracket string: <code className="bg-muted px-1 rounded">[OriginalCSV.name][FileDate.YYYY-MM-DD][FileTime.HH:MM:SS][Col1.Val1][Col2.Val2]...</code></li>
+                  <li><strong>Preserve:</strong> AIOs saved to <code className="bg-muted px-1 rounded">aio_data</code> (50 parsed columns) and <code className="bg-muted px-1 rounded">information_objects</code> (encoded URI). Original CSVs saved as type=CSV records.</li>
+                  <li><strong>Index:</strong> <code className="bg-muted px-1 rounded">information_elements</code> is rebuilt — a directory of every unique field name with per-field AIO counts. Powers R &amp; D and AIO Search.</li>
+                  <li><strong>Link (manual):</strong> Hyper-Semantic Processor lets users click any element to find all AIOs sharing it, and create single-element HSL records.</li>
+                  <li><strong>Link (compound):</strong> R &amp; D Compound HSL Builder produces multi-field AND queries matching AIOs that contain ALL selected criteria.</li>
+                  <li><strong>Cluster:</strong> AI Field Maps clusters semantically similar field names into fuzzy keys (e.g., Invoice / Invoice # / Invoice Number → &ldquo;Invoice&rdquo;).</li>
+                  <li><strong>Retrieve (broad):</strong> ChatAIO <em>Send</em> mode loads all records as Claude context in one LLM call — best for exploratory questions.</li>
+                  <li><strong>Retrieve (focused):</strong> ChatAIO <em>AIO Search</em> runs the four-phase algebra: parse prompt → match HSLs → gather AIOs → synthesize. Uses only the focused subset as context. Provenance-traceable.</li>
+                  <li><strong>Remember:</strong> Save ChatAIO sessions as MROs — governed episodic objects preserving the full retrieval event (query, seeds, context bundle, operators, result, lineage).</li>
+                  <li><strong>Administer:</strong> System Admin panel with 10 tabs covering users, roles, AIO/HSL/MRO data, info elements, saved CSVs/AIOs, prompts, API keys, architecture diagram.</li>
+                  <li><strong>Navigate:</strong> V3.0 introduces a persistent navy sidebar with grouped sections (Data / Discovery / Knowledge / Admin). No Back buttons; the dashboard home page shows live stats from every table.</li>
                 </ol>
+
+                <h4 className="text-foreground font-medium mt-4">Three-layer data model</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>Layer 1 — AIOs</strong> (observation): primary measurement-bound objects. Immutable.</li>
+                  <li><strong>HSLs</strong> (relation): typed links between AIOs sharing element values. Auditable.</li>
+                  <li><strong>Layer 2 — MROs</strong> (recollection): retrieval episodes preserving query cue, seed HSLs, traversed AIOs, operator stack, synthesis result, and lineage back to source evidence.</li>
+                </ul>
               </CardContent></Card>
             )}
             {activeSection === "upload" && (
@@ -875,8 +1100,77 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                 </ul>
               </CardContent></Card>
             )}
+            {activeSection === "bulk-csv-workflow" && (
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><FileSpreadsheet className="w-5 h-5" />12. Bulk CSV Processing</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                <p>The Bulk CSV Processing tab in R &amp; D lets users batch-import an entire folder of CSV files in one operation, replicating the exact save pipeline of the standard CSV Converter while adding automatic de-duplication.</p>
+
+                <h4 className="text-foreground font-medium mt-4">Folder selection (client-side only)</h4>
+                <p>The UI uses the browser&apos;s native directory picker (<code className="bg-muted px-1 rounded">&lt;input webkitdirectory&gt;</code>) to load all <code className="bg-muted px-1 rounded">.csv</code> files from a local folder into memory. No filesystem path is ever sent to the server — each File object is read via <code className="bg-muted px-1 rounded">file.text()</code> in the browser.</p>
+
+                <h4 className="text-foreground font-medium mt-4">Prefix filtering</h4>
+                <p>After folder selection, the UI computes the set of unique first-3-character filename prefixes (uppercased) and populates a pulldown with those values, sorted alphabetically. The default selection is <strong>ACC</strong> if present, otherwise the first alphabetical prefix. Changing the prefix filters the visible file list instantly. Only files whose name starts with the selected prefix (case-insensitive) will be processed.</p>
+
+                <h4 className="text-foreground font-medium mt-4">Row counting</h4>
+                <p>For each file, the processor parses the CSV using the same <code className="bg-muted px-1 rounded">parseCSV()</code> helper as the standard converter, then displays the row count and file size in the file list. This runs asynchronously on folder selection.</p>
+
+                <h4 className="text-foreground font-medium mt-4">Two-stage de-duplication</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>Stage 1 (CSVs):</strong> Before processing, <code className="bg-muted px-1 rounded">GET /v1/io?type=CSV&source_system=csv-converter</code> returns every previously-saved CSV filename. Files whose <code className="bg-muted px-1 rounded">file.name</code> is already in that set have their CSV-save step skipped.</li>
+                  <li><strong>Stage 2 (AIOs):</strong> <code className="bg-muted px-1 rounded">GET /v1/aio-data</code> returns every existing AIO record. For each row being processed, the computed <code className="bg-muted px-1 rounded">aio_name = filename + &quot; - Row N&quot;</code> is checked against that set. Matching rows are skipped; new ones are saved.</li>
+                </ul>
+
+                <h4 className="text-foreground font-medium mt-4">Save pipeline (identical to standard converter)</h4>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li><strong>CSV save (once per file):</strong> <code className="bg-muted px-1 rounded">POST /v1/io</code> with <code className="bg-muted px-1 rounded">type=CSV</code>, the full CSV text as a <code className="bg-muted px-1 rounded">data:text/csv</code> URI, and <code className="bg-muted px-1 rounded">source_system=csv-converter</code>. This makes bulk-imported files appear in System Admin → Saved CSVs alongside standard uploads.</li>
+                  <li><strong>Per-row AIO save</strong> (parallel batches of 5):
+                    <ul className="list-disc list-inside pl-4 mt-1 space-y-1">
+                      <li><code className="bg-muted px-1 rounded">POST /v1/aio-data</code> — parsed elements in a 50-slot array.</li>
+                      <li><code className="bg-muted px-1 rounded">POST /v1/io</code> — the full AIO line as a <code className="bg-muted px-1 rounded">data:text/aio</code> URI with <code className="bg-muted px-1 rounded">type=AIO</code>.</li>
+                    </ul>
+                  </li>
+                  <li><strong>Information Elements rebuild</strong>: After all files complete, <code className="bg-muted px-1 rounded">POST /v1/information-elements/rebuild</code> scans every AIO, extracts all unique <code className="bg-muted px-1 rounded">[Field.X]</code> names, and refreshes the field index with updated AIO counts.</li>
+                </ol>
+
+                <h4 className="text-foreground font-medium mt-4">Progress reporting</h4>
+                <p>As processing proceeds, the UI shows a live progress bar (current file / total files) and per-file status badges (✓ saved / skipped / failed counts). On completion, a summary card displays: Files processed, CSVs saved, New AIOs, Duplicates skipped, Failures. A toast notification summarizes the totals.</p>
+              </CardContent></Card>
+            )}
+
+            {activeSection === "field-maps-workflow" && (
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Network className="w-5 h-5" />13. AI Field Maps</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                <p>AI Field Maps clusters semantically similar field names into &ldquo;Fuzzy Keys.&rdquo; For example, all variations of an invoice identifier — Invoice, Invoice Number, Invoice No, Invoice # — can be grouped under a single canonical key &ldquo;Invoice.&rdquo;</p>
+
+                <h4 className="text-foreground font-medium mt-4">Data model</h4>
+                <p>Two PostgreSQL tables (migration <code className="bg-muted px-1 rounded">012_ai_field_maps.sql</code>):</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><code className="bg-muted px-1 rounded">field_map_keys</code> — one row per fuzzy key (<code>key_id</code>, <code>fuzzy_key</code>, <code>description</code>, timestamps).</li>
+                  <li><code className="bg-muted px-1 rounded">field_map_members</code> — many rows per key (<code>member_id</code>, <code>key_id</code> FK with CASCADE DELETE, <code>field_name</code>, UNIQUE on <code>(key_id, field_name)</code>).</li>
+                </ul>
+
+                <h4 className="text-foreground font-medium mt-4">AI generation (Regenerate with AI)</h4>
+                <p>Clicking <strong>Regenerate with AI</strong> calls <code className="bg-muted px-1 rounded">POST /v1/op/generate-field-maps</code>. The backend:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Fetches every <code className="bg-muted px-1 rounded">field_name</code> from <code className="bg-muted px-1 rounded">information_elements</code>.</li>
+                  <li>Sends the list to Claude Sonnet 4.6 with a system prompt instructing it to cluster semantically equivalent field names under a single canonical fuzzy key. Examples are provided inline (Invoice, Name, Company Name, Address).</li>
+                  <li>Parses the JSON response (handling code-fence wrapping and JSON errors with a fallback).</li>
+                  <li>In a single transaction: wipes existing <code className="bg-muted px-1 rounded">field_map_keys</code> and <code className="bg-muted px-1 rounded">field_map_members</code>, then inserts the new clusters.</li>
+                </ol>
+                <p>Max tokens: 8000. The operation is idempotent and safe to re-run.</p>
+
+                <h4 className="text-foreground font-medium mt-4">Manual CRUD</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>Add Key</strong> — opens a dialog with fuzzy key name, optional description, and a searchable multi-select of field names from the Information Elements directory.</li>
+                  <li><strong>Edit</strong> (pencil icon) — modify any existing key&apos;s name, description, or member list. Replaces all members when saved.</li>
+                  <li><strong>Delete</strong> (trash icon) — cascade deletes all member associations via the FK constraint.</li>
+                </ul>
+
+                <h4 className="text-foreground font-medium mt-4">UI presentation</h4>
+                <p>Table with navy header showing Fuzzy Key / Matching Field Names / Actions. Each row displays the key name in bold, followed by a wrap-flex of Badge chips for every member field. Counts appear under the key name (e.g., &ldquo;4 fields&rdquo;).</p>
+              </CardContent></Card>
+            )}
+
             {activeSection === "sysadmin-workflow" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Settings className="w-5 h-5" />12. System Administration</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Settings className="w-5 h-5" />14. System Administration</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
                 <p>The System Admin panel provides full CRUD management for all backend data and user access control.</p>
                 <h4 className="text-foreground font-medium mt-4">User Management</h4>
                 <ul className="list-disc list-inside space-y-1">
@@ -901,7 +1195,7 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
               </CardContent></Card>
             )}
             {activeSection === "architecture-workflow" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />13. Architecture Diagram</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />15. Architecture Diagram</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
                 <p>The Architecture tab in System Admin provides a comprehensive interactive SVG diagram of the entire InformationPhysics.ai platform.</p>
                 <h4 className="text-foreground font-medium mt-4">What the Diagram Shows</h4>
                 <ul className="list-disc list-inside space-y-1">
