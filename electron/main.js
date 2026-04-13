@@ -7,7 +7,7 @@ const fs = require("fs");
 const treeKill = require("tree-kill");
 
 // ── Configuration ────────────────────────────────────────────────
-const APP_NAME = "AIO System App";
+const APP_NAME = "Information Physics Demo System";
 const isDev = !app.isPackaged;
 
 // Resource paths differ between dev and packaged app
@@ -558,7 +558,7 @@ app.on("ready", async () => {
   } catch (err) {
     log(`Startup error: ${err.message}`);
     dialog.showErrorBox(
-      "AIO System App — Startup Error",
+      "Information Physics Demo System — Startup Error",
       `Failed to start services:\n\n${err.message}\n\nCheck logs at:\n${logsDir}`
     );
     shutdown();
