@@ -168,11 +168,11 @@ function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdmin: () 
 
             {/* ── OVERVIEW ── */}
             {activeSection === "overview" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />Overview — Information Physics Demo System V3.0</CardTitle></CardHeader>
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />Overview — Information Physics Demo System V3.1</CardTitle></CardHeader>
               <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p><strong>Information Physics Demo System V3.0</strong> is a complete full-stack platform for capturing, linking, searching, and reasoning over enterprise data in the Information Physics Standard Model. It converts CSV and PDF sources into <strong>Associated Information Objects (AIOs)</strong>, links them through the <strong>Hyper-Semantic Layer (HSL)</strong>, retrieves them via AI-powered search, and preserves successful retrieval episodes as <strong>Memory Result Objects (MROs)</strong>.</p>
+                <p><strong>Information Physics Demo System V3.1</strong> is a complete full-stack platform for capturing, linking, searching, and reasoning over enterprise data in the Information Physics Standard Model. It converts CSV and PDF sources into <strong>Associated Information Objects (AIOs)</strong>, links them through the <strong>Hyper-Semantic Layer (HSL)</strong>, retrieves them via AI-powered search, and preserves successful retrieval episodes as <strong>Memory Result Objects (MROs)</strong>.</p>
 
-                <h4 className="text-foreground font-medium mt-4">New in V3.0</h4>
+                <h4 className="text-foreground font-medium mt-4">New in V3.1</h4>
                 <ul className="list-disc list-inside space-y-1">
                   <li><strong>Persistent navy sidebar</strong> — always-visible grouped navigation (Data / Discovery / Knowledge / Admin). No more Back buttons.</li>
                   <li><strong>Live Dashboard home page</strong> — real-time counts of AIOs / HSLs / MROs / Fields, quick-action cards, recent activity feed, system health panel.</li>
@@ -239,7 +239,7 @@ function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdmin: () 
                 <ul className="list-disc list-inside space-y-1">
                   <li><strong>Backend status dot</strong> — green if the FastAPI backend is reachable; amber if offline.</li>
                   <li><strong>Username</strong> — shown after System Admin login.</li>
-                  <li><strong>Version</strong> — V3.0.</li>
+                  <li><strong>Version</strong> — V3.1.</li>
                 </ul>
 
                 <h4 className="text-foreground font-medium mt-4">Responsive behavior</h4>
@@ -755,8 +755,8 @@ function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void; onSys
           </nav>
           <div className="space-y-6">
             {activeSection === "overview" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />End-to-End Workflow — V3.0</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p><strong>Information Physics Demo System V3.0</strong> is a production-ready full-stack platform implementing the complete Information Physics model: preserve observations (AIOs), build relational topology (HSLs), enable AI-grounded retrieval (ChatAIO four-phase algebra), and persist successful retrieval episodes (MROs). Each stage is described in detail in the sections to the left.</p>
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />End-to-End Workflow — V3.1</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                <p><strong>Information Physics Demo System V3.1</strong> is a production-ready full-stack platform implementing the complete Information Physics model: preserve observations (AIOs), build relational topology (HSLs), enable AI-grounded retrieval (ChatAIO four-phase algebra), and persist successful retrieval episodes (MROs). Each stage is described in detail in the sections to the left.</p>
 
                 <h4 className="text-foreground font-medium mt-4">The complete pipeline</h4>
                 <ol className="list-decimal list-inside space-y-2">
@@ -778,7 +778,7 @@ function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void; onSys
                   <li><strong>Retrieve (focused):</strong> ChatAIO <em>AIO Search</em> runs the four-phase algebra: parse prompt → match HSLs → gather AIOs → synthesize. Uses only the focused subset as context. Provenance-traceable.</li>
                   <li><strong>Remember:</strong> Save ChatAIO sessions as MROs — governed episodic objects preserving the full retrieval event (query, seeds, context bundle, operators, result, lineage).</li>
                   <li><strong>Administer:</strong> System Admin panel with 10 tabs covering users, roles, AIO/HSL/MRO data, info elements, saved CSVs/AIOs, prompts, API keys, architecture diagram.</li>
-                  <li><strong>Navigate:</strong> V3.0 introduces a persistent navy sidebar with grouped sections (Data / Discovery / Knowledge / Admin). No Back buttons; the dashboard home page shows live stats from every table.</li>
+                  <li><strong>Navigate:</strong> V3.1 introduces a persistent navy sidebar with grouped sections (Data / Discovery / Knowledge / Admin). No Back buttons; the dashboard home page shows live stats from every table.</li>
                 </ol>
 
                 <h4 className="text-foreground font-medium mt-4">Three-layer data model</h4>
@@ -3710,11 +3710,11 @@ export default function HomePage() {
   if (false && currentView === "home") {
     return (
       <div className="min-h-screen bg-background">
-        <header className="border-b border-border bg-card"><div className="max-w-6xl mx-auto px-6 py-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center"><Database className="w-5 h-5 text-primary-foreground" /></div><h1 className="text-xl font-bold text-foreground">AIO Generator V3.0</h1></div><div className="flex items-center gap-3"><BackendStatusBadge />{currentUser && (<span className="text-xs text-muted-foreground hidden sm:inline">{currentUser.username}</span>)}{currentUser && (<Button variant="ghost" size="sm" onClick={handleLogout} className="gap-1 text-xs text-muted-foreground"><LogOut className="w-3 h-3" />Logout</Button>)}<Button variant="outline" size="sm" onClick={handleSystemClick} className="gap-2"><Settings className="w-4 h-4" />System Admin</Button></div></div></div></header>
+        <header className="border-b border-border bg-card"><div className="max-w-6xl mx-auto px-6 py-4"><div className="flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center"><Database className="w-5 h-5 text-primary-foreground" /></div><h1 className="text-xl font-bold text-foreground">AIO Generator V3.1</h1></div><div className="flex items-center gap-3"><BackendStatusBadge />{currentUser && (<span className="text-xs text-muted-foreground hidden sm:inline">{currentUser.username}</span>)}{currentUser && (<Button variant="ghost" size="sm" onClick={handleLogout} className="gap-1 text-xs text-muted-foreground"><LogOut className="w-3 h-3" />Logout</Button>)}<Button variant="outline" size="sm" onClick={handleSystemClick} className="gap-2"><Settings className="w-4 h-4" />System Admin</Button></div></div></div></header>
         <section className="max-w-6xl mx-auto px-6 py-16 text-center">
           <div className="max-w-3xl mx-auto">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-900 text-white text-sm font-medium mb-6"><Globe className="w-4 h-4" />Information Physics Standard Model</div>
-            <h2 className="text-4xl font-bold text-foreground mb-2">AIO Generator V3.0</h2>
+            <h2 className="text-4xl font-bold text-foreground mb-2">AIO Generator V3.1</h2>
             <p className="text-lg text-muted-foreground mb-2">by InformationPhysics.ai</p>
             <p className="text-lg text-muted-foreground mb-10">Transform your CSV data into Associated Information Objects (AIOs) - the fundamental unit of information in the new Information Physics Standard Model.</p>
           </div>

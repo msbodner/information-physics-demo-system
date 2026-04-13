@@ -83,7 +83,7 @@ railway redeploy --yes
 
 ## Important Patterns
 
-- **Version string**: Currently V2.1a. Update in: `app/layout.tsx`, `app/page.tsx`, `components/chat-aio-dialog.tsx`, `components/user-guide.tsx`, `components/system-management.tsx`
+- **Version string**: Currently V3.1. Update in: `app/layout.tsx`, `app/page.tsx`, `components/chat-aio-dialog.tsx`, `components/user-guide.tsx`, `components/system-management.tsx`, `components/splash-screen.tsx`, `components/dashboard.tsx`, `components/app-sidebar.tsx`, `package.json`, `electron/package.json`, `electron/preload.js`
 - **Adding a new API endpoint**: Create FastAPI route in `api/main.py` → create Next.js proxy in `app/api/{name}/route.ts` → add typed client function in `lib/api-client.ts`
 - **Adding a System Admin tab**: Add `TabsTrigger` + `TabsContent` in `components/system-management.tsx`, create a new pane function
 - **SQL migrations**: Add numbered file in `infophysics_impl_grade/migrations/` (e.g., `012_new_table.sql`). Migrations run automatically on backend startup. Use `IF NOT EXISTS` for idempotency.

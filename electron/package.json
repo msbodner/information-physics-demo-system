@@ -1,6 +1,6 @@
 {
   "name": "information-physics-demo-system",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "AIO System App — InformationPhysics.ai Desktop Application",
   "author": "Michael Simon Bodner, Ph.D. <bodner.michael@gmail.com>",
   "main": "main.js",

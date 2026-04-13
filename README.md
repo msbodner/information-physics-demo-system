@@ -1,6 +1,6 @@
 # Information Physics Demo System
 
-**V3.0** &mdash; by [InformationPhysics.ai](https://informationphysics.ai)
+**V3.1** &mdash; by [InformationPhysics.ai](https://informationphysics.ai)
 
 A full-stack platform that converts structured and unstructured data into **Associated Information Objects (AIOs)**, links them through a **Hyper-Semantic Layer (HSL)**, provides AI-powered retrieval via **ChatAIO**, and persists retrieval episodes as **Memory Result Objects (MROs)**. Built on the Information Physics Standard Model.
 
