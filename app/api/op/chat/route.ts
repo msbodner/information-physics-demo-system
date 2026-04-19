@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-const API_BASE = process.env.API_BASE ?? "http://localhost:8080"
+const API_BASE = process.env.API_BASE ?? "http://localhost:8000"
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "tenantA"
 const TIMEOUT_MS = 60000 // chat may take longer with large context
 

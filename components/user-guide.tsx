@@ -30,7 +30,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
         <section className="space-y-4">
           <h2 className="text-2xl font-bold">Getting Started</h2>
           <p className="text-muted-foreground leading-relaxed">
-            AIO Generator V3.1 adds the R &amp; D Compound HSL Builder and Information Elements tracking to the production platform. It converts CSV data into Associated Information Objects (AIOs),
+            AIO Generator V3.2 adds the R &amp; D Compound HSL Builder and Information Elements tracking to the production platform. It converts CSV data into Associated Information Objects (AIOs),
             stores them in a dedicated PostgreSQL database, and provides semantic search, ChatAIO (AI-powered Q&amp;A via Claude), HSL relationship tracking,
             compound multi-field HSL queries, an Information Elements directory, saved prompts for recurring queries, and full system administration — all deployed as a self-contained production service.
           </p>
@@ -245,16 +245,13 @@ export function UserGuide({ onBack }: UserGuideProps) {
           </h2>
           <Card>
             <CardContent className="pt-6 space-y-3">
-              <p className="leading-relaxed">The System Admin panel provides full CRUD management of all data and configuration stored in the backend database.</p>
+              <p className="leading-relaxed">The System Admin panel provides full CRUD management of users, roles, AIO data, and HSL data stored in the backend database.</p>
               <ul className="list-disc list-inside space-y-2 text-muted-foreground">
-                <li><span className="font-semibold text-foreground">Users &amp; Roles:</span> Manage user accounts and role assignments</li>
-                <li><span className="font-semibold text-foreground">AIO Data:</span> Browse, search, and view all stored AIO records</li>
-                <li><span className="font-semibold text-foreground">HSL Data:</span> View and manage HSL relationship data</li>
-                <li><span className="font-semibold text-foreground">API Key:</span> Configure Anthropic API keys for ChatAIO</li>
-                <li><span className="font-semibold text-foreground">Saved CSVs &amp; AIOs:</span> View raw CSV and AIO data stored in the database</li>
-                <li><span className="font-semibold text-foreground">Saved Prompts:</span> Manage persistent ChatAIO prompts</li>
-                <li><span className="font-semibold text-foreground">Info Elements:</span> Browse field names, view all data values (eye icon), rebuild from AIOs</li>
-                <li><span className="font-semibold text-foreground">Architecture:</span> Interactive SVG diagram of the full AIO/HSL/MRO system architecture</li>
+                <li>Manage user accounts and role assignments</li>
+                <li>Browse, search, and view all stored AIO records</li>
+                <li>View and manage HSL relationship data</li>
+                <li>Configure API keys for ChatAIO integration</li>
+                <li>View raw CSV data stored in the database</li>
               </ul>
             </CardContent>
           </Card>
@@ -300,81 +297,18 @@ export function UserGuide({ onBack }: UserGuideProps) {
         </section>
 
         <section className="space-y-4">
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <Layers className="w-5 h-5 text-purple-600" />
-            Step 10: Memory Result Objects (MROs)
-          </h2>
-          <Card>
-            <CardContent className="pt-6 space-y-3">
-              <p className="leading-relaxed">MROs are the episodic memory layer of the Information Physics model. When you perform an AIO Search in ChatAIO, the query, matched HSLs, matched AIOs, and AI-generated answer can be saved as a persistent Memory Result Object.</p>
-              <ul className="list-disc list-inside space-y-2 text-muted-foreground">
-                <li>Click <span className="font-semibold text-foreground">&quot;Save MRO&quot;</span> in ChatAIO after an AIO Search response</li>
-                <li>The MRO is constructed with <span className="font-mono text-xs bg-muted px-1 rounded">[MROKey.HSL-n-AIO-m]</span> linking it to the HSLs and AIOs that produced the result</li>
-                <li>MRO structure: <span className="font-mono text-xs bg-muted px-1 rounded">MRO = &#x27E8; Q, S, C, O, R, P, L &#x27E9;</span> (Query, SearchTerms, Context, Output, References, Provenance, Links)</li>
-                <li>View saved MROs via <span className="font-semibold text-foreground">&quot;View MROs&quot;</span> button in ChatAIO</li>
-                <li>MROs create a recursive memory loop: past query results inform future searches</li>
-              </ul>
-              <div className="flex items-start gap-2 p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
-                <Layers className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium text-sm">Three-Layer Hierarchy</p>
-                  <p className="text-sm text-muted-foreground">
-                    AIOs (Layer 1: Observation) capture raw data. HSLs provide relational topology between AIOs.
-                    MROs (Layer 2: Recollection) capture the results of intelligent queries — forming episodic memory
-                    that grows with each interaction.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        <section className="space-y-4">
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <FileText className="w-5 h-5 text-primary" />
-            Step 11: PDF Import
-          </h2>
-          <Card>
-            <CardContent className="pt-6 space-y-3">
-              <p className="leading-relaxed">Import PDF documents (invoices, reports) and extract structured data using Claude AI. The extracted data is converted to CSV format for AIO generation.</p>
-              <ul className="list-disc list-inside space-y-2 text-muted-foreground">
-                <li>Click <span className="font-semibold text-foreground">&quot;Import PDFs → CSVs&quot;</span> on the main page</li>
-                <li>Upload one or more PDF files</li>
-                <li>Claude AI analyzes each page, extracting structured fields (vendor, amount, date, line items, etc.)</li>
-                <li>Results are presented as CSV data you can view and save</li>
-                <li>Saved CSVs can then be loaded into the AIO converter</li>
-              </ul>
-            </CardContent>
-          </Card>
-        </section>
-
-        <section className="space-y-4">
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <Database className="w-5 h-5 text-primary" />
-            Step 12: Architecture Diagram
-          </h2>
-          <Card>
-            <CardContent className="pt-6 space-y-3">
-              <p className="leading-relaxed">A complete interactive architecture diagram is available in <span className="font-semibold text-foreground">System Admin → Architecture</span> tab, showing the full AIO/HSL/MRO pipeline from data sources through episodic memory, including all database tables, API endpoints, and the recursive memory loop.</p>
-            </CardContent>
-          </Card>
-        </section>
-
-        <section className="space-y-4">
           <h2 className="text-2xl font-bold">Glossary</h2>
           <div className="grid gap-3">
             {[
-              { term: "AIO", definition: "Associated Information Object - a self-contained semantic data unit (Layer 1: Observation)" },
-              { term: "HSL", definition: "Hyper-Semantic Layer - relational topology linking AIOs that share common element values" },
-              { term: "MRO", definition: "Memory Result Object - episodic memory capturing query results with provenance (Layer 2: Recollection)" },
-              { term: "SKO", definition: "Structured Knowledge Object - governed abstraction from MRO convergence (Layer 3: Future)" },
-              { term: "ChatAIO", definition: "AI-powered conversational interface for querying AIO data using natural language via Send or AIO Search" },
-              { term: "AIO Search", definition: "Four-phase search algebra: Parse → Match HSLs → Gather AIOs → Answer with focused context" },
+              { term: "AIO", definition: "Associated Information Object - a self-contained semantic data unit" },
+              { term: "ChatAIO", definition: "AI-powered conversational interface for querying AIO data using natural language" },
+              { term: "Semantic Triple", definition: "A Subject-Predicate-Object statement that forms the basis of linked data" },
+              { term: "Element", definition: "A key-value pair within an AIO representing a single data attribute" },
+              { term: "Hyper-Semantic Logic", definition: "The processing engine that analyzes cross-references between AIOs" },
+              { term: "HSL File", definition: "Hyper-Semantic Layer file - a structured record of AIO relationships sharing a common element value, including provenance and timestamps" },
               { term: "Compound HSL", definition: "An HSL built from multiple field values using AND logic - only AIOs matching ALL selected values are included" },
-              { term: "Information Elements", definition: "A directory of all unique field names found across AIOs, with counts and data value browsing" },
-              { term: "Saved Prompts", definition: "Persistent prompt memory stored in PostgreSQL for reuse across sessions" },
+              { term: "Information Elements", definition: "A directory of all unique field names found across AIOs, with counts of how many AIOs contain each field" },
               { term: "CSV", definition: "Comma-Separated Values - the input format for data conversion" },
-              { term: "PDF Import", definition: "Claude AI-powered extraction of structured data from PDF documents into CSV format" },
             ].map((item) => (
               <Card key={item.term}>
                 <CardContent className="py-3 px-4 flex items-start gap-3">

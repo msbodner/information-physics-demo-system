@@ -135,12 +135,10 @@ export function ReferencePage({ onBack }: ReferencePageProps) {
               </p>
               <div className="grid gap-3 mt-2">
                 {[
-                  { title: "Layer 1: Observation (AIOs)", desc: "Raw data captured as self-describing bracket-notation objects — each CSV row becomes an immutable AIO" },
-                  { title: "Relational Topology (HSLs)", desc: "Hyper-Semantic Layers link AIOs sharing common element values — single-element and compound AND-logic queries" },
-                  { title: "Layer 2: Recollection (MROs)", desc: "Memory Result Objects capture AI query results with full provenance — episodic memory that grows with each interaction" },
-                  { title: "Layer 3: Knowledge (SKOs — Future)", desc: "Structured Knowledge Objects — governed abstractions promoted from converging MRO patterns" },
-                  { title: "Intelligent Retrieval (ChatAIO)", desc: "AI-powered search with two modes: broad context (Send) and targeted 4-phase algebra (AIO Search)" },
-                  { title: "Recursive Memory Loop", desc: "MROs feed back as new data sources, enabling the system to learn from its own query history" },
+                  { title: "Data Normalization", desc: "Converts heterogeneous data formats into uniform AIO structures" },
+                  { title: "Semantic Indexing", desc: "Indexes all elements for rapid cross-reference queries" },
+                  { title: "Relationship Discovery", desc: "Identifies connections between AIOs through shared element values" },
+                  { title: "Query Interface", desc: "Provides semantic search capabilities across the AIO collection" },
                 ].map((item) => (
                   <div key={item.title} className="flex items-start gap-3 p-3 bg-muted rounded-lg">
                     <Cpu className="w-4 h-4 text-primary shrink-0 mt-1" />
@@ -181,52 +179,6 @@ export function ReferencePage({ onBack }: ReferencePageProps) {
                 <p>{""}</p>
                 <p>{"Intersection: AIO_0001 shares both attributes"}</p>
               </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        <section className="space-y-4">
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <Layers className="w-5 h-5 text-purple-600" />
-            Memory Result Objects (MROs)
-          </h2>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">MRO Formal Structure</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="leading-relaxed">
-                An MRO captures the complete provenance of an AI-driven query result. It is defined as a 7-tuple:
-              </p>
-              <div className="bg-muted rounded-lg p-4 font-mono text-sm space-y-1">
-                <p>{"MRO = ⟨ Q, S, C, O, R, P, L ⟩"}</p>
-                <p className="text-muted-foreground">{"  Q = Query (original user prompt)"}</p>
-                <p className="text-muted-foreground">{"  S = Search Terms (parsed field_values + keywords)"}</p>
-                <p className="text-muted-foreground">{"  C = Context (matched AIO records)"}</p>
-                <p className="text-muted-foreground">{"  O = Output (AI-generated response)"}</p>
-                <p className="text-muted-foreground">{"  R = References (matched HSL names)"}</p>
-                <p className="text-muted-foreground">{"  P = Provenance (timestamp, model, tenant)"}</p>
-                <p className="text-muted-foreground">{"  L = Links (MROKey linking to source HSLs/AIOs)"}</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">MRO Key &amp; Lifecycle</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="leading-relaxed">
-                Each MRO is assigned a key in the format <code className="bg-muted px-1 rounded font-mono text-xs">[MROKey.HSL-n-AIO-m]</code> where
-                n is the count of matched HSLs and m is the count of matched AIOs. This key links the MRO back to its source data.
-              </p>
-              <p className="leading-relaxed text-muted-foreground">
-                The MRO lifecycle follows: <strong>Creation</strong> (AIO Search query) → <strong>Storage</strong> (PostgreSQL mro_objects table) →
-                <strong> Retrieval</strong> (View MROs in ChatAIO) → <strong>Feedback</strong> (recursive memory loop where past results inform future queries).
-              </p>
-              <p className="leading-relaxed text-muted-foreground">
-                MROs represent the second layer of the Information Physics hierarchy — while AIOs capture raw observation and HSLs capture relational topology,
-                MROs capture the episodic memory of intelligent interaction with the data.
-              </p>
             </CardContent>
           </Card>
         </section>

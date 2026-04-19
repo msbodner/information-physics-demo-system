@@ -1,14 +1,12 @@
 {
-  "name": "information-physics-demo-system",
-  "version": "3.1.0",
+  "name": "my-project",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
-    "electron:dev": "cd electron && npm start",
-    "electron:build": "cd electron && npm run prepare-resources && npm run dist"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

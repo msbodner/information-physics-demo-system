@@ -287,8 +287,8 @@ export async function deleteRole(roleId: string): Promise<boolean> {
 }
 
 // AIO Data
-export async function listAioData(limit = 1000): Promise<AioDataRecord[]> {
-  const result = await safeFetch<AioDataRecord[]>(`/api/aio-data?limit=${limit}`)
+export async function listAioData(): Promise<AioDataRecord[]> {
+  const result = await safeFetch<AioDataRecord[]>("/api/aio-data")
   return result ?? []
 }
 
@@ -314,8 +314,8 @@ export async function deleteAioData(aioId: string): Promise<boolean> {
 }
 
 // HSL Data
-export async function listHslData(limit = 1000): Promise<HslDataRecord[]> {
-  const result = await safeFetch<HslDataRecord[]>(`/api/hsl-data?limit=${limit}`)
+export async function listHslData(): Promise<HslDataRecord[]> {
+  const result = await safeFetch<HslDataRecord[]>("/api/hsl-data")
   return result ?? []
 }
 
@@ -396,26 +396,6 @@ export async function updateApiKeySetting(apiKey: string): Promise<{ ok: boolean
   })
 }
 
-// Storage settings (AIO/HSL/MRO/PDF directories)
-export interface StorageSettings {
-  aio_dir: string
-  hsl_dir: string
-  mro_dir: string
-  pdf_dir: string
-}
-
-export async function getStorageSettings(): Promise<StorageSettings | null> {
-  return safeFetch<StorageSettings>("/api/settings/storage")
-}
-
-export async function updateStorageSettings(patch: Partial<StorageSettings>): Promise<{ ok: boolean; updated: number } | null> {
-  return safeFetch<{ ok: boolean; updated: number }>("/api/settings/storage", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  })
-}
-
 // Information Elements
 export interface InformationElement {
   element_id: string
@@ -476,8 +456,8 @@ export interface MroObject {
   updated_at: string
 }
 
-export async function listMroObjects(limit = 1000): Promise<MroObject[]> {
-  const result = await safeFetch<MroObject[]>(`/api/mro-objects?limit=${limit}`)
+export async function listMroObjects(): Promise<MroObject[]> {
+  const result = await safeFetch<MroObject[]>("/api/mro-objects")
   return result ?? []
 }
 
@@ -503,51 +483,6 @@ export async function createMroObject(data: {
 export async function deleteMroObject(id: string): Promise<boolean> {
   const result = await safeFetch<{ deleted: string }>(`/api/mro-objects/${id}`, { method: "DELETE" })
   return result !== null
-}
-
-// ── AI Field Maps ──────────────────────────────────────────────────
-export interface FieldMapMember {
-  member_id: string
-  field_name: string
-}
-
-export interface FieldMapKey {
-  key_id: string
-  fuzzy_key: string
-  description: string | null
-  members: FieldMapMember[]
-  created_at: string
-  updated_at: string
-}
-
-export async function listFieldMaps(): Promise<FieldMapKey[]> {
-  const result = await safeFetch<FieldMapKey[]>("/api/field-maps")
-  return result ?? []
-}
-
-export async function createFieldMap(data: { fuzzy_key: string; description?: string; field_names: string[] }): Promise<FieldMapKey | null> {
-  return safeFetch<FieldMapKey>("/api/field-maps", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  })
-}
-
-export async function updateFieldMap(id: string, data: { fuzzy_key?: string; description?: string; field_names?: string[] }): Promise<FieldMapKey | null> {
-  return safeFetch<FieldMapKey>(`/api/field-maps/${id}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  })
-}
-
-export async function deleteFieldMap(id: string): Promise<boolean> {
-  const result = await safeFetch<{ deleted: string }>(`/api/field-maps/${id}`, { method: "DELETE" })
-  return result !== null
-}
-
-export async function generateFieldMaps(): Promise<{ maps: FieldMapKey[]; count: number; model_ref: string } | null> {
-  return safeFetch<{ maps: FieldMapKey[]; count: number; model_ref: string }>("/api/op/generate-field-maps", { method: "POST" })
 }
 
 // PDF extraction

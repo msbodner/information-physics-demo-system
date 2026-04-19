@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-const API_BASE = process.env.API_BASE ?? "http://localhost:8080"
+const API_BASE = process.env.API_BASE ?? "http://localhost:8000"
 
 export async function POST(request: NextRequest) {
   try {
