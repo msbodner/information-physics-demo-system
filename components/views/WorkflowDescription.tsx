@@ -49,7 +49,7 @@ export function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void
           <div className="space-y-6">
             {activeSection === "overview" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />End-to-End AIO Workflow</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p>AIO Generator V3.2 is the production release — a self-contained platform with its own FastAPI backend and PostgreSQL database. It converts CSV files into Associated Information Objects through a full-stack pipeline. Each stage is described in detail in the sections to the left. At a high level, the flow is:</p>
+                <p>AIO Generator V3.4 is the production release — a self-contained platform with its own FastAPI backend and PostgreSQL database. It converts CSV files into Associated Information Objects through a full-stack pipeline. Each stage is described in detail in the sections to the left. At a high level, the flow is:</p>
                 <ol className="list-decimal list-inside space-y-2">
                   <li><strong>Upload:</strong> User selects one or more <code className="bg-muted px-1 rounded">.csv</code> files via drag-and-drop or file picker.</li>
                   <li><strong>Duplicate check:</strong> If the backend is online, filenames are compared against already-saved CSVs; duplicates are rejected with an error toast.</li>

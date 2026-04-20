@@ -1554,7 +1554,7 @@ function ArchitecturePane() {
           <rect x="920" y="693" width="14" height="14" rx="2" fill="#FEF9C3" stroke="#CA8A04" strokeWidth="1.5" strokeDasharray="3,2"/><text x="940" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#854D0E" fontWeight="bold">SKOs</text><text x="970" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">Future abstractions</text>
           <line x1="1100" y1="700" x2="1130" y2="700" stroke="#DC2626" strokeWidth="2.5" strokeDasharray="5,3"/><text x="1140" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#DC2626" fontWeight="bold">Recursive Loop</text><text x="1240" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">MROs feed back</text>
 
-          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO System App V3.2</text>
+          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO System App V3.4</text>
         </svg>
       </div>
     </div>

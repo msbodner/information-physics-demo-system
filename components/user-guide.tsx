@@ -30,7 +30,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
         <section className="space-y-4">
           <h2 className="text-2xl font-bold">Getting Started</h2>
           <p className="text-muted-foreground leading-relaxed">
-            AIO Generator V3.2 adds the R &amp; D Compound HSL Builder and Information Elements tracking to the production platform. It converts CSV data into Associated Information Objects (AIOs),
+            AIO Generator V3.4 adds the R &amp; D Compound HSL Builder and Information Elements tracking to the production platform. It converts CSV data into Associated Information Objects (AIOs),
             stores them in a dedicated PostgreSQL database, and provides semantic search, ChatAIO (AI-powered Q&amp;A via Claude), HSL relationship tracking,
             compound multi-field HSL queries, an Information Elements directory, saved prompts for recurring queries, and full system administration — all deployed as a self-contained production service.
           </p>
