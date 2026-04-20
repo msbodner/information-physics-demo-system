@@ -490,7 +490,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                   </div>
 
                   <div className="rounded-lg border p-4 space-y-2">
-                    <h3 className="font-semibold text-lg">Two Search Modes</h3>
+                    <h3 className="font-semibold text-lg">Three Search Modes</h3>
                     <div className="space-y-3">
                       <div>
                         <p className="text-sm font-semibold">Send (Broad Search)</p>
@@ -506,6 +506,18 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                           <li><span className="font-medium text-foreground">Answer:</span> Responds using ONLY the focused AIO subset</li>
                         </ol>
                         <p className="text-sm text-muted-foreground mt-1">If no HSLs match, falls back to direct element-level search across all AIOs. The response footer shows how many HSLs and AIOs were matched.</p>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-purple-600">🧠 Substrate Mode (Paper III Pipeline) — purple button</p>
+                        <p className="text-sm text-muted-foreground">The most precise retrieval mode. Implements the full 5-step Information Physics pipeline:</p>
+                        <ol className="list-decimal list-inside text-sm text-muted-foreground ml-2 mt-1 space-y-1">
+                          <li><span className="font-medium text-foreground">Cue Extraction:</span> Deterministically extracts semantic cues from your query</li>
+                          <li><span className="font-medium text-foreground">HSL Traversal:</span> Computes N(K) = ⋂ H(k) — the intersection of AIO neighborhoods for each cue</li>
+                          <li><span className="font-medium text-foreground">MRO Pre-fetch:</span> Ranks prior Memory Result Objects by Jaccard × freshness × confidence</li>
+                          <li><span className="font-medium text-foreground">Context Assembly:</span> Builds a tiered context bundle from matched AIOs and MRO priors</li>
+                          <li><span className="font-medium text-foreground">MRO Capture:</span> Automatically saves the answer as a new MRO in the information universe</li>
+                        </ol>
+                        <p className="text-sm text-muted-foreground mt-1">The response footer shows: cues extracted, AIOs in neighborhood, MRO priors used, and whether an MRO was saved. The Substrate button activates once the AIO corpus is loaded (a moment after opening ChatAIO).</p>
                       </div>
                     </div>
                   </div>
@@ -526,6 +538,8 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                     <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
                       <li><span className="font-medium text-foreground">Chat:</span> Download the full chat session as a Markdown file</li>
                       <li><span className="font-medium text-foreground">PDF:</span> Generate and preview a PDF report of the conversation with print/save options</li>
+                      <li><span className="font-medium text-foreground">Save MRO:</span> Manually save the last AI response as a Memory Result Object</li>
+                      <li><span className="font-medium text-foreground">View MROs:</span> Browse all saved Memory Result Objects</li>
                       <li><span className="font-medium text-foreground">Guide:</span> Open this ChatAIO user guide</li>
                       <li><span className="font-medium text-foreground">Close:</span> Close ChatAIO and return to the home page</li>
                     </ul>
@@ -549,6 +563,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                     <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
                       <li>Use <span className="font-medium text-foreground">Send</span> for broad exploratory questions across all data</li>
                       <li>Use <span className="font-medium text-foreground">AIO Search</span> when asking about specific people, projects, or entities</li>
+                      <li>Use <span className="font-medium text-purple-600 font-semibold">Substrate</span> (purple button, right side of input bar) for the full Paper III pipeline — most precise, auto-saves MRO</li>
                       <li>Press <span className="font-medium text-foreground">Enter</span> to quick-send with the Send button</li>
                       <li>ChatAIO requires a valid Anthropic API key configured in System Admin → API Key</li>
                       <li>Responses include markdown tables when relevant — they render as formatted tables in the chat</li>
