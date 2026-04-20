@@ -112,13 +112,25 @@ export function extractCues(
     else push(field)   // key-only cue (wildcard)
   }
 
-  // 1c. Match values that appear directly in the query (value-only cues).
-  //     We match against the known vocabulary for precision.
+  // 1c. Match values from the vocabulary against individual query tokens.
+  //
+  //     The original check (q.includes(v)) only works when the full vocabulary
+  //     value is a substring of the query — e.g. query "Vance" vs. vocabulary
+  //     value "Vance Mitchell" fails because "Vance" ⊄ "Vance Mitchell" when
+  //     checked as q.includes(v).  We need the reverse check too: any query
+  //     token that appears inside a vocabulary value triggers a cue for that
+  //     value.  This mirrors the ILIKE %token% behaviour of AIO Search.
+  const qWords = q.split(/[\s,;:?!()\[\]]+/).filter((w) => w.length >= 3)
   for (const value of valueVocabulary) {
     if (value.length < 3) continue
     const v = value.toLowerCase()
+    // Forward: full value appears in the query
     if (q.includes(v)) {
-      // Emit as wildcard-key cue so it intersects every HSL that uses this value
+      push("*", value)
+      continue
+    }
+    // Reverse: any query word appears inside this vocabulary value
+    if (qWords.some((w) => v.includes(w))) {
       push("*", value)
     }
   }
@@ -151,35 +163,53 @@ export function traverseHSL(
 
   const hslNames: string[] = []
 
-  // Compute H(k) for each cue.
-  const sets: Set<string>[] = cues.map((cue) => {
+  // Score each AIO by how many cues it satisfies.
+  // Matching is case-insensitive so that vocabulary values like "Vance Mitchell"
+  // match AIO elements stored in any casing variant.
+  const scores = new Map<string, number>()
+  for (const aio of aios) scores.set(aio.raw, 0)
+
+  for (const cue of cues) {
     hslNames.push(cue.raw)
-    const match = new Set<string>()
+    const cueKey = cue.key.toLowerCase()
+    const cueVal = cue.value?.toLowerCase()
+
     for (const aio of aios) {
+      let hit = false
       for (const el of aio.elements) {
-        if (cue.key === "*" && cue.value !== undefined) {
-          if (el.value === cue.value) match.add(aio.raw)
-        } else if (cue.value === undefined) {
-          if (el.key === cue.key) match.add(aio.raw)
+        const elKey = el.key.toLowerCase()
+        const elVal = el.value.toLowerCase()
+
+        if (cue.key === "*" && cueVal !== undefined) {
+          // Value-only cue: match any field whose value contains the cue value
+          if (elVal.includes(cueVal) || cueVal.includes(elVal)) { hit = true; break }
+        } else if (cueVal === undefined) {
+          // Key-only (wildcard) cue: any element with this field name
+          if (elKey === cueKey) { hit = true; break }
         } else {
-          if (el.key === cue.key && el.value === cue.value) match.add(aio.raw)
+          // Key+value cue: exact field, substring value
+          if (elKey === cueKey && (elVal.includes(cueVal) || cueVal.includes(elVal))) {
+            hit = true; break
+          }
         }
       }
+      if (hit) scores.set(aio.raw, (scores.get(aio.raw) ?? 0) + 1)
     }
-    return match
-  })
-
-  // Compute the intersection ⋂ sets.
-  if (sets.length === 0) return { matches: [], hslNames }
-  let intersection = new Set(sets[0])
-  for (let i = 1; i < sets.length; i++) {
-    const next = new Set<string>()
-    for (const raw of intersection) if (sets[i].has(raw)) next.add(raw)
-    intersection = next
   }
 
-  const matches = aios.filter((a) => intersection.has(a.raw))
-  return { matches, hslNames }
+  // Primary result: strict intersection — AIOs satisfying ALL cues.
+  const maxScore = cues.length
+  const strict = aios.filter((a) => (scores.get(a.raw) ?? 0) === maxScore)
+  if (strict.length > 0) {
+    return { matches: strict, hslNames }
+  }
+
+  // Fallback: ranked union — return AIOs satisfying at least one cue,
+  // sorted by score descending so the most-relevant evidence ranks first.
+  const union = aios
+    .filter((a) => (scores.get(a.raw) ?? 0) > 0)
+    .sort((a, b) => (scores.get(b.raw) ?? 0) - (scores.get(a.raw) ?? 0))
+  return { matches: union, hslNames }
 }
 
 // ── 3. MRO similarity (Jaccard) ──────────────────────────────────────

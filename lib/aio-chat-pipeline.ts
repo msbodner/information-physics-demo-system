@@ -113,6 +113,8 @@ export async function runChatPipeline(
     maxAios?: number
     saveMRO?: boolean
     history?: ChatMessage[]
+    /** Pre-loaded MRO objects — avoids a network round-trip on every call. */
+    cachedMros?: ReturnType<typeof listMroObjects> extends Promise<infer T> ? T : never
   } = {},
 ): Promise<PipelineResult | { error: string }> {
   // Step 1 — cue extraction
@@ -120,8 +122,8 @@ export async function runChatPipeline(
   const vocab = buildValueVocabulary(aios)
   const cues = extractCues(query, fields, vocab)
 
-  // Step 2-3 — load prior MROs and assemble the bundle
-  const priorMroObjects = await listMroObjects().catch(() => [])
+  // Step 2-3 — use cached MROs if provided, otherwise fetch
+  const priorMroObjects = options.cachedMros ?? await listMroObjects().catch(() => [])
   const priorMROs: MRO[] = priorMroObjects
     .map(mroObjectToMRO)
     .filter((m): m is MRO => m !== null)

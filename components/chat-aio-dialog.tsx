@@ -220,6 +220,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   const [lastSearchMeta, setLastSearchMeta] = useState<{ matched_hsls: number; matched_aios: number; search_terms: string; seed_hsls: string } | null>(null)
   const [substrateAios, setSubstrateAios] = useState<ParsedAio[]>([])
   const [substrateReady, setSubstrateReady] = useState(false)
+  const [substrateCache, setSubstrateCache] = useState<{ mros: MroObject[] } | null>(null)
   const [lastSubstrateMeta, setLastSubstrateMeta] = useState<{ cues: number; neighborhood: number; priors: number; mroSaved: boolean } | null>(null)
   const [lastPerfMetrics, setLastPerfMetrics] = useState<{ elapsedMs: number; inputTokens: number; outputTokens: number; searchMode: string } | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -228,10 +229,14 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [chatMessages, isChatLoading])
 
-  // Load AIO corpus into substrate cache when the dialog opens (for Substrate Mode)
+  // Load AIO corpus + MRO cache when the dialog opens (for Substrate Mode).
+  // Both are fetched in parallel so the first Substrate query pays no extra latency.
   useEffect(() => {
     if (!open || substrateReady) return
-    listAioData().then((records: AioDataRecord[]) => {
+    Promise.all([
+      listAioData().catch(() => [] as AioDataRecord[]),
+      listMroObjects().catch(() => [] as MroObject[]),
+    ]).then(([records, mros]) => {
       const parsed: ParsedAio[] = records.map((r) => {
         const raw = r.elements.filter(Boolean).join("")
         const csvRoot = r.aio_name.replace(/\s*-\s*Row\s*\d+$/i, "").replace(/\.csv$/i, "") || "backend"
@@ -240,8 +245,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         return { fileName: r.aio_name, elements: parseAioLine(raw), raw, csvRoot, lineNumber }
       })
       setSubstrateAios(parsed)
+      setSubstrateCache({ mros })
       setSubstrateReady(true)
-    }).catch(() => setSubstrateReady(true))
+    })
   }, [open, substrateReady])
 
   useEffect(() => {
@@ -343,6 +349,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       maxPriors: 3,
       maxAios: 40,
       saveMRO: true,
+      cachedMros: substrateCache?.mros,
     })
     const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
@@ -368,8 +375,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         mroSaved: result.mro_saved,
       })
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "Substrate" })
+      // Refresh MRO cache so the newly saved MRO is available as a prior next query
+      if (result.mro_saved) {
+        listMroObjects().then((mros) => setSubstrateCache({ mros })).catch(() => {})
+      }
     }
-  }, [chatInput, chatMessages, isChatLoading, substrateAios])
+  }, [chatInput, chatMessages, isChatLoading, substrateAios, substrateCache])
 
   const handleDownloadChat = useCallback(() => {
     if (chatMessages.length === 0) return
