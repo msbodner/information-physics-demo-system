@@ -35,6 +35,8 @@ export interface PipelineResult {
   priors_used: ScoredMRO[]      // MROs surfaced as priors
   mro_saved: boolean            // did we persist a new MRO
   model_ref: string
+  input_tokens: number
+  output_tokens: number
   cost: {
     cues: number                // |K|
     neighborhood: number        // |N(K)|
@@ -177,6 +179,8 @@ export async function runChatPipeline(
     priors_used: bundle.mro_priors,
     mro_saved: mroSaved,
     model_ref: chatResponse.model_ref,
+    input_tokens: chatResponse.input_tokens ?? 0,
+    output_tokens: chatResponse.output_tokens ?? 0,
     cost: {
       cues: cues.length,
       neighborhood: bundle.traversal_cost,

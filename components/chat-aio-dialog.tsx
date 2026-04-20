@@ -221,6 +221,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   const [substrateAios, setSubstrateAios] = useState<ParsedAio[]>([])
   const [substrateReady, setSubstrateReady] = useState(false)
   const [lastSubstrateMeta, setLastSubstrateMeta] = useState<{ cues: number; neighborhood: number; priors: number; mroSaved: boolean } | null>(null)
+  const [lastPerfMetrics, setLastPerfMetrics] = useState<{ elapsedMs: number; inputTokens: number; outputTokens: number; searchMode: string } | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
   const pdfIframeRef = useRef<HTMLIFrameElement>(null)
@@ -276,7 +277,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     setChatInput("")
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
     setIsChatLoading(true)
+    const t0 = Date.now()
     const result = await chatWithAIO(next)
+    const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
     if (!result) {
       setChatMessages([...next, { role: "assistant", content: "❌ Backend unreachable. Check your Railway deployment." }])
@@ -286,7 +289,11 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         ? "❌ Anthropic API key not configured.\n\nGo to System Admin → API Key tab and paste your key (starts with sk-ant-…)."
         : `❌ ${result.error}` }])
     } else {
-      setChatMessages([...next, { role: "assistant", content: result.reply }])
+      const inTok = result.input_tokens ?? 0
+      const outTok = result.output_tokens ?? 0
+      const perfLine = `\n\n---\n_⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
+      setChatMessages([...next, { role: "assistant", content: result.reply + perfLine }])
+      setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "Send" })
     }
   }, [chatInput, chatMessages, isChatLoading])
 
@@ -298,14 +305,18 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     setChatInput("")
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
     setIsChatLoading(true)
+    const t0 = Date.now()
     const result = await aioSearchChat(next)
+    const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
     if (!result) {
       setChatMessages([...next, { role: "assistant", content: "Backend unreachable." }])
     } else if ("error" in result) {
       setChatMessages([...next, { role: "assistant", content: `Error: ${result.error}` }])
     } else {
-      const meta = `\n\n---\n_AIO Search: ${result.matched_hsls} HSLs matched, ${result.matched_aios} AIOs in context_`
+      const inTok = result.input_tokens ?? 0
+      const outTok = result.output_tokens ?? 0
+      const meta = `\n\n---\n_AIO Search: ${result.matched_hsls} HSLs matched · ${result.matched_aios} AIOs in context · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
       setChatMessages([...next, { role: "assistant", content: result.reply + meta }])
       setLastSearchMeta({
         matched_hsls: result.matched_hsls,
@@ -313,6 +324,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         search_terms: typeof result.search_terms === "string" ? result.search_terms : JSON.stringify(result.search_terms || {}),
         seed_hsls: `${result.matched_hsls} HSLs`
       })
+      setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "AIOSearch" })
     }
   }, [chatInput, chatMessages, isChatLoading])
 
@@ -325,12 +337,14 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
     setIsChatLoading(true)
     const history = chatMessages
+    const t0 = Date.now()
     const result = await runChatPipeline(text, substrateAios, {
       history,
       maxPriors: 3,
       maxAios: 40,
       saveMRO: true,
     })
+    const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
     if ("error" in result) {
       const isKeyMissing = result.error.toLowerCase().includes("api_key") || result.error.toLowerCase().includes("not configured")
@@ -338,11 +352,14 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         ? "❌ Anthropic API key not configured.\n\nGo to System Admin → API Key tab and paste your key (starts with sk-ant-…)."
         : `❌ ${result.error}` }])
     } else {
+      const inTok = result.input_tokens ?? 0
+      const outTok = result.output_tokens ?? 0
       const meta =
-        `\n\n---\n_Substrate pipeline: ${result.cost.cues} cues → ` +
+        `\n\n---\n_Substrate: ${result.cost.cues} cues → ` +
         `${result.cost.neighborhood} AIOs in neighborhood · ` +
-        `${result.cost.priors} MRO priors used · ` +
-        `${result.mro_saved ? "MRO saved" : "MRO not saved"}_`
+        `${result.cost.priors} priors · ` +
+        `${result.mro_saved ? "MRO saved" : "MRO not saved"} · ` +
+        `⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
       setChatMessages([...next, { role: "assistant", content: result.reply + meta }])
       setLastSubstrateMeta({
         cues: result.cost.cues,
@@ -350,6 +367,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         priors: result.cost.priors,
         mroSaved: result.mro_saved,
       })
+      setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "Substrate" })
     }
   }, [chatInput, chatMessages, isChatLoading, substrateAios])
 
@@ -401,6 +419,13 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       `[MatchedAIOs.${lastSearchMeta?.matched_aios || 0}]`,
       `[Confidence.derived]`,
       `[Timestamp.${new Date().toISOString()}]`,
+      ...(lastPerfMetrics ? [
+        `[SearchMode.${lastPerfMetrics.searchMode}]`,
+        `[ElapsedMs.${lastPerfMetrics.elapsedMs}]`,
+        `[InputTokens.${lastPerfMetrics.inputTokens}]`,
+        `[OutputTokens.${lastPerfMetrics.outputTokens}]`,
+        `[TotalTokens.${lastPerfMetrics.inputTokens + lastPerfMetrics.outputTokens}]`,
+      ] : []),
     ]
     let searchTermsParsed: Record<string, unknown> = {}
     try {
@@ -425,7 +450,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       console.error("MRO save error:", err)
       toast.error("Failed to save MRO")
     }
-  }, [chatMessages, lastSearchMeta])
+  }, [chatMessages, lastSearchMeta, lastPerfMetrics])
 
   const handleLoadMros = useCallback(async () => {
     setShowMroViewer(true)

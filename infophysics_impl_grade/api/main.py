@@ -166,6 +166,8 @@ class ChatResponse(BaseModel):
     reply: str
     model_ref: str
     context_records: int
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class AioSearchResponse(BaseModel):
@@ -175,6 +177,8 @@ class AioSearchResponse(BaseModel):
     matched_hsls: int
     matched_aios: int
     search_terms: Dict[str, Any]
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 # User management models
@@ -568,6 +572,8 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
             messages=[{"role": m.role, "content": m.content} for m in payload.messages],
         )
         reply_text = response.content[0].text
+        in_tok = getattr(response.usage, "input_tokens", 0) or 0
+        out_tok = getattr(response.usage, "output_tokens", 0) or 0
     except Exception as exc:
         logger.exception("Anthropic API error during chat")
         raise HTTPException(status_code=502, detail=f"LLM error: {str(exc)}")
@@ -576,6 +582,8 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
         reply=reply_text,
         model_ref="claude-sonnet-4-6",
         context_records=len(aio_lines) + len(hsl_blocks),
+        input_tokens=in_tok,
+        output_tokens=out_tok,
     )
 
 
@@ -632,9 +640,13 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
             if raw_json.startswith("json"):
                 raw_json = raw_json[4:]
         search_terms = json.loads(raw_json)
+        parse_in_tok = getattr(parse_response.usage, "input_tokens", 0) or 0
+        parse_out_tok = getattr(parse_response.usage, "output_tokens", 0) or 0
     except Exception:
         logger.warning("Failed to parse search terms, falling back to keyword split")
         search_terms = {"field_values": [], "keywords": user_prompt.split()}
+        parse_in_tok = 0
+        parse_out_tok = 0
 
     logger.info("AIO Search parsed terms: %s", search_terms)
 
@@ -738,6 +750,8 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
             messages=[{"role": m.role, "content": m.content} for m in payload.messages],
         )
         reply_text = answer_response.content[0].text
+        ans_in_tok = getattr(answer_response.usage, "input_tokens", 0) or 0
+        ans_out_tok = getattr(answer_response.usage, "output_tokens", 0) or 0
     except Exception as exc:
         logger.exception("Anthropic API error during AIO search answer")
         raise HTTPException(status_code=502, detail=f"LLM error: {str(exc)}")
@@ -749,6 +763,8 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
         matched_hsls=len(matched_hsl_rows),
         matched_aios=len(matched_aio_lines),
         search_terms=search_terms,
+        input_tokens=parse_in_tok + ans_in_tok,
+        output_tokens=parse_out_tok + ans_out_tok,
     )
 
 

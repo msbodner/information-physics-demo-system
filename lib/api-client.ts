@@ -117,6 +117,8 @@ export interface ChatResponse {
   reply: string
   model_ref: string
   context_records: number
+  input_tokens: number
+  output_tokens: number
 }
 
 export async function chatWithAIO(messages: ChatMessage[]): Promise<ChatResponse | { error: string } | null> {
@@ -146,6 +148,8 @@ export interface AioSearchResponse {
   matched_hsls: number
   matched_aios: number
   search_terms: Record<string, unknown>
+  input_tokens: number
+  output_tokens: number
 }
 
 export async function aioSearchChat(messages: ChatMessage[]): Promise<AioSearchResponse | { error: string } | null> {
