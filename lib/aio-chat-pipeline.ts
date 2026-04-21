@@ -149,12 +149,8 @@ export async function runChatPipeline(
   // Falls back to the standard chat endpoint if substrate-chat is not yet
   // deployed on this backend (e.g. during a rolling Railway deploy).
   let chatResponse = await substrateChatWithAIO(messages, bundleText)
-  if (
-    chatResponse &&
-    "error" in chatResponse &&
-    (chatResponse.error.includes("404") || chatResponse.error.includes("not found") ||
-     chatResponse.error.includes("backend_unavailable"))
-  ) {
+  const errLower = (chatResponse && "error" in chatResponse) ? chatResponse.error.toLowerCase() : ""
+  if (errLower.includes("404") || errLower.includes("not found") || errLower.includes("backend_unavailable")) {
     // Fallback: inject bundle as the first user message so Claude still sees it
     const fallbackMessages: ChatMessage[] = [
       { role: "user", content: "Use the following precomputed substrate as your evidence:\n\n" + bundleText },
