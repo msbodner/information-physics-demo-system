@@ -1,8 +1,9 @@
 "use client"
 
+import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowLeft, BookOpen, FileText, Upload, Download, Cpu, Layers, Database, Zap, ChevronRight, Brain, GitMerge } from "lucide-react"
+import { ArrowLeft, BookOpen, FileText, Upload, Download, Cpu, Layers, Database, Zap, ChevronRight, Brain, GitMerge, Network } from "lucide-react"
 
 interface UserGuideProps {
   onBack: () => void
@@ -292,6 +293,37 @@ export function UserGuide({ onBack }: UserGuideProps) {
               </div>
             </CardContent>
           </Card>
+        </section>
+
+        <section className="space-y-4">
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Network className="w-5 h-5 text-violet-500" />
+            Topology Reference: Vance HSL → AIO → MRO String
+          </h2>
+          <p className="text-muted-foreground leading-relaxed">
+            The diagram below shows a real traversal from the production corpus — query <span className="font-mono text-xs bg-muted px-1 rounded">"Laura Vance"</span> → cue extraction → 20 matched HSLs → gathered AIO records → MRO capture → back-links written into HSL element slots. The orange dashed lines are the <span className="font-semibold text-foreground">"string"</span> — the MRO&apos;s UUID written as <span className="font-mono text-xs bg-muted px-1 rounded">[MRO.abee76dc]</span> into each matched HSL, creating a permanent retrieval thread for future queries.
+          </p>
+          <Card className="overflow-hidden p-0">
+            <CardContent className="p-0">
+              <div className="w-full overflow-x-auto bg-[#0f172a] rounded-lg">
+                <img
+                  src="/vance-topology.svg"
+                  alt="Vance HSL–AIO–MRO topology diagram showing query traversal, HSL neighborhood, AIO nodes, and MRO back-links"
+                  className="w-full min-w-[900px]"
+                  style={{ display: "block" }}
+                />
+              </div>
+            </CardContent>
+          </Card>
+          <div className="flex items-start gap-2 p-3 bg-violet-500/10 rounded-lg border border-violet-500/20">
+            <Network className="w-5 h-5 text-violet-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">Reading the diagram</p>
+              <p className="text-sm text-muted-foreground">
+                <span className="font-semibold text-indigo-400">Blue/indigo nodes</span> = HSL records. <span className="font-semibold text-teal-400">Teal nodes</span> = Contact/Lead AIOs. <span className="font-semibold text-amber-400">Amber nodes</span> = Project AIOs. <span className="font-semibold text-violet-400">Violet node</span> = the captured MRO. <span className="font-semibold text-orange-400">Orange dashed lines</span> = MRO back-links written into HSL slots — these are the "strings" that make the next query over the same HSLs surface this MRO as Tier-1 context.
+              </p>
+            </div>
+          </div>
         </section>
 
         <section className="space-y-4">
