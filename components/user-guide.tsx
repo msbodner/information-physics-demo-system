@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowLeft, BookOpen, FileText, Upload, Download, Cpu, Layers, Database, Zap, ChevronRight } from "lucide-react"
+import { ArrowLeft, BookOpen, FileText, Upload, Download, Cpu, Layers, Database, Zap, ChevronRight, Brain, GitMerge } from "lucide-react"
 
 interface UserGuideProps {
   onBack: () => void
@@ -240,8 +240,64 @@ export function UserGuide({ onBack }: UserGuideProps) {
 
         <section className="space-y-4">
           <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Brain className="w-5 h-5 text-violet-500" />
+            Step 7: MRO Reuse Model — Self-Improving Retrieval
+          </h2>
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <p className="leading-relaxed">
+                Every ChatAIO response is automatically persisted as a <span className="font-semibold">Memory Result Object (MRO)</span> — a structured record of the query, the evidence used, and the answer produced. MROs feed back into the retrieval pipeline so that past successful answers become first-class context for future queries.
+              </p>
+
+              <h3 className="font-semibold text-lg">How It Works</h3>
+              <ol className="list-decimal list-inside space-y-3 text-muted-foreground ml-1">
+                <li>
+                  <span className="font-semibold text-foreground">MRO Capture:</span> After each ChatAIO response, the system saves a new MRO containing the query text, the cue set (extracted search terms), the context bundle used, and the reply. Confidence is initialized at 0.75.
+                </li>
+                <li>
+                  <span className="font-semibold text-foreground">HSL Back-Linking:</span> The new MRO&apos;s UUID is written into the element slots of every matched HSL as <span className="font-mono text-xs bg-muted px-1 rounded">[MRO.&lt;uuid&gt;]</span>. This permanently wires the retrieval episode into the semantic layer.
+                </li>
+                <li>
+                  <span className="font-semibold text-foreground">Prior Retrieval:</span> On the next query, when an HSL is traversed its element slots are scanned for <span className="font-mono text-xs bg-muted px-1 rounded">[MRO.*]</span> references. Matching MROs are fetched from the database and ranked by <span className="font-semibold text-foreground">Jaccard similarity × freshness × confidence</span>.
+                </li>
+                <li>
+                  <span className="font-semibold text-foreground">Tier-1 Context Injection:</span> The top-ranked MRO priors are placed at the front of the context bundle — above raw AIO evidence — so Claude sees prior findings before raw data, producing more consistent and accurate answers.
+                </li>
+              </ol>
+
+              <div className="flex items-start gap-3 p-3 bg-violet-500/10 rounded-lg border border-violet-500/20">
+                <GitMerge className="w-5 h-5 text-violet-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-sm">Substrate Mode (Precomputed Substrate)</p>
+                  <p className="text-sm text-muted-foreground">
+                    Enable <span className="font-semibold text-foreground">Precomputed Substrate</span> in ChatAIO to run the full Paper-III pipeline: cue extraction → HSL neighborhood traversal N(K) → MRO prior ranking → bundle assembly → response capture. This mode uses only the assembled substrate bundle as context — no raw DB dump — and produces the most focused, evidence-grounded answers.
+                  </p>
+                </div>
+              </div>
+
+              <h3 className="font-semibold text-lg">Two MRO Sources</h3>
+              <ul className="list-disc list-inside space-y-2 text-muted-foreground">
+                <li><span className="font-semibold text-foreground">AIO Search mode:</span> MRO is created from the matched HSL IDs and linked back to those exact HSLs immediately after the response.</li>
+                <li><span className="font-semibold text-foreground">Substrate (Precomputed) mode:</span> After MRO creation, <span className="font-mono text-xs bg-muted px-1 rounded">find-by-needles</span> locates all HSLs whose names match the extracted cue values, then links the MRO to each one.</li>
+              </ul>
+
+              <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                <Zap className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-sm">Result: the system gets smarter with use</p>
+                  <p className="text-sm text-muted-foreground">
+                    Each query that runs strengthens the retrieval graph. Repeated queries on similar topics surface progressively richer prior context, reducing hallucination and improving answer consistency over time without any manual curation.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="space-y-4">
+          <h2 className="text-2xl font-bold flex items-center gap-2">
             <Database className="w-5 h-5 text-primary" />
-            Step 7: System Administration
+            Step 8: System Administration
           </h2>
           <Card>
             <CardContent className="pt-6 space-y-3">
@@ -260,7 +316,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
         <section className="space-y-4">
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <Zap className="w-5 h-5 text-amber-500" />
-            Step 8: R &amp; D — Compound HSL Builder
+            Step 9: R &amp; D — Compound HSL Builder
           </h2>
           <Card>
             <CardContent className="pt-6 space-y-3">
@@ -280,7 +336,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
         <section className="space-y-4">
           <h2 className="text-2xl font-bold flex items-center gap-2">
             <Database className="w-5 h-5 text-primary" />
-            Step 9: Information Elements
+            Step 10: Information Elements
           </h2>
           <Card>
             <CardContent className="pt-6 space-y-3">
@@ -309,6 +365,10 @@ export function UserGuide({ onBack }: UserGuideProps) {
               { term: "Compound HSL", definition: "An HSL built from multiple field values using AND logic - only AIOs matching ALL selected values are included" },
               { term: "Information Elements", definition: "A directory of all unique field names found across AIOs, with counts of how many AIOs contain each field" },
               { term: "CSV", definition: "Comma-Separated Values - the input format for data conversion" },
+              { term: "MRO", definition: "Memory Result Object — a persisted record of a ChatAIO retrieval episode, containing the query, cue set, context bundle, and answer. MROs are linked back into HSLs and reused as Tier-1 prior context in future queries." },
+              { term: "Substrate Mode", definition: "Precomputed Substrate — ChatAIO mode that runs the full Paper-III pipeline: cue extraction → HSL traversal → MRO prior ranking → bundle assembly. Produces the most focused, evidence-grounded answers." },
+              { term: "MRO Priors", definition: "Previously saved MROs that are surfaced during retrieval by Jaccard similarity × freshness × confidence scoring, then injected as highest-priority context above raw AIO evidence." },
+              { term: "Cue Set", definition: "The set of [Key.Value] pairs extracted from a natural-language query and used to traverse the HSL neighborhood N(K) for relevant AIOs." },
             ].map((item) => (
               <Card key={item.term}>
                 <CardContent className="py-3 px-4 flex items-start gap-3">
