@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import {
   ArrowLeft, Plus, Pencil, Trash2, Eye, EyeOff, Save,
   Users, Key, Loader2, ShieldCheck, User, Lock, FileSpreadsheet, FileText,
-  Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network,
+  Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network, BarChart2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,8 +23,10 @@ import {
   listSavedPrompts, createSavedPrompt, updateSavedPrompt, deleteSavedPrompt,
   listInformationElements, createInformationElement, updateInformationElement, deleteInformationElement, rebuildInformationElements,
   getApiKeySetting, updateApiKeySetting, loginUser, listIOs,
+  listChatStats, deleteChatStat,
   type User as SystemUser, type Role, type AioDataRecord, type HslDataRecord,
   type LoginResult, type IORecord, type SavedPrompt, type InformationElement,
+  type ChatStatRecord,
 } from "@/lib/api-client"
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -1360,6 +1362,174 @@ function InformationElementsPane() {
   )
 }
 
+// ── Search Stats Pane ─────────────────────────────────────────────
+
+function SearchStatsPane() {
+  const [stats, setStats] = useState<ChatStatRecord[]>([])
+  const [loading, setLoading] = useState(false)
+  const [filter, setFilter] = useState<"All" | "Send" | "AIOSearch" | "Substrate">("All")
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const data = await listChatStats()
+    setStats(data)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleDelete = async (statId: string) => {
+    await deleteChatStat(statId)
+    setStats((prev) => prev.filter((s) => s.stat_id !== statId))
+  }
+
+  const visible = filter === "All" ? stats : stats.filter((s) => s.search_mode === filter)
+
+  const modeBadge = (mode: string) => {
+    if (mode === "Send") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Send</span>
+    if (mode === "AIOSearch") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">AIO Search</span>
+    if (mode === "Substrate") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">Substrate</span>
+    return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-muted text-muted-foreground">{mode}</span>
+  }
+
+  // Summary totals
+  const totalSearches = stats.length
+  const byMode = { Send: 0, AIOSearch: 0, Substrate: 0 } as Record<string, number>
+  let totalTokens = 0, avgElapsed = 0
+  for (const s of stats) {
+    byMode[s.search_mode] = (byMode[s.search_mode] ?? 0) + 1
+    totalTokens += s.total_tokens
+    avgElapsed += s.elapsed_ms
+  }
+  avgElapsed = totalSearches > 0 ? Math.round(avgElapsed / totalSearches) : 0
+
+  return (
+    <div className="space-y-4">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Total Searches", value: totalSearches },
+          { label: "Send", value: byMode.Send ?? 0 },
+          { label: "AIO Search", value: byMode.AIOSearch ?? 0 },
+          { label: "Substrate", value: byMode.Substrate ?? 0 },
+        ].map((card) => (
+          <div key={card.label} className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-center">
+            <div className="text-2xl font-bold text-foreground">{card.value}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">{card.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-center">
+          <div className="text-2xl font-bold text-foreground">{totalTokens.toLocaleString()}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">Total Tokens Used</div>
+        </div>
+        <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-center">
+          <div className="text-2xl font-bold text-foreground">{(avgElapsed / 1000).toFixed(1)}s</div>
+          <div className="text-xs text-muted-foreground mt-0.5">Avg Response Time</div>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {(["All", "Send", "AIOSearch", "Substrate"] as const).map((m) => (
+          <button key={m} onClick={() => setFilter(m)}
+            className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${filter === m ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
+            {m === "AIOSearch" ? "AIO Search" : m}
+          </button>
+        ))}
+        <div className="flex-1" />
+        <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1.5">
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />Refresh
+        </Button>
+      </div>
+
+      {/* Table */}
+      {loading ? (
+        <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+      ) : visible.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground text-sm">No search stats yet. Run a ChatAIO query to start recording.</div>
+      ) : (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="bg-[#0f3460] text-white">
+                  <th className="px-3 py-2 text-left font-semibold">Time</th>
+                  <th className="px-3 py-2 text-left font-semibold">Mode</th>
+                  <th className="px-3 py-2 text-left font-semibold">Query</th>
+                  <th className="px-3 py-2 text-right font-semibold">⏱ ms</th>
+                  <th className="px-3 py-2 text-right font-semibold">📥 In</th>
+                  <th className="px-3 py-2 text-right font-semibold">📤 Out</th>
+                  <th className="px-3 py-2 text-right font-semibold">AIOs</th>
+                  <th className="px-3 py-2 text-right font-semibold">Cues</th>
+                  <th className="px-3 py-2 text-right font-semibold">MRO</th>
+                  <th className="px-3 py-2 text-center font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((s, i) => (
+                  <>
+                    <tr key={s.stat_id}
+                      className={`border-b border-border cursor-pointer hover:bg-muted/50 transition-colors ${i % 2 === 0 ? "bg-background" : "bg-muted/20"}`}
+                      onClick={() => setExpanded(expanded === s.stat_id ? null : s.stat_id)}>
+                      <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
+                        {new Date(s.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </td>
+                      <td className="px-3 py-2">{modeBadge(s.search_mode)}</td>
+                      <td className="px-3 py-2 max-w-[200px] truncate" title={s.query_text}>{s.query_text}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{s.elapsed_ms.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{s.input_tokens.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{s.output_tokens.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{s.matched_aios || s.neighborhood_size || "—"}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{s.cue_count || "—"}</td>
+                      <td className="px-3 py-2 text-center">{s.mro_saved ? "✅" : "—"}</td>
+                      <td className="px-3 py-2 text-center">
+                        <button onClick={(e) => { e.stopPropagation(); handleDelete(s.stat_id) }}
+                          className="text-muted-foreground hover:text-destructive transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                    {expanded === s.stat_id && (
+                      <tr key={`${s.stat_id}-exp`} className="bg-blue-50 dark:bg-blue-950/20">
+                        <td colSpan={10} className="px-4 py-3">
+                          <div className="space-y-2">
+                            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Query</div>
+                            <div className="text-sm text-foreground">{s.query_text}</div>
+                            {s.result_preview && (
+                              <>
+                                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mt-2">Result Preview</div>
+                                <div className="text-sm text-foreground whitespace-pre-wrap bg-background rounded p-2 border border-border">{s.result_preview}</div>
+                              </>
+                            )}
+                            <div className="flex flex-wrap gap-4 mt-2 text-xs text-muted-foreground">
+                              <span>⏱ {(s.elapsed_ms / 1000).toFixed(2)}s</span>
+                              <span>📥 {s.input_tokens.toLocaleString()} input tokens</span>
+                              <span>📤 {s.output_tokens.toLocaleString()} output tokens</span>
+                              <span>Total: {s.total_tokens.toLocaleString()} tokens</span>
+                              {s.matched_hsls > 0 && <span>HSLs matched: {s.matched_hsls}</span>}
+                              {s.matched_aios > 0 && <span>AIOs matched: {s.matched_aios}</span>}
+                              {s.cue_count > 0 && <span>Cues: {s.cue_count}</span>}
+                              {s.neighborhood_size > 0 && <span>Neighborhood: {s.neighborhood_size}</span>}
+                              {s.prior_count > 0 && <span>Priors: {s.prior_count}</span>}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Architecture Pane ─────────────────────────────────────────────
 
 function ArchitecturePane() {
@@ -1609,6 +1779,7 @@ export function SystemManagement({ onBack }: SystemManagementProps) {
             <TabsTrigger value="saved-prompts" className="gap-2"><Bookmark className="w-4 h-4" />Saved Prompts</TabsTrigger>
             <TabsTrigger value="info-elements" className="gap-2"><Atom className="w-4 h-4" />Info Elements</TabsTrigger>
             <TabsTrigger value="architecture" className="gap-2"><Network className="w-4 h-4" />Architecture</TabsTrigger>
+            <TabsTrigger value="search-stats" className="gap-2"><BarChart2 className="w-4 h-4" />Search Stats</TabsTrigger>
           </TabsList>
 
           <TabsContent value="users">
@@ -1657,6 +1828,10 @@ export function SystemManagement({ onBack }: SystemManagementProps) {
           <TabsContent value="architecture">
             <Card><CardHeader><CardTitle className="flex items-center gap-2"><Network className="w-5 h-5" />System Architecture</CardTitle></CardHeader>
               <CardContent><ArchitecturePane /></CardContent></Card>
+          </TabsContent>
+          <TabsContent value="search-stats">
+            <Card><CardHeader><CardTitle className="flex items-center gap-2"><BarChart2 className="w-5 h-5" />ChatAIO Search Statistics</CardTitle></CardHeader>
+              <CardContent><SearchStatsPane /></CardContent></Card>
           </TabsContent>
         </Tabs>
       </main>

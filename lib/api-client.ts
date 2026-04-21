@@ -170,6 +170,66 @@ export async function aioSearchChat(messages: ChatMessage[]): Promise<AioSearchR
   }
 }
 
+// Substrate Chat — focused LLM call using client-assembled context bundle only
+export async function substrateChatWithAIO(
+  messages: ChatMessage[],
+  contextBundle: string,
+): Promise<ChatResponse | { error: string } | null> {
+  try {
+    const res = await fetch("/api/op/substrate-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, context_bundle: contextBundle }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      const detail: string = body?.detail ?? body?.error ?? `HTTP ${res.status}`
+      return { error: detail }
+    }
+    return res.json() as Promise<ChatResponse>
+  } catch {
+    return null
+  }
+}
+
+// Chat Search Statistics
+export interface ChatStatRecord {
+  stat_id: string
+  tenant_id: string
+  search_mode: string
+  query_text: string
+  result_preview: string | null
+  elapsed_ms: number
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  context_records: number
+  matched_hsls: number
+  matched_aios: number
+  cue_count: number
+  neighborhood_size: number
+  prior_count: number
+  mro_saved: boolean
+  created_at: string
+}
+
+export async function listChatStats(): Promise<ChatStatRecord[]> {
+  return (await safeFetch<ChatStatRecord[]>("/api/chat-stats")) ?? []
+}
+
+export async function createChatStat(payload: Omit<ChatStatRecord, "stat_id" | "tenant_id" | "created_at">): Promise<ChatStatRecord | null> {
+  return safeFetch<ChatStatRecord>("/api/chat-stats", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteChatStat(statId: string): Promise<boolean> {
+  const result = await safeFetch<{ deleted: string }>(`/api/chat-stats/${statId}`, { method: "DELETE" })
+  return result !== null
+}
+
 // User management
 export interface User {
   user_id: string

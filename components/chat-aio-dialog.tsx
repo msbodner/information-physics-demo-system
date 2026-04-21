@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye } from "lucide-react"
-import { chatWithAIO, aioSearchChat, listSavedPrompts, createSavedPrompt, listMroObjects, createMroObject, listAioData, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord } from "@/lib/api-client"
+import { chatWithAIO, aioSearchChat, listSavedPrompts, createSavedPrompt, listMroObjects, createMroObject, listAioData, createChatStat, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord } from "@/lib/api-client"
 import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
@@ -300,6 +300,14 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       const perfLine = `\n\n---\n_⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
       setChatMessages([...next, { role: "assistant", content: result.reply + perfLine }])
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "Send" })
+      createChatStat({
+        search_mode: "Send", query_text: text,
+        result_preview: result.reply.slice(0, 500),
+        elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
+        total_tokens: inTok + outTok, context_records: result.context_records ?? 0,
+        matched_hsls: 0, matched_aios: 0, cue_count: 0,
+        neighborhood_size: 0, prior_count: 0, mro_saved: false,
+      }).catch(() => {})
     }
   }, [chatInput, chatMessages, isChatLoading])
 
@@ -331,6 +339,14 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         seed_hsls: `${result.matched_hsls} HSLs`
       })
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "AIOSearch" })
+      createChatStat({
+        search_mode: "AIOSearch", query_text: text,
+        result_preview: result.reply.slice(0, 500),
+        elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
+        total_tokens: inTok + outTok, context_records: result.context_records ?? 0,
+        matched_hsls: result.matched_hsls, matched_aios: result.matched_aios,
+        cue_count: 0, neighborhood_size: 0, prior_count: 0, mro_saved: false,
+      }).catch(() => {})
     }
   }, [chatInput, chatMessages, isChatLoading])
 
@@ -375,6 +391,15 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         mroSaved: result.mro_saved,
       })
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "Substrate" })
+      createChatStat({
+        search_mode: "Substrate", query_text: text,
+        result_preview: result.reply.slice(0, 500),
+        elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
+        total_tokens: inTok + outTok, context_records: 0,
+        matched_hsls: 0, matched_aios: result.cost.neighborhood,
+        cue_count: result.cost.cues, neighborhood_size: result.cost.neighborhood,
+        prior_count: result.cost.priors, mro_saved: result.mro_saved,
+      }).catch(() => {})
       // Refresh MRO cache so the newly saved MRO is available as a prior next query
       if (result.mro_saved) {
         listMroObjects().then((mros) => setSubstrateCache({ mros })).catch(() => {})

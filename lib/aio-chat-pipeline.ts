@@ -21,7 +21,7 @@ import {
   type ScoredMRO,
 } from "./aio-math"
 import {
-  chatWithAIO,
+  substrateChatWithAIO,
   createMroObject,
   listMroObjects,
   type ChatMessage,
@@ -133,29 +133,19 @@ export async function runChatPipeline(
     maxAios: options.maxAios ?? 50,
   })
 
-  // Step 4 — serialize the bundle into the system context
+  // Step 4 — serialize the bundle; it becomes the SOLE system context via
+  // /v1/op/substrate-chat (which does NOT add a raw DB dump — unlike /v1/op/chat)
   const bundleText = serializeBundle(bundle)
 
-  const systemMessage: ChatMessage = {
-    role: "user",
-    content:
-      "You are answering a question using a precomputed semantic substrate " +
-      "from the Information Physics architecture. You will be given tiered " +
-      "evidence: prior retrieval episodes (MRO priors) as framing, the HSL " +
-      "neighborhoods that were traversed, and the direct AIO evidence. " +
-      "Re-ground every claim in the AIO evidence. Cite AIO filenames when " +
-      "you use a specific record. If the evidence is insufficient, say so.\n\n" +
-      bundleText,
-  }
-
+  // Only send conversation history + the current query as messages.
+  // The bundle is passed separately as context_bundle to the substrate endpoint.
   const messages: ChatMessage[] = [
-    systemMessage,
     ...(options.history ?? []),
     { role: "user", content: query },
   ]
 
-  // Step 5 — call Claude
-  const chatResponse = await chatWithAIO(messages)
+  // Step 5 — call Claude via the substrate endpoint (no DB context injection)
+  const chatResponse = await substrateChatWithAIO(messages, bundleText)
   if (!chatResponse) return { error: "Backend unavailable" }
   if ("error" in chatResponse) return { error: chatResponse.error }
 
