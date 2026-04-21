@@ -147,6 +147,7 @@ export interface AioSearchResponse {
   context_records: number
   matched_hsls: number
   matched_aios: number
+  matched_hsl_ids: string[]   // HSL UUIDs traversed — used for MRO→HSL linking
   search_terms: Record<string, unknown>
   input_tokens: number
   output_tokens: number
@@ -547,6 +548,34 @@ export async function createMroObject(data: {
 export async function deleteMroObject(id: string): Promise<boolean> {
   const result = await safeFetch<{ deleted: string }>(`/api/mro-objects/${id}`, { method: "DELETE" })
   return result !== null
+}
+
+// HSL ↔ MRO Linking
+
+/**
+ * Append [MRO.<mroId>] to the next free element slot in the given HSL record.
+ * Returns true if the link was written, false if already linked or no free slot.
+ */
+export async function linkMroToHsl(hslId: string, mroId: string): Promise<boolean> {
+  const result = await safeFetch<{ updated: boolean }>(`/api/hsl-data/${hslId}/link-mro`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mro_id: mroId }),
+  })
+  return result?.updated === true
+}
+
+/**
+ * Find HSL IDs whose elements contain any of the given needle strings.
+ * Used by the Substrate pipeline to discover which HSLs to link a new MRO into.
+ */
+export async function findHslsByNeedles(needles: string[]): Promise<string[]> {
+  const result = await safeFetch<{ hsl_ids: string[] }>("/api/hsl-data/find-by-needles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ needles, limit: 20 }),
+  })
+  return result?.hsl_ids ?? []
 }
 
 // PDF extraction

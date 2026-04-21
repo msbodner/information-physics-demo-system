@@ -35,6 +35,8 @@ export interface PipelineResult {
   bundle: ContextBundle         // what we sent as context
   priors_used: ScoredMRO[]      // MROs surfaced as priors
   mro_saved: boolean            // did we persist a new MRO
+  mro_id?: string               // UUID of the newly saved MRO (for HSL linking)
+  cue_values: string[]          // extracted value strings (for HSL needle search)
   model_ref: string
   input_tokens: number
   output_tokens: number
@@ -163,6 +165,7 @@ export async function runChatPipeline(
 
   // Step 6 — persist as MRO
   let mroSaved = false
+  let savedMroId: string | undefined
   if (options.saveMRO !== false) {
     const newMRO = buildMRO({
       query_text: query,
@@ -175,13 +178,21 @@ export async function runChatPipeline(
     const payload = mroToCreatePayload(newMRO)
     const saved = await createMroObject(payload).catch(() => null)
     mroSaved = saved !== null
+    savedMroId = saved?.mro_id ?? undefined
   }
+
+  // Collect cue values for downstream HSL needle-matching
+  const cueValues = cues
+    .map((c) => c.value)
+    .filter((v): v is string => !!v && v !== "*" && v.length >= 3)
 
   return {
     reply: chatResponse.reply,
     bundle,
     priors_used: bundle.mro_priors,
     mro_saved: mroSaved,
+    mro_id: savedMroId,
+    cue_values: cueValues,
     model_ref: chatResponse.model_ref,
     input_tokens: chatResponse.input_tokens ?? 0,
     output_tokens: chatResponse.output_tokens ?? 0,

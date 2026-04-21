@@ -1747,9 +1747,10 @@ export function SystemManagement({ onBack }: SystemManagementProps) {
   })
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-4">
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Top header bar */}
+      <header className="border-b border-border bg-card shrink-0">
+        <div className="px-6 py-3 flex items-center gap-4">
           <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
             <ArrowLeft className="w-4 h-4" />Back
           </Button>
@@ -1766,75 +1767,104 @@ export function SystemManagement({ onBack }: SystemManagementProps) {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8">
-        <Tabs defaultValue="users">
-          <TabsList className="mb-6 flex-wrap gap-1">
-            <TabsTrigger value="users" className="gap-2"><Users className="w-4 h-4" />Users</TabsTrigger>
-            <TabsTrigger value="roles" className="gap-2"><Shield className="w-4 h-4" />Roles</TabsTrigger>
-            <TabsTrigger value="aio-data" className="gap-2"><Database className="w-4 h-4" />AIO Data</TabsTrigger>
-            <TabsTrigger value="hsl-data" className="gap-2"><LayoutList className="w-4 h-4" />HSL Data</TabsTrigger>
-            <TabsTrigger value="apikey" className="gap-2"><Key className="w-4 h-4" />API Key</TabsTrigger>
-            <TabsTrigger value="csvs" className="gap-2"><FileSpreadsheet className="w-4 h-4" />Saved CSVs</TabsTrigger>
-            <TabsTrigger value="aios" className="gap-2"><FileText className="w-4 h-4" />Saved AIOs</TabsTrigger>
-            <TabsTrigger value="saved-prompts" className="gap-2"><Bookmark className="w-4 h-4" />Saved Prompts</TabsTrigger>
-            <TabsTrigger value="info-elements" className="gap-2"><Atom className="w-4 h-4" />Info Elements</TabsTrigger>
-            <TabsTrigger value="architecture" className="gap-2"><Network className="w-4 h-4" />Architecture</TabsTrigger>
-            <TabsTrigger value="search-stats" className="gap-2"><BarChart2 className="w-4 h-4" />Search Stats</TabsTrigger>
+      {/* Body: left sidebar nav + right content */}
+      <div className="flex flex-1 overflow-hidden">
+        <Tabs defaultValue="users" orientation="vertical" className="flex flex-1 overflow-hidden">
+
+          {/* ── Vertical sidebar ── */}
+          <TabsList className="flex flex-col w-56 shrink-0 bg-slate-900 rounded-none p-3 gap-0.5 items-stretch self-stretch h-auto overflow-y-auto">
+            <div className="px-2 py-2 mb-1">
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Admin Panel</p>
+            </div>
+
+            {([
+              { value: "users",         icon: <Users className="w-4 h-4" />,          label: "Users" },
+              { value: "roles",         icon: <Shield className="w-4 h-4" />,          label: "Roles" },
+              { value: "aio-data",      icon: <Database className="w-4 h-4" />,        label: "AIO Data" },
+              { value: "hsl-data",      icon: <LayoutList className="w-4 h-4" />,      label: "HSL Data" },
+              { value: "apikey",        icon: <Key className="w-4 h-4" />,             label: "API Key" },
+              { value: "csvs",          icon: <FileSpreadsheet className="w-4 h-4" />, label: "Saved CSVs" },
+              { value: "aios",          icon: <FileText className="w-4 h-4" />,        label: "Saved AIOs" },
+              { value: "saved-prompts", icon: <Bookmark className="w-4 h-4" />,        label: "Saved Prompts" },
+              { value: "info-elements", icon: <Atom className="w-4 h-4" />,            label: "Info Elements" },
+              { value: "architecture",  icon: <Network className="w-4 h-4" />,         label: "Architecture" },
+              { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Stats" },
+            ] as const).map(({ value, icon, label }) => (
+              <TabsTrigger
+                key={value}
+                value={value}
+                className="w-full justify-start gap-3 px-3 py-2.5 rounded-md text-sm font-medium
+                  text-slate-300 bg-transparent border-0
+                  hover:bg-slate-800 hover:text-white
+                  data-[state=active]:bg-indigo-600 data-[state=active]:text-white
+                  data-[state=active]:shadow-none
+                  transition-colors duration-150"
+              >
+                {icon}{label}
+              </TabsTrigger>
+            ))}
           </TabsList>
 
-          <TabsContent value="users">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><Users className="w-5 h-5" />User Management</CardTitle></CardHeader>
-              <CardContent><UserManagementPane /></CardContent></Card>
-          </TabsContent>
+          {/* ── Content area ── */}
+          <div className="flex-1 overflow-y-auto p-6 bg-background">
+            <TabsContent value="users" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Users className="w-5 h-5" />User Management</CardTitle></CardHeader>
+                <CardContent><UserManagementPane /></CardContent></Card>
+            </TabsContent>
 
-          <TabsContent value="roles">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><Shield className="w-5 h-5" />Roles</CardTitle></CardHeader>
-              <CardContent><RolesPane /></CardContent></Card>
-          </TabsContent>
+            <TabsContent value="roles" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Shield className="w-5 h-5" />Roles</CardTitle></CardHeader>
+                <CardContent><RolesPane /></CardContent></Card>
+            </TabsContent>
 
-          <TabsContent value="aio-data">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><Database className="w-5 h-5" />AIO Data</CardTitle></CardHeader>
-              <CardContent><AioDataPane /></CardContent></Card>
-          </TabsContent>
+            <TabsContent value="aio-data" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Database className="w-5 h-5" />AIO Data</CardTitle></CardHeader>
+                <CardContent><AioDataPane /></CardContent></Card>
+            </TabsContent>
 
-          <TabsContent value="hsl-data">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><LayoutList className="w-5 h-5" />HSL Data</CardTitle></CardHeader>
-              <CardContent><HslDataPane /></CardContent></Card>
-          </TabsContent>
+            <TabsContent value="hsl-data" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><LayoutList className="w-5 h-5" />HSL Data</CardTitle></CardHeader>
+                <CardContent><HslDataPane /></CardContent></Card>
+            </TabsContent>
 
-          <TabsContent value="apikey">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><Key className="w-5 h-5" />API Key Settings</CardTitle></CardHeader>
-              <CardContent><ApiKeyPane /></CardContent></Card>
-          </TabsContent>
+            <TabsContent value="apikey" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Key className="w-5 h-5" />API Key Settings</CardTitle></CardHeader>
+                <CardContent><ApiKeyPane /></CardContent></Card>
+            </TabsContent>
 
-          <TabsContent value="csvs">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><FileSpreadsheet className="w-5 h-5" />Saved CSVs</CardTitle></CardHeader>
-              <CardContent><SavedCsvsPane /></CardContent></Card>
-          </TabsContent>
+            <TabsContent value="csvs" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><FileSpreadsheet className="w-5 h-5" />Saved CSVs</CardTitle></CardHeader>
+                <CardContent><SavedCsvsPane /></CardContent></Card>
+            </TabsContent>
 
-          <TabsContent value="aios">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />Saved AIOs</CardTitle></CardHeader>
-              <CardContent><SavedAiosPane /></CardContent></Card>
-          </TabsContent>
+            <TabsContent value="aios" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><FileText className="w-5 h-5" />Saved AIOs</CardTitle></CardHeader>
+                <CardContent><SavedAiosPane /></CardContent></Card>
+            </TabsContent>
 
-          <TabsContent value="saved-prompts">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><Bookmark className="w-5 h-5" />Saved Prompts</CardTitle></CardHeader>
-              <CardContent><SavedPromptsPane /></CardContent></Card>
-          </TabsContent>
-          <TabsContent value="info-elements">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><Atom className="w-5 h-5" />Information Elements</CardTitle></CardHeader>
-              <CardContent><InformationElementsPane /></CardContent></Card>
-          </TabsContent>
-          <TabsContent value="architecture">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><Network className="w-5 h-5" />System Architecture</CardTitle></CardHeader>
-              <CardContent><ArchitecturePane /></CardContent></Card>
-          </TabsContent>
-          <TabsContent value="search-stats">
-            <Card><CardHeader><CardTitle className="flex items-center gap-2"><BarChart2 className="w-5 h-5" />ChatAIO Search Statistics</CardTitle></CardHeader>
-              <CardContent><SearchStatsPane /></CardContent></Card>
-          </TabsContent>
+            <TabsContent value="saved-prompts" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Bookmark className="w-5 h-5" />Saved Prompts</CardTitle></CardHeader>
+                <CardContent><SavedPromptsPane /></CardContent></Card>
+            </TabsContent>
+
+            <TabsContent value="info-elements" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Atom className="w-5 h-5" />Information Elements</CardTitle></CardHeader>
+                <CardContent><InformationElementsPane /></CardContent></Card>
+            </TabsContent>
+
+            <TabsContent value="architecture" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Network className="w-5 h-5" />System Architecture</CardTitle></CardHeader>
+                <CardContent><ArchitecturePane /></CardContent></Card>
+            </TabsContent>
+
+            <TabsContent value="search-stats" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><BarChart2 className="w-5 h-5" />ChatAIO Search Statistics</CardTitle></CardHeader>
+                <CardContent><SearchStatsPane /></CardContent></Card>
+            </TabsContent>
+          </div>
+
         </Tabs>
-      </main>
+      </div>
     </div>
   )
 }

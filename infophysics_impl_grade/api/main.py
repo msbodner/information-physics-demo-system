@@ -176,6 +176,7 @@ class AioSearchResponse(BaseModel):
     context_records: int
     matched_hsls: int
     matched_aios: int
+    matched_hsl_ids: List[str] = []   # HSL UUIDs traversed — for MRO→HSL linking
     search_terms: Dict[str, Any]
     input_tokens: int = 0
     output_tokens: int = 0
@@ -717,14 +718,21 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     except Exception:
         logger.warning("HSL search failed")
 
+    matched_hsl_ids = [str(row[0]) for row in matched_hsl_rows]
     logger.info("AIO Search: %d HSLs matched", len(matched_hsl_rows))
 
     # ── Phase 3: Gather AIOs from matched HSLs ──
+    # Also detect [MRO.<uuid>] elements → fetch those MROs as prior context
     aio_refs: set = set()
+    mro_ids_from_hsl: List[str] = []
     for row in matched_hsl_rows:
         for elem in row[2:]:
             if elem and isinstance(elem, str) and elem.strip():
-                aio_refs.add(elem.strip())
+                ref = elem.strip()
+                if ref.startswith("[MRO.") and ref.endswith("]"):
+                    mro_ids_from_hsl.append(ref[5:-1])
+                else:
+                    aio_refs.add(ref)
 
     matched_aio_lines: List[str] = []
     try:
@@ -764,17 +772,48 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     matched_aio_lines = list(dict.fromkeys(matched_aio_lines))
     logger.info("AIO Search: %d AIOs in context", len(matched_aio_lines))
 
+    # ── Fetch MRO priors referenced in HSL elements ──
+    # When an HSL element is [MRO.<uuid>], it means a prior query result was
+    # linked back into the HSL fabric. Fetch those MROs and surface their
+    # findings as Tier-1 context ahead of the raw AIO evidence.
+    mro_context_lines: List[str] = []
+    if mro_ids_from_hsl:
+        try:
+            conn = db()
+            with conn:
+                with conn.cursor() as cur:
+                    for mro_uuid in mro_ids_from_hsl[:5]:   # cap at 5 MRO priors
+                        cur.execute(
+                            "SELECT query_text, result_text FROM mro_objects WHERE mro_id = %s",
+                            (mro_uuid,)
+                        )
+                        mro_row = cur.fetchone()
+                        if mro_row:
+                            mro_context_lines.append(
+                                f"[Prior Query: {mro_row[0][:120]}]\n"
+                                f"[Finding: {mro_row[1][:500]}]"
+                            )
+        except Exception:
+            logger.warning("MRO prior fetch failed for HSL-linked MROs")
+        logger.info("AIO Search: %d MRO priors from HSL links", len(mro_context_lines))
+
     # ── Phase 4: Answer using focused context ──
     context_section = ""
+    if mro_context_lines:
+        context_section += "\n\n## Prior Retrieval Episodes (MRO priors linked in HSL)\n"
+        context_section += "\n\n".join(mro_context_lines)
     if matched_aio_lines:
         sample = matched_aio_lines[:300]
-        context_section = f"\n\n## Matched AIO Records ({len(sample)} of {len(matched_aio_lines)} total)\n"
+        context_section += f"\n\n## Matched AIO Records ({len(sample)} of {len(matched_aio_lines)} total)\n"
         context_section += "\n".join(sample)
 
     answer_system = (
         "You are ChatAIO, an intelligent analyst for Information Physics data. "
-        "You have been given a FOCUSED subset of AIO records that match the user's query. "
+        "You have been given a FOCUSED subset of AIO records that match the user's query, "
+        "and optionally prior retrieval episodes (MROs) previously linked into the HSL fabric. "
         "Each AIO record uses bracket notation: [Key.Value][Key2.Value2]... "
+        "MRO priors summarise earlier answers — treat them as framing, not ground truth; "
+        "re-ground any claims in the AIO evidence when answering. "
         "Answer the user's question using ONLY the provided records. "
         "When computing totals or breakdowns, show your work step by step. "
         "Be concise and precise. If the data is insufficient, say so."
@@ -804,6 +843,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
         context_records=len(matched_aio_lines),
         matched_hsls=len(matched_hsl_rows),
         matched_aios=len(matched_aio_lines),
+        matched_hsl_ids=matched_hsl_ids,
         search_terms=search_terms,
         input_tokens=parse_in_tok + ans_in_tok,
         output_tokens=parse_out_tok + ans_out_tok,
@@ -1334,6 +1374,72 @@ def delete_hsl_data(hsl_id: str):
                 raise HTTPException(status_code=404, detail="HSL record not found")
         conn.commit()
     return {"deleted": hsl_id}
+
+
+# ---------------------------------------------------------------------------
+# HSL ↔ MRO Linking
+# ---------------------------------------------------------------------------
+
+class MroLinkRequest(BaseModel):
+    mro_id: str
+
+@app.post("/v1/hsl-data/{hsl_id}/link-mro")
+def link_mro_to_hsl(hsl_id: str, payload: MroLinkRequest):
+    """
+    Append [MRO.<mro_id>] to the next free hsl_element_* slot in the HSL record.
+    This creates a persistent pointer so future HSL traversals surface the MRO's
+    findings alongside its connected AIOs.
+    """
+    mro_ref = f"[MRO.{payload.mro_id}]"
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT {_HSL_COLS} FROM hsl_data WHERE hsl_id = %s", (hsl_id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="HSL not found")
+            elements = list(row)
+            if mro_ref in elements:
+                return {"updated": False, "reason": "already_linked", "mro_ref": mro_ref}
+            idx = next((i for i, e in enumerate(elements) if not e), None)
+            if idx is None:
+                return {"updated": False, "reason": "no_free_slots", "mro_ref": mro_ref}
+            col_name = f"hsl_element_{idx + 1}"
+            cur.execute(
+                f"UPDATE hsl_data SET {col_name} = %s, updated_at = %s WHERE hsl_id = %s",
+                (mro_ref, datetime.now(timezone.utc), hsl_id),
+            )
+        conn.commit()
+    return {"updated": True, "slot": idx + 1, "mro_ref": mro_ref}
+
+
+class HslFindByNeedlesRequest(BaseModel):
+    needles: List[str]
+    limit: int = 20
+
+@app.post("/v1/hsl-data/find-by-needles")
+def find_hsls_by_needles(payload: HslFindByNeedlesRequest):
+    """
+    Return HSL IDs whose elements or name contain any of the given needle strings.
+    Used by the Substrate pipeline to find HSLs to link a new MRO into.
+    """
+    if not payload.needles:
+        return {"hsl_ids": []}
+    needles = [n.lower().strip() for n in payload.needles if n.strip()]
+    matched_ids: List[str] = []
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data LIMIT 1000")
+                for row in cur.fetchall():
+                    hsl_elements = [str(e).lower() for e in row[2:] if e]
+                    combined = " ".join(hsl_elements) + " " + (row[1] or "").lower()
+                    if any(needle in combined for needle in needles):
+                        matched_ids.append(str(row[0]))
+                        if len(matched_ids) >= payload.limit:
+                            break
+    except Exception:
+        logger.warning("find_hsls_by_needles failed")
+    return {"hsl_ids": matched_ids}
 
 
 # ---------------------------------------------------------------------------

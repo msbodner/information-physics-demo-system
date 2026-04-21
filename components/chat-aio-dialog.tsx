@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye } from "lucide-react"
-import { chatWithAIO, aioSearchChat, listSavedPrompts, createSavedPrompt, listMroObjects, createMroObject, listAioData, createChatStat, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord } from "@/lib/api-client"
+import { chatWithAIO, aioSearchChat, listSavedPrompts, createSavedPrompt, listMroObjects, createMroObject, listAioData, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord } from "@/lib/api-client"
 import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
@@ -339,13 +339,34 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         seed_hsls: `${result.matched_hsls} HSLs`
       })
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "AIOSearch" })
+
+      // Auto-save MRO for this AIO Search episode, then link to matched HSLs
+      const hslIds = result.matched_hsl_ids ?? []
+      const mroKey = `AIOSearch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+      createMroObject({
+        mro_key: mroKey,
+        query_text: text,
+        intent: "aio-search",
+        seed_hsls: hslIds.join("|"),
+        matched_aios_count: result.matched_aios,
+        search_terms: result.search_terms as Record<string, unknown>,
+        result_text: result.reply,
+        confidence: "0.75",
+        policy_scope: "default",
+      }).then((mro) => {
+        if (mro?.mro_id && hslIds.length > 0) {
+          // Link the new MRO into every matched HSL so future traversals surface it
+          Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, mro.mro_id))).catch(() => {})
+        }
+      }).catch(() => {})
+
       createChatStat({
         search_mode: "AIOSearch", query_text: text,
         result_preview: result.reply.slice(0, 500),
         elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
         total_tokens: inTok + outTok, context_records: result.context_records ?? 0,
         matched_hsls: result.matched_hsls, matched_aios: result.matched_aios,
-        cue_count: 0, neighborhood_size: 0, prior_count: 0, mro_saved: false,
+        cue_count: 0, neighborhood_size: 0, prior_count: 0, mro_saved: hslIds.length > 0,
       }).catch(() => {})
     }
   }, [chatInput, chatMessages, isChatLoading])
@@ -403,6 +424,16 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       // Refresh MRO cache so the newly saved MRO is available as a prior next query
       if (result.mro_saved) {
         listMroObjects().then((mros) => setSubstrateCache({ mros })).catch(() => {})
+
+        // Link the new MRO into HSLs that contain its cue values,
+        // so future AIO Search traversals also surface this MRO as prior context
+        if (result.mro_id && result.cue_values.length > 0) {
+          findHslsByNeedles(result.cue_values).then((hslIds) => {
+            if (hslIds.length > 0) {
+              Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, result.mro_id!))).catch(() => {})
+            }
+          }).catch(() => {})
+        }
       }
     }
   }, [chatInput, chatMessages, isChatLoading, substrateAios, substrateCache])
