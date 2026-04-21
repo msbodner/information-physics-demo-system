@@ -182,7 +182,7 @@ class AioSearchResponse(BaseModel):
 
 
 class SubstrateChatRequest(BaseModel):
-    messages: List[Message]
+    messages: List[ChatMessage]
     context_bundle: str          # serialized bundle from the client pipeline
 
 
