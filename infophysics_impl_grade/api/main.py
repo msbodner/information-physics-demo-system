@@ -1442,6 +1442,90 @@ def find_hsls_by_needles(payload: HslFindByNeedlesRequest):
     return {"hsl_ids": matched_ids}
 
 
+@app.post("/v1/hsl-data/rebuild-from-aios")
+def rebuild_hsls_from_aios():
+    """
+    Scan every AIO in aio_data, group AIOs by each unique [Key.Value] element,
+    and create one HSL record per group that has ≥2 AIOs.
+
+    Each HSL record:
+      hsl_name  = "[Key.Value].hsl"
+      elements  = the aio_name strings that share this element (up to 100)
+
+    Idempotent — uses ON CONFLICT DO NOTHING so re-running is safe.
+    Returns a summary of what was created vs skipped.
+    """
+    _SKIP_VALUES = {"unknown", "n/a", "none", "null", "", "0", "0.0", "false", "true"}
+    _VALUE_RE = _re.compile(r"\[([^.\]]+)\.(.+?)\]")
+
+    with db() as conn:
+        with conn.cursor() as cur:
+            # Fetch all AIOs: (aio_name, element_1 .. element_50)
+            cur.execute(f"SELECT aio_name, {_AIO_COLS} FROM aio_data")
+            aio_rows = cur.fetchall()
+
+        # Build index: element_key → {element_value → [aio_name, ...]}
+        index: dict[str, dict[str, list]] = {}
+        for row in aio_rows:
+            aio_name = row[0]
+            if not aio_name:
+                continue
+            for el in row[1:]:
+                if not el or not isinstance(el, str):
+                    continue
+                for m in _VALUE_RE.finditer(el):
+                    key = m.group(1).strip()
+                    val = m.group(2).strip()
+                    if val.lower() in _SKIP_VALUES or len(val) < 2:
+                        continue
+                    if key not in index:
+                        index[key] = {}
+                    if val not in index[key]:
+                        index[key][val] = []
+                    index[key][val].append(aio_name)
+
+        # Create HSL records for groups with ≥2 AIOs
+        created = 0
+        skipped = 0
+        already_existed = 0
+        now = datetime.now(timezone.utc)
+
+        with conn.cursor() as cur:
+            for key, val_map in index.items():
+                for val, aio_names in val_map.items():
+                    if len(aio_names) < 2:
+                        skipped += 1
+                        continue
+                    hsl_name = f"[{key}.{val}].hsl"
+                    # Check if this HSL already exists
+                    cur.execute("SELECT hsl_id FROM hsl_data WHERE hsl_name = %s LIMIT 1", (hsl_name,))
+                    if cur.fetchone():
+                        already_existed += 1
+                        continue
+                    # Build element list (up to 100 AIO names)
+                    elems: List[Optional[str]] = aio_names[:100]
+                    while len(elems) < 100:
+                        elems.append(None)
+                    hsl_id = uuid.uuid4()
+                    cur.execute(
+                        f"INSERT INTO hsl_data (hsl_id, hsl_name, {_HSL_COLS}, created_at, updated_at) "
+                        f"VALUES (%s, %s, {_HSL_PLACEHOLDERS}, %s, %s)",
+                        [str(hsl_id), hsl_name] + elems + [now, now],
+                    )
+                    created += 1
+
+        conn.commit()
+
+    logger.info("HSL rebuild: %d created, %d skipped (single-AIO), %d already existed",
+                created, skipped, already_existed)
+    return {
+        "created": created,
+        "skipped_single_aio": skipped,
+        "already_existed": already_existed,
+        "total_aios_scanned": len(aio_rows),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Saved Prompts
 # ---------------------------------------------------------------------------
