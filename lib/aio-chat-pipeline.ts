@@ -22,6 +22,7 @@ import {
 } from "./aio-math"
 import {
   substrateChatWithAIO,
+  chatWithAIO,
   createMroObject,
   listMroObjects,
   type ChatMessage,
@@ -144,8 +145,23 @@ export async function runChatPipeline(
     { role: "user", content: query },
   ]
 
-  // Step 5 — call Claude via the substrate endpoint (no DB context injection)
-  const chatResponse = await substrateChatWithAIO(messages, bundleText)
+  // Step 5 — call Claude via the substrate endpoint (no DB context injection).
+  // Falls back to the standard chat endpoint if substrate-chat is not yet
+  // deployed on this backend (e.g. during a rolling Railway deploy).
+  let chatResponse = await substrateChatWithAIO(messages, bundleText)
+  if (
+    chatResponse &&
+    "error" in chatResponse &&
+    (chatResponse.error.includes("404") || chatResponse.error.includes("not found") ||
+     chatResponse.error.includes("backend_unavailable"))
+  ) {
+    // Fallback: inject bundle as the first user message so Claude still sees it
+    const fallbackMessages: ChatMessage[] = [
+      { role: "user", content: "Use the following precomputed substrate as your evidence:\n\n" + bundleText },
+      ...messages,
+    ]
+    chatResponse = await chatWithAIO(fallbackMessages)
+  }
   if (!chatResponse) return { error: "Backend unavailable" }
   if ("error" in chatResponse) return { error: chatResponse.error }
 
