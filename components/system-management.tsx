@@ -691,10 +691,9 @@ function HslDataPane() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground w-48">HSL Name</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Elements</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground w-28">Created</th>
-                <th className="px-4 py-3 text-right font-medium text-muted-foreground w-36">Actions</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground w-40">HSL Name</th>
+                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Elements</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground w-28">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -702,35 +701,37 @@ function HslDataPane() {
                 const filledElems = (rec.elements ?? []).filter((e) => e !== null && e !== "") as string[]
                 return (
                   <tr key={rec.hsl_id} className="border-t border-border hover:bg-accent/30 transition-colors align-top">
-                    <td className="px-4 py-3 font-medium">{rec.hsl_name}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-sm leading-tight">{rec.hsl_name}</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{new Date(rec.created_at).toLocaleDateString()}</div>
+                    </td>
+                    <td className="px-3 py-2">
                       {filledElems.length === 0 ? (
                         <span className="text-xs text-muted-foreground italic">No elements</span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
-                          {filledElems.slice(0, 12).map((el, idx) => (
+                          {filledElems.slice(0, 10).map((el, idx) => (
                             <span
                               key={idx}
-                              className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono text-white"
+                              className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-mono text-white leading-5"
                               style={{ backgroundColor: SIDEBAR_BLUE }}
                             >
                               {el}
                             </span>
                           ))}
-                          {filledElems.length > 12 && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] bg-muted/60 text-muted-foreground border border-border">
-                              +{filledElems.length - 12} more
+                          {filledElems.length > 10 && (
+                            <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] bg-muted/60 text-muted-foreground border border-border leading-5">
+                              +{filledElems.length - 10}
                             </span>
                           )}
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(rec.created_at).toLocaleDateString()}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(rec)} className="gap-1 h-7 px-2"><Pencil className="w-3 h-3" />Edit</Button>
-                        <Button variant="ghost" size="sm" onClick={() => openStructure(rec)} className="gap-1 h-7 px-2 text-blue-400 hover:text-blue-300"><LayoutGrid className="w-3 h-3" />Structure</Button>
-                        <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(rec)} className="gap-1 h-7 px-2 text-destructive hover:text-destructive"><Trash2 className="w-3 h-3" />Delete</Button>
+                    <td className="px-3 py-2 text-right">
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Button variant="ghost" size="sm" onClick={() => openEdit(rec)} title="Edit record" className="h-7 w-7 p-0"><Pencil className="w-3.5 h-3.5" /></Button>
+                        <Button variant="ghost" size="sm" onClick={() => openStructure(rec)} title="View structure" className="h-7 w-7 p-0 text-blue-400 hover:text-blue-300"><LayoutGrid className="w-3.5 h-3.5" /></Button>
+                        <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(rec)} title="Delete record" className="h-7 w-7 p-0 text-destructive hover:text-destructive"><Trash2 className="w-3.5 h-3.5" /></Button>
                       </div>
                     </td>
                   </tr>
