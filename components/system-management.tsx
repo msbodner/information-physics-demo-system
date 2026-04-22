@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import {
   ArrowLeft, Plus, Pencil, Trash2, Eye, EyeOff, Save,
   Users, Key, Loader2, ShieldCheck, User, Lock, FileSpreadsheet, FileText,
-  Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network, BarChart2,
+  Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network, BarChart2, LayoutGrid,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -577,15 +577,25 @@ function AioDataPane() {
 // ── HSL Data Pane ──────────────────────────────────────────────────
 
 const HSL_COUNT = 100
+const SIDEBAR_BLUE = "#0F3460"
 
 function HslDataPane() {
   const [records, setRecords] = useState<HslDataRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [dialog, setDialog] = useState<{ open: boolean; mode: "add" | "edit"; record?: HslDataRecord }>({ open: false, mode: "add" })
-  const [deleteConfirm, setDeleteConfirm] = useState<HslDataRecord | null>(null)
+
+  // Add/Edit dialog (full 100-field form — used for Add and also the Structure viewer)
+  const [structDialog, setStructDialog] = useState<{ open: boolean; mode: "add" | "structure"; record?: HslDataRecord }>({ open: false, mode: "add" })
   const [formName, setFormName] = useState("")
   const [formElements, setFormElements] = useState<(string | null)[]>(emptyElements(HSL_COUNT))
   const [isSaving, setIsSaving] = useState(false)
+
+  // Inline edit dialog — shown when user clicks "Edit"
+  const [editDialog, setEditDialog] = useState<{ open: boolean; record?: HslDataRecord }>({ open: false })
+  const [editName, setEditName] = useState("")
+  const [editElements, setEditElements] = useState<(string | null)[]>(emptyElements(HSL_COUNT))
+  const [isEditSaving, setIsEditSaving] = useState(false)
+
+  const [deleteConfirm, setDeleteConfirm] = useState<HslDataRecord | null>(null)
 
   const load = useCallback(async () => {
     setIsLoading(true)
@@ -595,50 +605,72 @@ function HslDataPane() {
 
   useEffect(() => { load() }, [load])
 
+  // ── Structure / Add dialog ────────────────────────────────────────
   const openAdd = () => {
     setFormName("")
     setFormElements(emptyElements(HSL_COUNT))
-    setDialog({ open: true, mode: "add" })
+    setStructDialog({ open: true, mode: "add" })
   }
 
-  const openEdit = (rec: HslDataRecord) => {
+  const openStructure = (rec: HslDataRecord) => {
     setFormName(rec.hsl_name)
     const elems = [...(rec.elements ?? [])]
     while (elems.length < HSL_COUNT) elems.push(null)
     setFormElements(elems.slice(0, HSL_COUNT))
-    setDialog({ open: true, mode: "edit", record: rec })
+    setStructDialog({ open: true, mode: "structure", record: rec })
   }
 
-  const handleSave = async () => {
+  const handleStructSave = async () => {
     if (!formName.trim()) { toast.error("HSL Name is required."); return }
     setIsSaving(true)
     try {
-      if (dialog.mode === "add") {
+      if (structDialog.mode === "add") {
         const created = await createHslData(formName.trim(), formElements)
         if (!created) { toast.error("Failed to create HSL record."); return }
         toast.success("HSL record created.")
-      } else if (dialog.record) {
-        const updated = await updateHslData(dialog.record.hsl_id, formName.trim(), formElements)
-        if (!updated) { toast.error("Failed to update HSL record."); return }
-        toast.success("HSL record updated.")
       }
-      setDialog({ open: false, mode: "add" })
+      setStructDialog({ open: false, mode: "add" })
       await load()
     } finally { setIsSaving(false) }
   }
 
+  const structFilledCount = formElements.filter((e) => e !== null && e !== "").length
+
+  // ── Edit dialog ───────────────────────────────────────────────────
+  const openEdit = (rec: HslDataRecord) => {
+    setEditName(rec.hsl_name)
+    const elems = [...(rec.elements ?? [])]
+    while (elems.length < HSL_COUNT) elems.push(null)
+    setEditElements(elems.slice(0, HSL_COUNT))
+    setEditDialog({ open: true, record: rec })
+  }
+
+  const setEditElem = (i: number, val: string) => {
+    setEditElements((prev) => { const next = [...prev]; next[i] = val || null; return next })
+  }
+
+  const handleEditSave = async () => {
+    if (!editName.trim()) { toast.error("HSL Name is required."); return }
+    if (!editDialog.record) return
+    setIsEditSaving(true)
+    try {
+      const updated = await updateHslData(editDialog.record.hsl_id, editName.trim(), editElements)
+      if (!updated) { toast.error("Failed to update HSL record."); return }
+      toast.success("HSL record updated.")
+      setEditDialog({ open: false })
+      await load()
+    } finally { setIsEditSaving(false) }
+  }
+
+  const editFilledCount = editElements.filter((e) => e !== null && e !== "").length
+
+  // ── Delete ────────────────────────────────────────────────────────
   const handleDelete = async (rec: HslDataRecord) => {
     const ok = await deleteHslData(rec.hsl_id)
     if (ok) { toast.success("HSL record deleted."); await load() }
     else toast.error("Failed to delete HSL record.")
     setDeleteConfirm(null)
   }
-
-  const setElem = (i: number, val: string) => {
-    setFormElements((prev) => { const next = [...prev]; next[i] = val || null; return next })
-  }
-
-  const filledCount = formElements.filter((e) => e !== null && e !== "").length
 
   return (
     <div>
@@ -660,12 +692,9 @@ function HslDataPane() {
             <thead className="bg-muted/50">
               <tr>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground w-48">HSL Name</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
-                  <span>Elements</span>
-                  <span className="ml-2 text-[10px] font-normal text-blue-400 italic">— Click on element to Edit</span>
-                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Elements</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground w-28">Created</th>
-                <th className="px-4 py-3 text-right font-medium text-muted-foreground w-24">Actions</th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground w-36">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -676,26 +705,22 @@ function HslDataPane() {
                     <td className="px-4 py-3 font-medium">{rec.hsl_name}</td>
                     <td className="px-4 py-3">
                       {filledElems.length === 0 ? (
-                        <span className="text-xs text-muted-foreground italic">No elements — click Edit to add</span>
+                        <span className="text-xs text-muted-foreground italic">No elements</span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
                           {filledElems.slice(0, 12).map((el, idx) => (
-                            <button
+                            <span
                               key={idx}
-                              onClick={() => openEdit(rec)}
-                              title="Click to edit this record"
-                              className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono bg-indigo-950/60 text-indigo-300 border border-indigo-800/50 hover:bg-indigo-800/70 hover:border-indigo-500 hover:text-indigo-100 transition-colors cursor-pointer"
+                              className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono text-white"
+                              style={{ backgroundColor: SIDEBAR_BLUE }}
                             >
                               {el}
-                            </button>
+                            </span>
                           ))}
                           {filledElems.length > 12 && (
-                            <button
-                              onClick={() => openEdit(rec)}
-                              className="inline-flex items-center px-2 py-0.5 rounded text-[11px] bg-muted/60 text-muted-foreground border border-border hover:bg-accent transition-colors cursor-pointer"
-                            >
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] bg-muted/60 text-muted-foreground border border-border">
                               +{filledElems.length - 12} more
-                            </button>
+                            </span>
                           )}
                         </div>
                       )}
@@ -704,6 +729,7 @@ function HslDataPane() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="sm" onClick={() => openEdit(rec)} className="gap-1 h-7 px-2"><Pencil className="w-3 h-3" />Edit</Button>
+                        <Button variant="ghost" size="sm" onClick={() => openStructure(rec)} className="gap-1 h-7 px-2 text-blue-400 hover:text-blue-300"><LayoutGrid className="w-3 h-3" />Structure</Button>
                         <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(rec)} className="gap-1 h-7 px-2 text-destructive hover:text-destructive"><Trash2 className="w-3 h-3" />Delete</Button>
                       </div>
                     </td>
@@ -715,29 +741,92 @@ function HslDataPane() {
         </div>
       )}
 
-      {/* Add/Edit Dialog */}
-      <Dialog open={dialog.open} onOpenChange={(o) => setDialog((d) => ({ ...d, open: o }))}>
-        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/30">
+      {/* ── Edit Dialog — inline editable element display ─────────── */}
+      <Dialog open={editDialog.open} onOpenChange={(o) => setEditDialog((d) => ({ ...d, open: o }))}>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+          {/* Dark blue header matching sidebar */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-white/10" style={{ backgroundColor: SIDEBAR_BLUE }}>
             <div>
-              <DialogTitle className="text-base font-semibold">
-                {dialog.mode === "add" ? "Add HSL Record" : "Edit HSL Record"}
-              </DialogTitle>
-              {dialog.mode === "edit" && (
-                <p className="text-xs text-blue-400 italic mt-0.5">Click on element to Edit</p>
-              )}
+              <DialogTitle className="text-white text-base font-semibold">Edit HSL Record</DialogTitle>
+              <p className="text-white/60 text-xs mt-0.5">Click on element to Edit</p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">{filledCount} / {HSL_COUNT} elements filled</span>
-            </div>
+            <span className="text-white/50 text-xs">{editFilledCount} / {HSL_COUNT} filled</span>
           </div>
 
           {/* Body */}
           <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+            {/* HSL Name */}
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">HSL Name</Label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Record name..." />
+            </div>
+
+            {/* Elements as editable dark-blue styled inputs */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-3">All elements — edit any value below:</p>
+              <div className="grid grid-cols-1 gap-1.5">
+                {editElements.map((el, i) => {
+                  const isFilled = el !== null && el !== ""
+                  return (
+                    <div key={i} className={`flex items-center gap-2 rounded px-3 py-1.5 transition-colors ${isFilled ? "bg-[#0F3460]/15 border border-[#0F3460]/30" : "bg-muted/20 border border-transparent"}`}>
+                      <span className="text-[10px] text-muted-foreground w-16 shrink-0 font-mono">E{String(i + 1).padStart(2, "0")}</span>
+                      <input
+                        value={el ?? ""}
+                        onChange={(e) => setEditElem(i, e.target.value)}
+                        placeholder={`Element ${i + 1}`}
+                        className={`flex-1 bg-transparent text-xs outline-none border-none placeholder:text-muted-foreground/40 ${isFilled ? "text-white font-mono" : "text-foreground"}`}
+                        style={isFilled ? { color: "white", textShadow: "none" } : {}}
+                      />
+                      {isFilled && (
+                        <button
+                          onClick={() => setEditElem(i, "")}
+                          className="text-white/30 hover:text-white/70 text-[10px] shrink-0"
+                          title="Clear"
+                        >✕</button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Footer — Save / Cancel inside the box */}
+          <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border bg-muted/20">
+            <Button variant="outline" onClick={() => setEditDialog((d) => ({ ...d, open: false }))}>Cancel</Button>
+            <Button onClick={handleEditSave} disabled={isEditSaving} className="gap-2" style={{ backgroundColor: SIDEBAR_BLUE }}>
+              {isEditSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Save Changes
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Structure Dialog — full 100-field form ────────────────── */}
+      <Dialog open={structDialog.open} onOpenChange={(o) => setStructDialog((d) => ({ ...d, open: o }))}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/30">
+            <div>
+              <DialogTitle className="text-base font-semibold">
+                {structDialog.mode === "add" ? "Add HSL Record" : "HSL Structure"}
+              </DialogTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {structDialog.mode === "add" ? "Define the new HSL record and its element slots." : `All ${HSL_COUNT} element slots for this record.`}
+              </p>
+            </div>
+            <span className="text-xs text-muted-foreground">{structFilledCount} / {HSL_COUNT} filled</span>
+          </div>
+
+          <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
             <div className="space-y-1">
               <Label>HSL Name</Label>
-              <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Record name..." />
+              <Input
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                placeholder="Record name..."
+                readOnly={structDialog.mode === "structure"}
+                className={structDialog.mode === "structure" ? "bg-muted/50 cursor-default" : ""}
+              />
             </div>
             <div className="grid grid-cols-2 gap-2">
               {Array.from({ length: HSL_COUNT }, (_, i) => (
@@ -745,22 +834,24 @@ function HslDataPane() {
                   <span className="text-xs text-muted-foreground w-28 shrink-0">HSL Element {i + 1}</span>
                   <Input
                     value={formElements[i] ?? ""}
-                    onChange={(e) => setElem(i, e.target.value)}
-                    placeholder={`HSL Element ${i + 1}`}
-                    className="h-7 text-xs"
+                    readOnly
+                    className="h-7 text-xs bg-muted/40 cursor-default"
                   />
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Footer with Save / Cancel inside the box */}
           <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border bg-muted/20">
-            <Button variant="outline" onClick={() => setDialog((d) => ({ ...d, open: false }))}>Cancel</Button>
-            <Button onClick={handleSave} disabled={isSaving} className="gap-2">
-              {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {dialog.mode === "add" ? "Create Record" : "Save Changes"}
+            <Button variant="outline" onClick={() => setStructDialog((d) => ({ ...d, open: false }))}>
+              {structDialog.mode === "structure" ? "Close" : "Cancel"}
             </Button>
+            {structDialog.mode === "add" && (
+              <Button onClick={handleStructSave} disabled={isSaving} className="gap-2">
+                {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                Create Record
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>
