@@ -9,8 +9,10 @@ from urllib.parse import unquote
 import bcrypt
 
 import psycopg
+from psycopg_pool import ConnectionPool
 from dotenv import load_dotenv
 import base64
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -24,7 +26,53 @@ logging.basicConfig(
 )
 logger = logging.getLogger("infophysics.api")
 
-app = FastAPI(title="InformationPhysics API", version="0.1.0")
+# ---------------------------------------------------------------------------
+# DB connection pool (module-level singleton, opened at startup)
+# ---------------------------------------------------------------------------
+
+_pool: Optional[ConnectionPool] = None
+
+
+def _get_pool() -> ConnectionPool:
+    """Lazy-init the pool; safe for reload and tests."""
+    global _pool
+    if _pool is None:
+        url = os.environ.get("DATABASE_URL")
+        if not url:
+            raise RuntimeError("DATABASE_URL not set")
+        # Conservative sizing; Railway default max_connections=100 across all services.
+        # min_size=1 keeps at least one warm connection, max_size=10 per worker.
+        _pool = ConnectionPool(
+            url,
+            min_size=1,
+            max_size=int(os.environ.get("DB_POOL_MAX", "10")),
+            timeout=30,
+            kwargs={"autocommit": False},
+        )
+    return _pool
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    pool = _get_pool()
+    try:
+        pool.wait(timeout=10)
+        logger.info("DB connection pool ready (max_size=%d)", pool.max_size)
+    except Exception as e:
+        logger.warning("DB pool warmup failed (will retry on demand): %s", e)
+    try:
+        yield
+    finally:
+        global _pool
+        if _pool is not None:
+            try:
+                _pool.close()
+            except Exception:
+                pass
+            _pool = None
+
+
+app = FastAPI(title="InformationPhysics API", version="0.1.0", lifespan=_lifespan)
 
 cors_origins = json.loads(
     os.environ.get("CORS_ORIGINS", '["http://localhost:3000","http://localhost:3003"]')
@@ -69,10 +117,17 @@ async def general_error_handler(request: Request, exc: Exception):
 # ---------------------------------------------------------------------------
 
 def db():
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError("DATABASE_URL not set")
-    return psycopg.connect(url)
+    """Return a pooled connection context manager.
+
+    Usage (unchanged from before):
+        with db() as conn:
+            with conn.cursor() as cur:
+                ...
+
+    The pool handles open/close/recycle; the caller still controls
+    transaction commit/rollback. `conn.commit()` works as before.
+    """
+    return _get_pool().connection()
 
 
 def set_tenant(conn, tenant_id: str):
@@ -1218,25 +1273,25 @@ def create_aio_data(payload: AioDataRequest):
     aio_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
     elems = (payload.elements + [None] * 50)[:50]
+    # Single connection, single transaction: INSERT ... RETURNING + info-elements sync.
+    # Previously this was 3 separate connections (insert, sync, select-back).
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"INSERT INTO aio_data (aio_id, aio_name, {_AIO_COLS}, created_at, updated_at) VALUES (%s, %s, {_AIO_PLACEHOLDERS}, %s, %s)",
+                f"INSERT INTO aio_data (aio_id, aio_name, {_AIO_COLS}, created_at, updated_at) "
+                f"VALUES (%s, %s, {_AIO_PLACEHOLDERS}, %s, %s) "
+                f"RETURNING aio_id, aio_name, {_AIO_COLS}, created_at, updated_at",
                 [str(aio_id), payload.aio_name.strip()] + elems + [now, now],
             )
-        conn.commit()
-    # Auto-update information_elements for new field names
-    try:
-        field_names = _extract_field_names(elems)
-        if field_names:
-            with db() as conn:
-                _sync_information_elements(conn, field_names)
-    except Exception as e:
-        logger.warning(f"Failed to sync information_elements: {e}")
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT aio_id, aio_name, {_AIO_COLS}, created_at, updated_at FROM aio_data WHERE aio_id = %s", (str(aio_id),))
             row = cur.fetchone()
+        # Sync information_elements in the same transaction.
+        try:
+            field_names = _extract_field_names(elems)
+            if field_names:
+                _sync_information_elements(conn, field_names)
+        except Exception as e:
+            logger.warning(f"Failed to sync information_elements: {e}")
+        conn.commit()
     return _aio_row_to_out(row)
 
 
@@ -1250,16 +1305,14 @@ def update_aio_data(aio_id: str, payload: AioDataRequest):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"UPDATE aio_data SET {sets} WHERE aio_id = %s",
+                f"UPDATE aio_data SET {sets} WHERE aio_id = %s "
+                f"RETURNING aio_id, aio_name, {_AIO_COLS}, created_at, updated_at",
                 [payload.aio_name.strip()] + elems + [now, aio_id],
             )
-            if cur.rowcount == 0:
+            row = cur.fetchone()
+            if row is None:
                 raise HTTPException(status_code=404, detail="AIO record not found")
         conn.commit()
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT aio_id, aio_name, {_AIO_COLS}, created_at, updated_at FROM aio_data WHERE aio_id = %s", (aio_id,))
-            row = cur.fetchone()
     return _aio_row_to_out(row)
 
 
@@ -1654,7 +1707,11 @@ def _extract_field_names(elements: list) -> list[str]:
 
 
 def _sync_information_elements(conn, field_names: list[str]):
-    """Upsert field names into information_elements and recount AIOs for each."""
+    """Upsert field names into information_elements and recount AIOs for each.
+
+    Caller is responsible for committing (so this can participate in a larger
+    transaction, e.g. alongside the AIO insert).
+    """
     if not field_names:
         return
     with conn.cursor() as cur:
@@ -1673,7 +1730,6 @@ def _sync_information_elements(conn, field_names: list[str]):
                    ON CONFLICT (field_name) DO UPDATE SET aio_count = %s, updated_at = now()""",
                 (fn, count, count),
             )
-    conn.commit()
 
 
 class InformationElementOut(BaseModel):
