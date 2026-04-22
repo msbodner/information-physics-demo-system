@@ -6,6 +6,7 @@ import {
   ArrowLeft, Plus, Pencil, Trash2, Eye, EyeOff, Save,
   Users, Key, Loader2, ShieldCheck, User, Lock, FileSpreadsheet, FileText,
   Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network, BarChart2, LayoutGrid,
+  BookOpen, Cpu, Brain, Library,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -1867,9 +1868,10 @@ function ArchitecturePane() {
 
 interface SystemManagementProps {
   onBack: () => void
+  onNavigate?: (view: string) => void
 }
 
-export function SystemManagement({ onBack }: SystemManagementProps) {
+export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) {
   // Login gate temporarily bypassed — restore when backend auth is stable
   const [authedUser] = useState<LoginResult>({
     user_id: "bypass",
@@ -1921,6 +1923,7 @@ export function SystemManagement({ onBack }: SystemManagementProps) {
               { value: "info-elements", icon: <Atom className="w-4 h-4" />,            label: "Info Elements" },
               { value: "architecture",  icon: <Network className="w-4 h-4" />,         label: "Architecture" },
               { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Stats" },
+              { value: "references",    icon: <Library className="w-4 h-4" />,          label: "References" },
             ] as const).map(({ value, icon, label }) => (
               <TabsTrigger
                 key={value}
@@ -1992,6 +1995,71 @@ export function SystemManagement({ onBack }: SystemManagementProps) {
             <TabsContent value="search-stats" className="mt-0">
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><BarChart2 className="w-5 h-5" />ChatAIO Search Statistics</CardTitle></CardHeader>
                 <CardContent><SearchStatsPane /></CardContent></Card>
+            </TabsContent>
+
+            <TabsContent value="references" className="mt-0">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><Library className="w-5 h-5" />Reference Documents</CardTitle>
+                  <p className="text-sm text-muted-foreground">Documentation, workflow guides, and foundational research papers for the Information Physics Standard Model.</p>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {[
+                      {
+                        view: "workflow",
+                        icon: <Cpu className="w-6 h-6 text-[#0F3460]" />,
+                        title: "Workflow Description",
+                        desc: "Step-by-step guide to the AIO conversion, HSL building, and ChatAIO retrieval workflow.",
+                        color: "border-[#0F3460]/30 hover:border-[#0F3460]/70",
+                      },
+                      {
+                        view: "reference",
+                        icon: <FileText className="w-6 h-6 text-[#0F3460]" />,
+                        title: "Information Physics Reference",
+                        desc: "Comprehensive reference for the Information Physics Standard Model — AIO, HSL, and MRO specifications.",
+                        color: "border-[#0F3460]/30 hover:border-[#0F3460]/70",
+                      },
+                      {
+                        view: "paper",
+                        icon: <BookOpen className="w-6 h-6 text-emerald-600" />,
+                        title: "AIO Reference Paper",
+                        desc: "Foundational research paper defining the Associated Information Object (AIO) data model and bracket notation.",
+                        color: "border-emerald-300/50 hover:border-emerald-400",
+                      },
+                      {
+                        view: "mro-paper",
+                        icon: <Brain className="w-6 h-6 text-emerald-600" />,
+                        title: "MRO Reference Paper",
+                        desc: "Research paper defining Memory Result Objects — episodic AI memory with provenance, ranking, and lineage.",
+                        color: "border-emerald-300/50 hover:border-emerald-400",
+                      },
+                      {
+                        view: "paper-iii",
+                        icon: <Atom className="w-6 h-6 text-emerald-600" />,
+                        title: "Paper III — Precomputed Substrates for LLMs",
+                        desc: "Advanced research paper on deterministic semantic substrate retrieval — the foundation of Substrate Chat mode.",
+                        color: "border-emerald-300/50 hover:border-emerald-400",
+                      },
+                    ].map(({ view, icon, title, desc, color }) => (
+                      <button
+                        key={view}
+                        onClick={() => onNavigate?.(view)}
+                        disabled={!onNavigate}
+                        className={`text-left p-5 rounded-xl border-2 bg-card transition-colors duration-150 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-default ${color}`}
+                      >
+                        <div className="flex items-start gap-4">
+                          <div className="shrink-0 mt-0.5">{icon}</div>
+                          <div>
+                            <p className="font-semibold text-foreground mb-1">{title}</p>
+                            <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
           </div>
 

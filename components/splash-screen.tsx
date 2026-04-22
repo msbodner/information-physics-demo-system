@@ -103,8 +103,8 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
               <span className="text-xs text-muted-foreground text-center">Hyper-Semantic-Layer Object</span>
             </div>
             <ArrowRight className="w-5 h-5 text-muted-foreground" />
-            <div className="flex flex-col items-center gap-2 p-4 rounded-lg bg-card border border-purple-300 min-w-[120px] shadow-sm">
-              <span className="text-2xl font-mono font-bold text-purple-600">.mro</span>
+            <div className="flex flex-col items-center gap-2 p-4 rounded-lg bg-card border border-emerald-300 min-w-[120px] shadow-sm">
+              <span className="text-2xl font-mono font-bold text-emerald-600">.mro</span>
               <span className="text-xs text-muted-foreground text-center">Memory Result Object</span>
             </div>
           </div>

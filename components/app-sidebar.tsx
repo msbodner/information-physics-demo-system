@@ -20,6 +20,7 @@ export type ViewKey =
   | "reference"
   | "paper"
   | "mro-paper"
+  | "paper-iii"
   | "sysadmin"
 
 interface NavItem {
@@ -49,16 +50,9 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Discovery",
-    items: [{ key: "rnd", label: "R & D", icon: Atom }],
-  },
-  {
-    label: "Knowledge",
     items: [
+      { key: "rnd", label: "R & D", icon: Atom },
       { key: "guide", label: "User Guide", icon: BookOpen },
-      { key: "workflow", label: "Workflow", icon: Cpu },
-      { key: "reference", label: "IP Reference", icon: FileText },
-      { key: "paper", label: "AIO Paper", icon: FileText },
-      { key: "mro-paper", label: "MRO Paper", icon: Brain },
     ],
   },
   {

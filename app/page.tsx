@@ -266,7 +266,7 @@ export default function HomePage() {
   if (currentView === "mro-paper") return <MROReferencePaper onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
   if (currentView === "paper-iii") return <PaperIII onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
   if (currentView === "processor") return <SemanticProcessor files={convertedFiles} downloadedFiles={downloadedFileNames} onBack={() => setCurrentView("converter")} backendIsOnline={backendIsOnline} onSysAdmin={handleSystemClick} />
-  if (currentView === "sysadmin") return <SystemManagement onBack={() => setCurrentView("home")} />
+  if (currentView === "sysadmin") return <SystemManagement onBack={() => setCurrentView("home")} onNavigate={setCurrentView} />
   if (currentView === "rnd") return <ResearchAndDevelopment onBack={() => setCurrentView("home")} backendIsOnline={backendIsOnline} onSysAdmin={handleSystemClick} />
   if (currentView === "pdf-import") return <PdfImportView onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} onImportCsv={(csvData) => { setConvertedFiles((prev) => [...prev, csvData]); setCurrentView("converter") }} />
 
@@ -337,6 +337,9 @@ export default function HomePage() {
                 <Atom className="w-4 h-4" />R &amp; D
               </Button>
             )}
+            <Button size="lg" variant="outline" onClick={() => setCurrentView("guide")} className="gap-2 px-8">
+              <BookOpen className="w-4 h-4" />User Guide
+            </Button>
           </div>
 
           <ChatAioDialog open={showHomeChatAIO} onOpenChange={setShowHomeChatAIO} />
@@ -367,7 +370,7 @@ export default function HomePage() {
                 { label: "[Col.Val]", sub: "AIO Format", highlight: false },
                 { label: ".aio", sub: "Semantic Object", highlight: false },
                 { label: ".hsl", sub: "Hyper-Semantic-Layer Object", highlight: false },
-                { label: ".mro", sub: "Memory Result Object", highlight: true },
+                { label: ".mro", sub: "Memory Result Object", highlight: false },
               ].map(({ label, sub, highlight }, i) => (
                 <div key={label} className="flex items-center gap-4">
                   {i > 0 && <ArrowRight className="w-6 h-6 text-muted-foreground" />}
@@ -383,17 +386,6 @@ export default function HomePage() {
             </p>
           </div>
 
-          {/* Nav links */}
-          <div className="flex flex-col items-center gap-4">
-            <div className="flex gap-4 flex-wrap justify-center">
-              <Button variant="ghost" onClick={() => setCurrentView("guide")} className="gap-2"><BookOpen className="w-4 h-4" />User Guide</Button>
-              <Button variant="ghost" onClick={() => setCurrentView("workflow")} className="gap-2"><Cpu className="w-4 h-4" />Workflow Description</Button>
-              <Button variant="ghost" onClick={() => setCurrentView("reference")} className="gap-2"><FileText className="w-4 h-4" />Information Physics Reference</Button>
-            </div>
-            <Button variant="outline" onClick={() => setCurrentView("paper")} className="gap-2 mt-2"><BookOpen className="w-4 h-4" />AIO Reference Paper</Button>
-            <Button variant="outline" onClick={() => setCurrentView("mro-paper")} className="gap-2 mt-2"><Brain className="w-4 h-4" />MRO Reference Paper</Button>
-            <Button variant="outline" onClick={() => setCurrentView("paper-iii")} className="gap-2 mt-2 border-purple-500/40 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30"><Atom className="w-4 h-4" />Paper III — Precomputed Substrates for LLMs</Button>
-          </div>
         </section>
 
         <footer className="border-t border-border mt-16">
