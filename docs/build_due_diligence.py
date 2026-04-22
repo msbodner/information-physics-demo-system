@@ -285,7 +285,7 @@ meta_lines = [
     ("Document Classification",  "TRADE SECRET — PROPRIETARY AND CONFIDENTIAL"),
     ("Prepared By",              "InformationPhysics.ai, LLC"),
     ("Author",                   "Michael Simon Bodner, Ph.D."),
-    ("Version",                  "V3.5  |  April 2026"),
+    ("Version",                  "V4.0  |  April 2026"),
     ("Repository",               "github.com/msbodner/information-physics-demo-system"),
     ("Deployment",               "Railway Cloud  ·  Electron Desktop  ·  Docker"),
 ]
@@ -365,7 +365,7 @@ body(doc,
     "The platform is presently deployed on Railway (cloud production), GitHub (version-controlled "
     "CI/CD pipeline), and as a native Electron desktop application for macOS, Windows, and Linux. "
     "It uses Claude Sonnet 4.6 (Anthropic) as its AI reasoning engine and PostgreSQL 15 as its "
-    "persistent data store. Current version: V3.5, April 2026.")
+    "persistent data store. Current version: V4.0, April 2026.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 2 — PRODUCT PHILOSOPHY
@@ -845,7 +845,7 @@ add_table(doc,
         ("Frontend proxy routes",       "~25 Next.js route handlers"),
         ("Admin panel tabs",            "10 management tabs"),
         ("Default tenant",             "tenantA  (RLS enforced)"),
-        ("Platform version",            "V3.5  —  April 2026"),
+        ("Platform version",            "V4.0  —  April 2026"),
     ],
     col_widths=[3.0, 3.0])
 
