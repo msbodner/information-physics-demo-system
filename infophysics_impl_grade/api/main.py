@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.db import db, set_tenant, lifespan as _lifespan  # noqa: F401  (re-exported for callers)
+from api.llm import get_effective_api_key, get_anthropic_client  # noqa: F401
 
 load_dotenv()
 
@@ -1048,23 +1049,6 @@ def login(payload: LoginRequest):
 # ---------------------------------------------------------------------------
 # Settings: API key
 # ---------------------------------------------------------------------------
-
-def _get_api_key_from_db() -> Optional[str]:
-    try:
-        with db() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT value FROM system_settings WHERE key = 'anthropic_api_key'")
-                row = cur.fetchone()
-                return row[0] if row else None
-    except Exception:
-        return None
-
-
-def get_effective_api_key() -> Optional[str]:
-    """Check DB first, fall back to env var."""
-    db_key = _get_api_key_from_db()
-    return db_key or os.environ.get("ANTHROPIC_API_KEY")
-
 
 @app.get("/v1/settings/apikey")
 def get_api_key_setting():
