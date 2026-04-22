@@ -74,8 +74,14 @@ export NEXT_PUBLIC_TENANT_ID="tenantA"
 pnpm build
 
 # Copy standalone output
-cp -r "$PROJECT_ROOT/.next/standalone/"* "$RESOURCES/frontend/"
-mkdir -p "$RESOURCES/frontend/.next"
+# NOTE: must copy files individually — the glob * skips dotfiles like .next/
+cp -r "$PROJECT_ROOT/.next/standalone/server.js" "$RESOURCES/frontend/server.js"
+cp -r "$PROJECT_ROOT/.next/standalone/package.json" "$RESOURCES/frontend/package.json"
+cp -r "$PROJECT_ROOT/.next/standalone/node_modules" "$RESOURCES/frontend/node_modules"
+# Copy standalone .next/ (contains BUILD_ID, routes-manifest, server/ etc.)
+# Destination must NOT exist before cp -r or it nests inside itself
+cp -r "$PROJECT_ROOT/.next/standalone/.next" "$RESOURCES/frontend/.next"
+# Add static assets (.next/static is NOT inside standalone/.next)
 cp -r "$PROJECT_ROOT/.next/static" "$RESOURCES/frontend/.next/static"
 [ -d "$PROJECT_ROOT/public" ] && cp -r "$PROJECT_ROOT/public" "$RESOURCES/frontend/public"
 
