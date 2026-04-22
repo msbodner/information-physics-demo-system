@@ -659,19 +659,47 @@ function HslDataPane() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">HSL Name</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Elements</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
-                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground w-48">HSL Name</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  <span>Elements</span>
+                  <span className="ml-2 text-[10px] font-normal text-blue-400 italic">— Click on element to Edit</span>
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground w-28">Created</th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground w-24">Actions</th>
               </tr>
             </thead>
             <tbody>
               {records.map((rec) => {
-                const filled = (rec.elements ?? []).filter((e) => e !== null && e !== "").length
+                const filledElems = (rec.elements ?? []).filter((e) => e !== null && e !== "") as string[]
                 return (
-                  <tr key={rec.hsl_id} className="border-t border-border hover:bg-accent/30 transition-colors">
+                  <tr key={rec.hsl_id} className="border-t border-border hover:bg-accent/30 transition-colors align-top">
                     <td className="px-4 py-3 font-medium">{rec.hsl_name}</td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{filled} / {HSL_COUNT} filled</td>
+                    <td className="px-4 py-3">
+                      {filledElems.length === 0 ? (
+                        <span className="text-xs text-muted-foreground italic">No elements — click Edit to add</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {filledElems.slice(0, 12).map((el, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => openEdit(rec)}
+                              title="Click to edit this record"
+                              className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono bg-indigo-950/60 text-indigo-300 border border-indigo-800/50 hover:bg-indigo-800/70 hover:border-indigo-500 hover:text-indigo-100 transition-colors cursor-pointer"
+                            >
+                              {el}
+                            </button>
+                          ))}
+                          {filledElems.length > 12 && (
+                            <button
+                              onClick={() => openEdit(rec)}
+                              className="inline-flex items-center px-2 py-0.5 rounded text-[11px] bg-muted/60 text-muted-foreground border border-border hover:bg-accent transition-colors cursor-pointer"
+                            >
+                              +{filledElems.length - 12} more
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(rec.created_at).toLocaleDateString()}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -689,39 +717,51 @@ function HslDataPane() {
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialog.open} onOpenChange={(o) => setDialog((d) => ({ ...d, open: o }))}>
-        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{dialog.mode === "add" ? "Add HSL Record" : "Edit HSL Record"}</DialogTitle>
-          </DialogHeader>
-          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-muted/30">
+            <div>
+              <DialogTitle className="text-base font-semibold">
+                {dialog.mode === "add" ? "Add HSL Record" : "Edit HSL Record"}
+              </DialogTitle>
+              {dialog.mode === "edit" && (
+                <p className="text-xs text-blue-400 italic mt-0.5">Click on element to Edit</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{filledCount} / {HSL_COUNT} elements filled</span>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
             <div className="space-y-1">
               <Label>HSL Name</Label>
               <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Record name..." />
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-3">{filledCount} of {HSL_COUNT} elements filled</p>
-              <div className="grid grid-cols-2 gap-2">
-                {Array.from({ length: HSL_COUNT }, (_, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground w-28 shrink-0">HSL Element {i + 1}</span>
-                    <Input
-                      value={formElements[i] ?? ""}
-                      onChange={(e) => setElem(i, e.target.value)}
-                      placeholder={`HSL Element ${i + 1}`}
-                      className="h-7 text-xs"
-                    />
-                  </div>
-                ))}
-              </div>
+            <div className="grid grid-cols-2 gap-2">
+              {Array.from({ length: HSL_COUNT }, (_, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground w-28 shrink-0">HSL Element {i + 1}</span>
+                  <Input
+                    value={formElements[i] ?? ""}
+                    onChange={(e) => setElem(i, e.target.value)}
+                    placeholder={`HSL Element ${i + 1}`}
+                    className="h-7 text-xs"
+                  />
+                </div>
+              ))}
             </div>
           </div>
-          <DialogFooter className="pt-4 border-t border-border">
+
+          {/* Footer with Save / Cancel inside the box */}
+          <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border bg-muted/20">
             <Button variant="outline" onClick={() => setDialog((d) => ({ ...d, open: false }))}>Cancel</Button>
             <Button onClick={handleSave} disabled={isSaving} className="gap-2">
               {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {dialog.mode === "add" ? "Create" : "Save Changes"}
+              {dialog.mode === "add" ? "Create Record" : "Save Changes"}
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
