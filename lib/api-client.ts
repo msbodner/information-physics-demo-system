@@ -352,8 +352,8 @@ export async function deleteRole(roleId: string): Promise<boolean> {
 }
 
 // AIO Data
-export async function listAioData(): Promise<AioDataRecord[]> {
-  const result = await safeFetch<AioDataRecord[]>("/api/aio-data")
+export async function listAioData(limit: number = 5000): Promise<AioDataRecord[]> {
+  const result = await safeFetch<AioDataRecord[]>(`/api/aio-data?limit=${limit}`)
   return result ?? []
 }
 

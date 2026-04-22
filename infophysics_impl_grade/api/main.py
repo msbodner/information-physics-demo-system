@@ -1200,7 +1200,7 @@ def _aio_row_to_out(row) -> AioDataOut:
 
 
 @app.get("/v1/aio-data", response_model=List[AioDataOut])
-def list_aio_data(limit: int = Query(200, ge=1, le=1000)):
+def list_aio_data(limit: int = Query(5000, ge=1, le=100000)):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
