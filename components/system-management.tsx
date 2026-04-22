@@ -950,7 +950,7 @@ function SavedCsvsPane() {
 
   const load = useCallback(async () => {
     setIsLoading(true)
-    setRecords(await listIOs({ type: "CSV", source_system: "csv-converter", limit: 200 }))
+    setRecords(await listIOs({ type: "CSV", source_system: "csv-converter", limit: 5000 }))
     setIsLoading(false)
   }, [])
 
@@ -1056,7 +1056,7 @@ function SavedAiosPane() {
 
   const load = useCallback(async () => {
     setIsLoading(true)
-    setRecords(await listIOs({ type: "AIO", source_system: "csv-converter", limit: 500 }))
+    setRecords(await listIOs({ type: "AIO", source_system: "csv-converter", limit: 5000 }))
     setIsLoading(false)
   }, [])
 
@@ -1871,14 +1871,33 @@ interface SystemManagementProps {
   onNavigate?: (view: string) => void
 }
 
+const SESSION_KEY = "ipx.sysadmin.session"
+
 export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) {
-  // Login gate temporarily bypassed — restore when backend auth is stable
-  const [authedUser] = useState<LoginResult>({
-    user_id: "bypass",
-    username: "Admin",
-    email: "admin",
-    role: "System Admin",
+  // Restore session from sessionStorage (survives reloads within the tab, cleared on tab close)
+  const [authedUser, setAuthedUser] = useState<LoginResult | null>(() => {
+    if (typeof window === "undefined") return null
+    try {
+      const raw = window.sessionStorage.getItem(SESSION_KEY)
+      if (!raw) return null
+      const parsed = JSON.parse(raw) as LoginResult
+      return isAdmin(parsed.role) ? parsed : null
+    } catch { return null }
   })
+
+  const handleLogin = useCallback((user: LoginResult) => {
+    try { window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(user)) } catch {}
+    setAuthedUser(user)
+  }, [])
+
+  const handleLogout = useCallback(() => {
+    try { window.sessionStorage.removeItem(SESSION_KEY) } catch {}
+    setAuthedUser(null)
+  }, [])
+
+  if (!authedUser) {
+    return <LoginGateScreen onLogin={handleLogin} onBack={onBack} />
+  }
 
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
@@ -1894,9 +1913,12 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
             </div>
             <h1 className="text-lg font-bold text-foreground">System Management</h1>
           </div>
-          <div className="ml-auto flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
             <ShieldCheck className="w-4 h-4 text-primary" />
             <span>{authedUser.username}</span>
+            <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-1 text-xs">
+              <Lock className="w-3 h-3" />Logout
+            </Button>
           </div>
         </div>
       </header>

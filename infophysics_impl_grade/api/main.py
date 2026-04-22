@@ -378,7 +378,7 @@ def list_ios(
     source_system: Optional[str] = Query(None),
     created_after: Optional[datetime] = Query(None),
     created_before: Optional[datetime] = Query(None),
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(5000, ge=1, le=100000),
 ):
     logger.info("list_ios tenant=%s type=%s source=%s limit=%d", x_tenant_id, type, source_system, limit)
 
@@ -1309,7 +1309,7 @@ def _hsl_row_to_out(row) -> HslDataOut:
 
 
 @app.get("/v1/hsl-data", response_model=List[HslDataOut])
-def list_hsl_data(limit: int = Query(200, ge=1, le=1000)):
+def list_hsl_data(limit: int = Query(5000, ge=1, le=100000)):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1553,7 +1553,7 @@ class UpdateSavedPromptRequest(BaseModel):
 
 
 @app.get("/v1/saved-prompts", response_model=List[SavedPromptOut])
-def list_saved_prompts(limit: int = Query(100, ge=1, le=1000)):
+def list_saved_prompts(limit: int = Query(5000, ge=1, le=100000)):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1810,7 +1810,7 @@ def _mro_from_row(r):
 
 
 @app.get("/v1/mro-objects", response_model=List[MroObjectOut])
-def list_mro_objects(limit: int = Query(100, ge=1, le=1000)):
+def list_mro_objects(limit: int = Query(5000, ge=1, le=100000)):
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1929,7 +1929,7 @@ def substrate_chat(
 
 @app.get("/v1/chat-stats", response_model=List[ChatStatOut])
 def list_chat_stats(
-    limit: int = Query(500, ge=1, le=2000),
+    limit: int = Query(5000, ge=1, le=100000),
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
 ):
     tenant = x_tenant_id or "tenantA"

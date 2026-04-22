@@ -214,8 +214,8 @@ export interface ChatStatRecord {
   created_at: string
 }
 
-export async function listChatStats(): Promise<ChatStatRecord[]> {
-  return (await safeFetch<ChatStatRecord[]>("/api/chat-stats")) ?? []
+export async function listChatStats(limit: number = 5000): Promise<ChatStatRecord[]> {
+  return (await safeFetch<ChatStatRecord[]>(`/api/chat-stats?limit=${limit}`)) ?? []
 }
 
 export async function createChatStat(payload: Omit<ChatStatRecord, "stat_id" | "tenant_id" | "created_at">): Promise<ChatStatRecord | null> {
@@ -379,8 +379,8 @@ export async function deleteAioData(aioId: string): Promise<boolean> {
 }
 
 // HSL Data
-export async function listHslData(): Promise<HslDataRecord[]> {
-  const result = await safeFetch<HslDataRecord[]>("/api/hsl-data")
+export async function listHslData(limit: number = 5000): Promise<HslDataRecord[]> {
+  const result = await safeFetch<HslDataRecord[]>(`/api/hsl-data?limit=${limit}`)
   return result ?? []
 }
 
@@ -415,8 +415,8 @@ export interface SavedPrompt {
   updated_at: string
 }
 
-export async function listSavedPrompts(): Promise<SavedPrompt[]> {
-  const result = await safeFetch<SavedPrompt[]>("/api/saved-prompts")
+export async function listSavedPrompts(limit: number = 5000): Promise<SavedPrompt[]> {
+  const result = await safeFetch<SavedPrompt[]>(`/api/saved-prompts?limit=${limit}`)
   return result ?? []
 }
 
@@ -521,8 +521,8 @@ export interface MroObject {
   updated_at: string
 }
 
-export async function listMroObjects(): Promise<MroObject[]> {
-  const result = await safeFetch<MroObject[]>("/api/mro-objects")
+export async function listMroObjects(limit: number = 5000): Promise<MroObject[]> {
+  const result = await safeFetch<MroObject[]>(`/api/mro-objects?limit=${limit}`)
   return result ?? []
 }
 

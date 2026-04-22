@@ -154,7 +154,7 @@ export default function HomePage() {
 
     // Duplicate check
     if (backendIsOnline) {
-      const existing = await listIOs({ type: "CSV", source_system: "csv-converter", limit: 500 })
+      const existing = await listIOs({ type: "CSV", source_system: "csv-converter", limit: 5000 })
       const existingNames = new Set(existing.map((r) => r.context.source_object_id).filter(Boolean))
       const duplicates = files.filter((f) => existingNames.has(f.name))
       if (duplicates.length > 0) {
@@ -191,8 +191,8 @@ export default function HomePage() {
   const handleLoadFromBackend = useCallback(async () => {
     setIsLoadingFromBackend(true)
     const [aioRecords, csvRecords] = await Promise.all([
-      listIOs({ type: "AIO", source_system: "csv-converter", limit: 500 }),
-      listIOs({ type: "CSV", source_system: "csv-converter", limit: 200 }),
+      listIOs({ type: "AIO", source_system: "csv-converter", limit: 5000 }),
+      listIOs({ type: "CSV", source_system: "csv-converter", limit: 5000 }),
     ])
 
     if (aioRecords.length > 0) {
@@ -248,8 +248,8 @@ export default function HomePage() {
     setShowAioDb(true)
     setIsLoadingAioDb(true)
     const [aios, csvs] = await Promise.all([
-      listIOs({ type: "AIO", source_system: "csv-converter", limit: 500 }),
-      listIOs({ type: "CSV", source_system: "csv-converter", limit: 200 }),
+      listIOs({ type: "AIO", source_system: "csv-converter", limit: 5000 }),
+      listIOs({ type: "CSV", source_system: "csv-converter", limit: 5000 }),
     ])
     setAioDbRecords([...aios, ...csvs])
     setIsLoadingAioDb(false)

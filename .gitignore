@@ -13,4 +13,13 @@ node_modules/
 # Electron
 electron/node_modules/
 electron/dist/
+electron/icons/
 electron/resources/
+
+# Build artifacts
+tsconfig.tsbuildinfo
+
+# Office temp files
+~$*.docx
+~$*.xlsx
+~$*.pptx
