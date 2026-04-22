@@ -78,6 +78,16 @@ cp -r "$PROJECT_ROOT/.next/standalone/"* "$RESOURCES/frontend/"
 mkdir -p "$RESOURCES/frontend/.next"
 cp -r "$PROJECT_ROOT/.next/static" "$RESOURCES/frontend/.next/static"
 [ -d "$PROJECT_ROOT/public" ] && cp -r "$PROJECT_ROOT/public" "$RESOURCES/frontend/public"
+
+# Fix: pnpm standalone build omits styled-jsx which Next.js requires at runtime.
+# Copy it from the pnpm virtual store into the standalone node_modules.
+STYLED_JSX_SRC=$(find "$PROJECT_ROOT/node_modules/.pnpm" -maxdepth 2 -name "styled-jsx" -type d 2>/dev/null | grep "node_modules/styled-jsx$" | head -1)
+if [ -n "$STYLED_JSX_SRC" ]; then
+  cp -r "$STYLED_JSX_SRC" "$RESOURCES/frontend/node_modules/styled-jsx"
+  echo "  ✅ styled-jsx patched into standalone"
+else
+  echo "  ⚠️  styled-jsx not found in pnpm store — frontend may fail to start"
+fi
 echo "  ✅ Frontend ready"
 
 # ── 4. PostgreSQL Binaries (platform-specific) ───────────────────

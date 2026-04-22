@@ -10,6 +10,10 @@ const treeKill = require("tree-kill");
 const APP_NAME = "Information Physics Demo System";
 const isDev = !app.isPackaged;
 
+// Cloud mode: use Railway backend instead of local PostgreSQL + FastAPI
+const CLOUD_BACKEND_URL = "https://infophysics-api-production-bc95.up.railway.app";
+const CLOUD_MODE = true; // Set to false to run fully local (requires bundled PostgreSQL)
+
 // Resource paths differ between dev and packaged app
 function resourcePath(sub) {
   if (isDev) {
@@ -371,6 +375,8 @@ async function startFrontend() {
 
   const serverJs = path.join(frontendDir, "server.js");
 
+  const apiBase = CLOUD_MODE ? CLOUD_BACKEND_URL : `http://127.0.0.1:${ports.backend}`;
+
   if (isDev && !fs.existsSync(serverJs)) {
     // Dev mode: use next dev instead of standalone
     const npx = process.platform === "win32" ? "npx.cmd" : "npx";
@@ -378,7 +384,7 @@ async function startFrontend() {
       cwd: path.join(__dirname, ".."),
       env: {
         ...process.env,
-        API_BASE: `http://localhost:${ports.backend}`,
+        API_BASE: apiBase,
         PORT: String(ports.frontend),
       },
       stdio: ["pipe", "pipe", "pipe"],
@@ -392,7 +398,7 @@ async function startFrontend() {
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: "1",
-        API_BASE: `http://127.0.0.1:${ports.backend}`,
+        API_BASE: apiBase,
         PORT: String(ports.frontend),
         HOSTNAME: "0.0.0.0",
       },
@@ -538,15 +544,25 @@ ipcMain.handle("storage:saveFile", async (_event, { target, filename, content })
 
 // ── App Lifecycle ────────────────────────────────────────────────
 app.on("ready", async () => {
-  log(`${APP_NAME} starting (dev=${isDev})`);
+  log(`${APP_NAME} starting (dev=${isDev}, cloudMode=${CLOUD_MODE})`);
   createSplash();
 
   try {
-    await findPorts();
-    await startPostgres();
-    await runMigrations();
-    await startBackend();
-    await startFrontend();
+    if (CLOUD_MODE) {
+      // Cloud mode: only start the local Next.js frontend, point to Railway backend
+      updateSplash("Connecting to Information Physics Cloud...");
+      await findPorts();
+      // Override backend port — we won't start a local backend
+      ports.backend = null;
+      await startFrontend();
+    } else {
+      // Full local mode: start PostgreSQL + backend + frontend
+      await findPorts();
+      await startPostgres();
+      await runMigrations();
+      await startBackend();
+      await startFrontend();
+    }
 
     updateSplash("Ready!");
     setTimeout(() => {
