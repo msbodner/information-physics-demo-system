@@ -9,14 +9,14 @@ from urllib.parse import unquote
 import bcrypt
 
 import psycopg
-from psycopg_pool import ConnectionPool
 from dotenv import load_dotenv
 import base64
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+from api.db import db, set_tenant, lifespan as _lifespan  # noqa: F401  (re-exported for callers)
 
 load_dotenv()
 
@@ -25,51 +25,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 logger = logging.getLogger("infophysics.api")
-
-# ---------------------------------------------------------------------------
-# DB connection pool (module-level singleton, opened at startup)
-# ---------------------------------------------------------------------------
-
-_pool: Optional[ConnectionPool] = None
-
-
-def _get_pool() -> ConnectionPool:
-    """Lazy-init the pool; safe for reload and tests."""
-    global _pool
-    if _pool is None:
-        url = os.environ.get("DATABASE_URL")
-        if not url:
-            raise RuntimeError("DATABASE_URL not set")
-        # Conservative sizing; Railway default max_connections=100 across all services.
-        # min_size=1 keeps at least one warm connection, max_size=10 per worker.
-        _pool = ConnectionPool(
-            url,
-            min_size=1,
-            max_size=int(os.environ.get("DB_POOL_MAX", "10")),
-            timeout=30,
-            kwargs={"autocommit": False},
-        )
-    return _pool
-
-
-@asynccontextmanager
-async def _lifespan(app: FastAPI):
-    pool = _get_pool()
-    try:
-        pool.wait(timeout=10)
-        logger.info("DB connection pool ready (max_size=%d)", pool.max_size)
-    except Exception as e:
-        logger.warning("DB pool warmup failed (will retry on demand): %s", e)
-    try:
-        yield
-    finally:
-        global _pool
-        if _pool is not None:
-            try:
-                _pool.close()
-            except Exception:
-                pass
-            _pool = None
 
 
 app = FastAPI(title="InformationPhysics API", version="0.1.0", lifespan=_lifespan)
@@ -110,31 +65,6 @@ async def general_error_handler(request: Request, exc: Exception):
             "message": "An unexpected error occurred.",
         },
     )
-
-
-# ---------------------------------------------------------------------------
-# DB helpers
-# ---------------------------------------------------------------------------
-
-def db():
-    """Return a pooled connection context manager.
-
-    Usage (unchanged from before):
-        with db() as conn:
-            with conn.cursor() as cur:
-                ...
-
-    The pool handles open/close/recycle; the caller still controls
-    transaction commit/rollback. `conn.commit()` works as before.
-    """
-    return _get_pool().connection()
-
-
-def set_tenant(conn, tenant_id: str):
-    # SET LOCAL does not support parameterized queries; sanitize manually
-    safe_id = tenant_id.replace("'", "''")
-    with conn.cursor() as cur:
-        cur.execute(f"SET LOCAL app.tenant_id = '{safe_id}'")
 
 
 # ---------------------------------------------------------------------------
