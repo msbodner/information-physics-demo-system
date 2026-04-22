@@ -352,12 +352,18 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
         with conn:
             set_tenant(conn, tenant)
             with conn.cursor() as cur:
-                cur.execute(f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data LIMIT 1000")
-                for row in cur.fetchall():
-                    hsl_elements = [str(e).lower() for e in row[2:] if e]
-                    combined = " ".join(hsl_elements) + " " + (row[1] or "").lower()
-                    if any(needle in combined for needle in needles):
-                        matched_hsl_rows.append(row)
+                if needles:
+                    # Single indexed predicate against the generated
+                    # elements_text column (pg_trgm GIN, migration 016).
+                    # elements_text is already lowercased.
+                    or_clause = " OR ".join(["elements_text LIKE %s"] * len(needles))
+                    params = [f"%{n}%" for n in needles]
+                    cur.execute(
+                        f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data "
+                        f"WHERE {or_clause} LIMIT 1000",
+                        params,
+                    )
+                    matched_hsl_rows = cur.fetchall()
     except Exception:
         logger.warning("HSL search failed")
 
@@ -393,15 +399,16 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
                         matched_aio_lines.append(f"{row[0]}: " + "".join(elements))
 
                 if not matched_aio_lines and needles:
-                    conditions = []
-                    params = []
-                    for needle in needles[:10]:
-                        for i in range(1, 51):
-                            conditions.append(f"element_{i} ILIKE %s")
-                            params.append(f"%{needle}%")
-                    where_clause = " OR ".join(conditions)
+                    # Was: 50 columns × up to 10 needles = 500 ILIKE
+                    # predicates per query, all unindexed. Now a single
+                    # indexed LIKE per needle against elements_text
+                    # (pg_trgm GIN, migration 016).
+                    probe_needles = needles[:10]
+                    or_clause = " OR ".join(["elements_text LIKE %s"] * len(probe_needles))
+                    params = [f"%{n}%" for n in probe_needles]
                     cur.execute(
-                        f"SELECT aio_name, {_AIO_COLS} FROM aio_data WHERE {where_clause} LIMIT 200",
+                        f"SELECT aio_name, {_AIO_COLS} FROM aio_data "
+                        f"WHERE {or_clause} LIMIT 200",
                         params,
                     )
                     for row in cur.fetchall():

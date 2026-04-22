@@ -195,19 +195,24 @@ def find_hsls_by_needles(
         return {"hsl_ids": []}
     tenant = x_tenant_id or "tenantA"
     needles = [n.lower().strip() for n in payload.needles if n.strip()]
+    if not needles:
+        return {"hsl_ids": []}
     matched_ids: List[str] = []
     try:
         with db() as conn:
             set_tenant(conn, tenant)
             with conn.cursor() as cur:
-                cur.execute(f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data LIMIT 1000")
-                for row in cur.fetchall():
-                    hsl_elements = [str(e).lower() for e in row[2:] if e]
-                    combined = " ".join(hsl_elements) + " " + (row[1] or "").lower()
-                    if any(needle in combined for needle in needles):
-                        matched_ids.append(str(row[0]))
-                        if len(matched_ids) >= payload.limit:
-                            break
+                # Single indexed LIKE per needle against the
+                # lowercased generated elements_text column
+                # (pg_trgm GIN, migration 016). Replaces the prior
+                # Python-side scan of 1000 rows × 100 element columns.
+                or_clause = " OR ".join(["elements_text LIKE %s"] * len(needles))
+                params = [f"%{n}%" for n in needles] + [payload.limit]
+                cur.execute(
+                    f"SELECT hsl_id FROM hsl_data WHERE {or_clause} LIMIT %s",
+                    params,
+                )
+                matched_ids = [str(r[0]) for r in cur.fetchall()]
     except Exception:
         logger.warning("find_hsls_by_needles failed")
     return {"hsl_ids": matched_ids}

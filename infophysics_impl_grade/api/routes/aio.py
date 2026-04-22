@@ -84,11 +84,16 @@ def _sync_information_elements(conn, field_names: list[str]):
         return
     with conn.cursor() as cur:
         for fn in field_names:
-            like_pattern = f"[{fn}.%"
+            # Single indexed LIKE against the lowercased generated
+            # elements_text column (pg_trgm GIN, migration 016).
+            # Replaces a 50-column OR for every field name.
+            # elements_text contains concatenated element_N values with
+            # a leading space separator, so "[fn." matches regardless
+            # of which column the element lived in.
+            like_pattern = f"%[{fn.lower()}.%"
             cur.execute(
-                f"SELECT COUNT(DISTINCT aio_id) FROM aio_data WHERE "
-                + " OR ".join([f"element_{i} LIKE %s" for i in range(1, 51)]),
-                [like_pattern] * 50,
+                "SELECT COUNT(*) FROM aio_data WHERE elements_text LIKE %s",
+                (like_pattern,),
             )
             count = cur.fetchone()[0]
             cur.execute(
