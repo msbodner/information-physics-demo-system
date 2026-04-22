@@ -8,10 +8,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
-from api.db import db
+from api.db import db, set_tenant
 
 logger = logging.getLogger("infophysics.api.mro")
 
@@ -60,8 +60,13 @@ def _mro_from_row(r):
 
 
 @router.get("/v1/mro-objects", response_model=List[MroObjectOut])
-def list_mro_objects(limit: int = Query(5000, ge=1, le=100000)):
+def list_mro_objects(
+    limit: int = Query(5000, ge=1, le=100000),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    tenant = x_tenant_id or "tenantA"
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT {_MRO_SELECT} FROM mro_objects ORDER BY updated_at DESC LIMIT %s",
@@ -72,24 +77,29 @@ def list_mro_objects(limit: int = Query(5000, ge=1, le=100000)):
 
 
 @router.post("/v1/mro-objects", response_model=MroObjectOut, status_code=201)
-def create_mro_object(payload: CreateMroObjectRequest):
+def create_mro_object(
+    payload: CreateMroObjectRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
     if not payload.mro_key.strip():
         raise HTTPException(status_code=400, detail="mro_key is required")
     if not payload.query_text.strip():
         raise HTTPException(status_code=400, detail="query_text is required")
     if not payload.result_text.strip():
         raise HTTPException(status_code=400, detail="result_text is required")
+    tenant = x_tenant_id or "tenantA"
     mro_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
     search_terms_json = json.dumps(payload.search_terms) if payload.search_terms is not None else None
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO mro_objects (mro_id, mro_key, query_text, intent, seed_hsls, matched_aios_count, search_terms, result_text, context_bundle, confidence, policy_scope, tenant_id, created_at, updated_at)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (str(mro_id), payload.mro_key.strip(), payload.query_text.strip(), payload.intent, payload.seed_hsls,
                  payload.matched_aios_count, search_terms_json, payload.result_text.strip(), payload.context_bundle,
-                 payload.confidence, payload.policy_scope, "tenantA", now, now),
+                 payload.confidence, payload.policy_scope, tenant, now, now),
             )
         conn.commit()
     return MroObjectOut(
@@ -97,13 +107,18 @@ def create_mro_object(payload: CreateMroObjectRequest):
         intent=payload.intent, seed_hsls=payload.seed_hsls, matched_aios_count=payload.matched_aios_count,
         search_terms=payload.search_terms, result_text=payload.result_text.strip(),
         context_bundle=payload.context_bundle, confidence=payload.confidence, policy_scope=payload.policy_scope,
-        tenant_id=None, created_at=now, updated_at=now,
+        tenant_id=tenant, created_at=now, updated_at=now,
     )
 
 
 @router.delete("/v1/mro-objects/{mro_id}")
-def delete_mro_object(mro_id: str):
+def delete_mro_object(
+    mro_id: str,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    tenant = x_tenant_id or "tenantA"
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute("DELETE FROM mro_objects WHERE mro_id = %s RETURNING mro_id", (mro_id,))
             row = cur.fetchone()

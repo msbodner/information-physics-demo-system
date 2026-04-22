@@ -292,6 +292,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     try:
         conn = db()
         with conn:
+            set_tenant(conn, tenant)
             with conn.cursor() as cur:
                 cur.execute("SELECT field_name FROM information_elements ORDER BY aio_count DESC LIMIT 50")
                 known_fields = [r[0] for r in cur.fetchall()]
@@ -349,6 +350,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     try:
         conn = db()
         with conn:
+            set_tenant(conn, tenant)
             with conn.cursor() as cur:
                 cur.execute(f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data LIMIT 1000")
                 for row in cur.fetchall():
@@ -378,6 +380,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     try:
         conn = db()
         with conn:
+            set_tenant(conn, tenant)
             with conn.cursor() as cur:
                 if aio_refs:
                     placeholders = ", ".join(["%s"] * len(aio_refs))
@@ -416,6 +419,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
         try:
             conn = db()
             with conn:
+                set_tenant(conn, tenant)
                 with conn.cursor() as cur:
                     for mro_uuid in mro_ids_from_hsl[:5]:
                         cur.execute(

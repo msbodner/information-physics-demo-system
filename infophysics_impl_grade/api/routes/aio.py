@@ -12,10 +12,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.db import db
+from api.db import db, set_tenant
 
 logger = logging.getLogger("infophysics.api.aio")
 
@@ -104,8 +104,13 @@ def _sync_information_elements(conn, field_names: list[str]):
 # ---------------------------------------------------------------------------
 
 @router.get("/v1/aio-data", response_model=List[AioDataOut])
-def list_aio_data(limit: int = Query(5000, ge=1, le=100000)):
+def list_aio_data(
+    limit: int = Query(5000, ge=1, le=100000),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    tenant = x_tenant_id or "tenantA"
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT aio_id, aio_name, {_AIO_COLS}, created_at, updated_at FROM aio_data ORDER BY created_at DESC LIMIT %s",
@@ -116,20 +121,25 @@ def list_aio_data(limit: int = Query(5000, ge=1, le=100000)):
 
 
 @router.post("/v1/aio-data", response_model=AioDataOut, status_code=201)
-def create_aio_data(payload: AioDataRequest):
+def create_aio_data(
+    payload: AioDataRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
     if not payload.aio_name.strip():
         raise HTTPException(status_code=400, detail="aio_name is required")
+    tenant = x_tenant_id or "tenantA"
     aio_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
     elems = (payload.elements + [None] * 50)[:50]
     # Single connection, single transaction: INSERT ... RETURNING + info-elements sync.
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(
-                f"INSERT INTO aio_data (aio_id, aio_name, {_AIO_COLS}, created_at, updated_at) "
-                f"VALUES (%s, %s, {_AIO_PLACEHOLDERS}, %s, %s) "
+                f"INSERT INTO aio_data (aio_id, aio_name, {_AIO_COLS}, created_at, updated_at, tenant_id) "
+                f"VALUES (%s, %s, {_AIO_PLACEHOLDERS}, %s, %s, %s) "
                 f"RETURNING aio_id, aio_name, {_AIO_COLS}, created_at, updated_at",
-                [str(aio_id), payload.aio_name.strip()] + elems + [now, now],
+                [str(aio_id), payload.aio_name.strip()] + elems + [now, now, tenant],
             )
             row = cur.fetchone()
         try:
@@ -143,13 +153,19 @@ def create_aio_data(payload: AioDataRequest):
 
 
 @router.put("/v1/aio-data/{aio_id}", response_model=AioDataOut)
-def update_aio_data(aio_id: str, payload: AioDataRequest):
+def update_aio_data(
+    aio_id: str,
+    payload: AioDataRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
     if not payload.aio_name.strip():
         raise HTTPException(status_code=400, detail="aio_name is required")
+    tenant = x_tenant_id or "tenantA"
     now = datetime.now(timezone.utc)
     elems = (payload.elements + [None] * 50)[:50]
     sets = "aio_name = %s, " + ", ".join([f"element_{i} = %s" for i in range(1, 51)]) + ", updated_at = %s"
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(
                 f"UPDATE aio_data SET {sets} WHERE aio_id = %s "
@@ -164,8 +180,13 @@ def update_aio_data(aio_id: str, payload: AioDataRequest):
 
 
 @router.delete("/v1/aio-data/{aio_id}")
-def delete_aio_data(aio_id: str):
+def delete_aio_data(
+    aio_id: str,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    tenant = x_tenant_id or "tenantA"
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute("DELETE FROM aio_data WHERE aio_id = %s RETURNING aio_id", (aio_id,))
             row = cur.fetchone()
@@ -242,9 +263,11 @@ def delete_information_element(element_id: str):
 
 
 @router.post("/v1/information-elements/rebuild")
-def rebuild_information_elements():
+def rebuild_information_elements(x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id")):
     """Scan all AIOs and rebuild the information_elements table from scratch."""
+    tenant = x_tenant_id or "tenantA"
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(f"SELECT {_AIO_COLS} FROM aio_data")
             rows = cur.fetchall()

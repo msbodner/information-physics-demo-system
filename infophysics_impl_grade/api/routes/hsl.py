@@ -8,10 +8,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.db import db
+from api.db import db, set_tenant
 from api.routes.aio import _AIO_COLS
 
 logger = logging.getLogger("infophysics.api.hsl")
@@ -65,8 +65,13 @@ def _hsl_row_to_out(row) -> HslDataOut:
 # ---------------------------------------------------------------------------
 
 @router.get("/v1/hsl-data", response_model=List[HslDataOut])
-def list_hsl_data(limit: int = Query(5000, ge=1, le=100000)):
+def list_hsl_data(
+    limit: int = Query(5000, ge=1, le=100000),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    tenant = x_tenant_id or "tenantA"
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT hsl_id, hsl_name, {_HSL_COLS}, created_at, updated_at FROM hsl_data ORDER BY created_at DESC LIMIT %s",
@@ -77,52 +82,65 @@ def list_hsl_data(limit: int = Query(5000, ge=1, le=100000)):
 
 
 @router.post("/v1/hsl-data", response_model=HslDataOut, status_code=201)
-def create_hsl_data(payload: HslDataRequest):
+def create_hsl_data(
+    payload: HslDataRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
     if not payload.hsl_name.strip():
         raise HTTPException(status_code=400, detail="hsl_name is required")
+    tenant = x_tenant_id or "tenantA"
     hsl_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
     elems = (payload.elements + [None] * 100)[:100]
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(
-                f"INSERT INTO hsl_data (hsl_id, hsl_name, {_HSL_COLS}, created_at, updated_at) VALUES (%s, %s, {_HSL_PLACEHOLDERS}, %s, %s)",
-                [str(hsl_id), payload.hsl_name.strip()] + elems + [now, now],
+                f"INSERT INTO hsl_data (hsl_id, hsl_name, {_HSL_COLS}, created_at, updated_at, tenant_id) "
+                f"VALUES (%s, %s, {_HSL_PLACEHOLDERS}, %s, %s, %s) "
+                f"RETURNING hsl_id, hsl_name, {_HSL_COLS}, created_at, updated_at",
+                [str(hsl_id), payload.hsl_name.strip()] + elems + [now, now, tenant],
             )
-        conn.commit()
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT hsl_id, hsl_name, {_HSL_COLS}, created_at, updated_at FROM hsl_data WHERE hsl_id = %s", (str(hsl_id),))
             row = cur.fetchone()
+        conn.commit()
     return _hsl_row_to_out(row)
 
 
 @router.put("/v1/hsl-data/{hsl_id}", response_model=HslDataOut)
-def update_hsl_data(hsl_id: str, payload: HslDataRequest):
+def update_hsl_data(
+    hsl_id: str,
+    payload: HslDataRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
     if not payload.hsl_name.strip():
         raise HTTPException(status_code=400, detail="hsl_name is required")
+    tenant = x_tenant_id or "tenantA"
     now = datetime.now(timezone.utc)
     elems = (payload.elements + [None] * 100)[:100]
     sets = "hsl_name = %s, " + ", ".join([f"hsl_element_{i} = %s" for i in range(1, 101)]) + ", updated_at = %s"
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(
-                f"UPDATE hsl_data SET {sets} WHERE hsl_id = %s",
+                f"UPDATE hsl_data SET {sets} WHERE hsl_id = %s "
+                f"RETURNING hsl_id, hsl_name, {_HSL_COLS}, created_at, updated_at",
                 [payload.hsl_name.strip()] + elems + [now, hsl_id],
             )
-            if cur.rowcount == 0:
+            row = cur.fetchone()
+            if row is None:
                 raise HTTPException(status_code=404, detail="HSL record not found")
         conn.commit()
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT hsl_id, hsl_name, {_HSL_COLS}, created_at, updated_at FROM hsl_data WHERE hsl_id = %s", (hsl_id,))
-            row = cur.fetchone()
     return _hsl_row_to_out(row)
 
 
 @router.delete("/v1/hsl-data/{hsl_id}")
-def delete_hsl_data(hsl_id: str):
+def delete_hsl_data(
+    hsl_id: str,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    tenant = x_tenant_id or "tenantA"
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute("DELETE FROM hsl_data WHERE hsl_id = %s RETURNING hsl_id", (hsl_id,))
             row = cur.fetchone()
@@ -137,10 +155,16 @@ def delete_hsl_data(hsl_id: str):
 # ---------------------------------------------------------------------------
 
 @router.post("/v1/hsl-data/{hsl_id}/link-mro")
-def link_mro_to_hsl(hsl_id: str, payload: MroLinkRequest):
+def link_mro_to_hsl(
+    hsl_id: str,
+    payload: MroLinkRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
     """Append [MRO.<mro_id>] to the next free hsl_element_* slot."""
+    tenant = x_tenant_id or "tenantA"
     mro_ref = f"[MRO.{payload.mro_id}]"
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(f"SELECT {_HSL_COLS} FROM hsl_data WHERE hsl_id = %s", (hsl_id,))
             row = cur.fetchone()
@@ -162,14 +186,19 @@ def link_mro_to_hsl(hsl_id: str, payload: MroLinkRequest):
 
 
 @router.post("/v1/hsl-data/find-by-needles")
-def find_hsls_by_needles(payload: HslFindByNeedlesRequest):
+def find_hsls_by_needles(
+    payload: HslFindByNeedlesRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
     """Return HSL IDs whose elements or name contain any of the given needle strings."""
     if not payload.needles:
         return {"hsl_ids": []}
+    tenant = x_tenant_id or "tenantA"
     needles = [n.lower().strip() for n in payload.needles if n.strip()]
     matched_ids: List[str] = []
     try:
         with db() as conn:
+            set_tenant(conn, tenant)
             with conn.cursor() as cur:
                 cur.execute(f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data LIMIT 1000")
                 for row in cur.fetchall():
@@ -185,12 +214,14 @@ def find_hsls_by_needles(payload: HslFindByNeedlesRequest):
 
 
 @router.post("/v1/hsl-data/rebuild-from-aios")
-def rebuild_hsls_from_aios():
+def rebuild_hsls_from_aios(x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id")):
     """Scan every AIO and create one HSL record per shared [Key.Value] element group (≥2 AIOs)."""
+    tenant = x_tenant_id or "tenantA"
     _SKIP_VALUES = {"unknown", "n/a", "none", "null", "", "0", "0.0", "false", "true"}
     _VALUE_RE = _re.compile(r"\[([^.\]]+)\.(.+?)\]")
 
     with db() as conn:
+        set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(f"SELECT aio_name, {_AIO_COLS} FROM aio_data")
             aio_rows = cur.fetchall()
@@ -235,9 +266,9 @@ def rebuild_hsls_from_aios():
                         elems.append(None)
                     hsl_id = uuid.uuid4()
                     cur.execute(
-                        f"INSERT INTO hsl_data (hsl_id, hsl_name, {_HSL_COLS}, created_at, updated_at) "
-                        f"VALUES (%s, %s, {_HSL_PLACEHOLDERS}, %s, %s)",
-                        [str(hsl_id), hsl_name] + elems + [now, now],
+                        f"INSERT INTO hsl_data (hsl_id, hsl_name, {_HSL_COLS}, created_at, updated_at, tenant_id) "
+                        f"VALUES (%s, %s, {_HSL_PLACEHOLDERS}, %s, %s, %s)",
+                        [str(hsl_id), hsl_name] + elems + [now, now, tenant],
                     )
                     created += 1
 
