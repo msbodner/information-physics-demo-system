@@ -405,6 +405,20 @@ export async function deleteHslData(hslId: string): Promise<boolean> {
   return result !== null
 }
 
+export interface RebuildHslsResult {
+  created: number
+  skipped_single_aio: number
+  already_existed: number
+  total_aios_scanned: number
+}
+
+export async function rebuildHslsFromAios(): Promise<RebuildHslsResult | null> {
+  return safeFetch<RebuildHslsResult>("/api/hsl-data/rebuild-from-aios", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
 // Saved Prompts
 export interface SavedPrompt {
   prompt_id: string
