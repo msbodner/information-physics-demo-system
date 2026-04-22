@@ -27,7 +27,7 @@ ALTER TABLE entity_mentions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE citations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE policy_scopes ENABLE ROW LEVEL SECURITY;
 
--- Policies (isolation) -- idempotent via DO blocks
+-- Policies (isolation) — idempotent via DO blocks
 DO $$ BEGIN
   CREATE POLICY p_io_tenant_isolation ON information_objects
     USING (tenant_id = current_setting('app.tenant_id', true));

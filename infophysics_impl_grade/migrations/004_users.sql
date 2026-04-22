@@ -1,5 +1,5 @@
 -- 004_users.sql
--- System users and settings tables (no RLS -- system-wide)
+-- System users and settings tables (no RLS — system-wide)
 -- Also fixes the AIO deduplication constraint to allow multiple AIOs per CSV file
 
 -- ── Fix AIO over-deduplication ───────────────────────────────────────────────
@@ -9,7 +9,7 @@
 -- Drop the old broad unique constraint (blocks multiple AIOs per file)
 ALTER TABLE information_objects DROP CONSTRAINT IF EXISTS uq_io_source;
 
--- NOTE: no replacement partial index for CSV -- allow re-uploading the same
+-- NOTE: no replacement partial index for CSV — allow re-uploading the same
 -- CSV file without a duplicate-key error.  De-duplication is handled in
 -- application logic when needed.
 
