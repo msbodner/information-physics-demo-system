@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, Globe, BookOpen, FileText, Zap, Cpu, Layers, Settings, Database, FileSpreadsheet, Brain } from "lucide-react"
+import { ArrowLeft, Globe, BookOpen, FileText, Zap, Cpu, Layers, Settings, Database, FileSpreadsheet, Brain, Network, GitMerge } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -14,6 +14,7 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
     { id: "hsp", label: "Hyper-Semantic Processor", icon: Cpu },
     { id: "hsl", label: "HSL — Creating & Viewing", icon: Layers },
     { id: "substrate", label: "Substrate Mode (V3.5)", icon: Brain },
+    { id: "mro-topology", label: "MRO Topology Diagram", icon: Network },
     { id: "system-admin", label: "System Admin", icon: Settings },
     { id: "csv-format", label: "CSV Format", icon: FileSpreadsheet },
     { id: "aio-format", label: "AIO Format", icon: Database },
@@ -49,9 +50,9 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
 
             {/* ── OVERVIEW ── */}
             {activeSection === "overview" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />Overview — AIO/HSL.MRO Demo System V3.5</CardTitle></CardHeader>
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />Overview — AIO/HSL/MRO Demo System V3.5</CardTitle></CardHeader>
               <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p>AIO/HSL.MRO Demo System V3.5 converts CSV files into <strong>Associated Information Objects (AIOs)</strong> — the fundamental unit of the Information Physics Standard Model. Each CSV row becomes a single self-describing AIO string, stored in a PostgreSQL database and searchable through the Hyper-Semantic Processor.</p>
+                <p>AIO/HSL/MRO Demo System V3.5 converts CSV files into <strong>Associated Information Objects (AIOs)</strong> — the fundamental unit of the Information Physics Standard Model. Each CSV row becomes a single self-describing AIO string, stored in a PostgreSQL database and searchable through the Hyper-Semantic Processor.</p>
                 <p><strong>New in V3.5: Substrate Mode.</strong> ChatAIO now implements the full Paper III pipeline — deterministic cue extraction, bounded HSL neighborhood traversal, Jaccard-ranked MRO pre-fetch, and automatic MRO capture. The AIO/HSL/MRO substrate replaces traditional RAG + Medallion Gold curation as Claude&apos;s retrieval layer. See the <strong>Substrate Mode</strong> section in this guide.</p>
                 <h4 className="text-foreground font-medium mt-4">What the app does</h4>
                 <ol className="list-decimal list-inside space-y-2">
@@ -281,6 +282,109 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
               </CardContent></Card>
             )}
 
+            {/* ── MRO TOPOLOGY DIAGRAM ── */}
+            {activeSection === "mro-topology" && (
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Network className="w-5 h-5 text-violet-500" />
+                      MRO Topology: Vance HSL → AIO → MRO String
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                    <p>
+                      The diagram below traces a real production traversal — query <span className="font-mono text-xs bg-muted px-1 rounded">&quot;Laura Vance&quot;</span> — through
+                      the complete AIO/HSL/MRO pipeline. It shows how cues are extracted, how HSL neighborhoods
+                      are traversed, which AIO nodes are gathered, how the MRO is captured, and how
+                      the <span className="font-semibold text-foreground">back-links</span> (the orange dashed lines — the &quot;string&quot;) are written as{" "}
+                      <span className="font-mono text-xs bg-muted px-1 rounded">[MRO.abee76dc]</span> into each matched HSL element slot,
+                      permanently wiring the retrieval episode into the semantic layer for future queries.
+                    </p>
+                    <div className="w-full overflow-x-auto bg-[#0f172a] rounded-lg border border-slate-800">
+                      <img
+                        src="/vance-topology.svg"
+                        alt="Vance HSL–AIO–MRO topology diagram showing query traversal, HSL neighborhood N(K), AIO nodes, MRO capture, and back-link strings"
+                        className="w-full min-w-[900px]"
+                        style={{ display: "block" }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      <div className="flex items-start gap-2 p-3 bg-indigo-500/10 rounded-lg border border-indigo-500/20">
+                        <div className="w-3 h-3 rounded mt-0.5 shrink-0 bg-indigo-500/60 border border-indigo-400" />
+                        <div>
+                          <p className="font-semibold text-xs text-indigo-400">HSL Nodes (indigo)</p>
+                          <p className="text-xs">Hyper-Semantic Layer records — each holds up to 100 AIO pointers sharing a <span className="font-mono">[Key.Value]</span> pair</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2 p-3 bg-teal-500/10 rounded-lg border border-teal-500/20">
+                        <div className="w-3 h-3 rounded mt-0.5 shrink-0 bg-teal-500/60 border border-teal-400" />
+                        <div>
+                          <p className="font-semibold text-xs text-teal-400">Contact / Lead AIOs (teal)</p>
+                          <p className="text-xs">CRM records — Laura Vance contact and associated sales lead</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                        <div className="w-3 h-3 rounded mt-0.5 shrink-0 bg-amber-500/60 border border-amber-400" />
+                        <div>
+                          <p className="font-semibold text-xs text-amber-400">Project AIOs (amber)</p>
+                          <p className="text-xs">PRJ-181, PRJ-206, PRJ-202 — construction projects where Vance is Estimator or Superintendent</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2 p-3 bg-violet-500/10 rounded-lg border border-violet-500/20">
+                        <div className="w-3 h-3 rounded mt-0.5 shrink-0 bg-violet-500/60 border border-violet-400" />
+                        <div>
+                          <p className="font-semibold text-xs text-violet-400">MRO Node (violet)</p>
+                          <p className="text-xs">Memory Result Object <span className="font-mono">abee76dc</span> — persisted retrieval episode, confidence 0.75</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2 p-3 bg-orange-500/10 rounded-lg border border-orange-500/20">
+                      <GitMerge className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-sm text-orange-400">Orange dashed lines = the MRO &quot;string&quot;</p>
+                        <p className="text-xs leading-relaxed">
+                          After the MRO is captured, its UUID is written as <span className="font-mono">[MRO.abee76dc]</span> into the next free element slot of every matched HSL.
+                          The next time any of those HSLs is traversed by a cue-matching query, Phase 3 of the search pipeline reads those <span className="font-mono">[MRO.*]</span> slots,
+                          fetches the MRO, ranks it by Jaccard × freshness × confidence, and injects it as Tier-1 context above the raw AIO evidence.
+                          The system gets smarter with every query.
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Brain className="w-5 h-5 text-violet-500" />
+                      MRO Reuse Pipeline — How It Improves Over Time
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm text-muted-foreground leading-relaxed">
+                    <ol className="list-decimal list-inside space-y-3">
+                      <li>
+                        <span className="font-semibold text-foreground">Cue extraction</span> — the query <span className="font-mono text-xs bg-muted px-1 rounded">&quot;Laura Vance&quot;</span> yields cues{" "}
+                        <span className="font-mono text-xs bg-muted px-1 rounded">[Estimator.Laura Vance]</span>, <span className="font-mono text-xs bg-muted px-1 rounded">[Superintendent.Laura Vance]</span>, <span className="font-mono text-xs bg-muted px-1 rounded">[Full Name.Laura Vance]</span>
+                      </li>
+                      <li>
+                        <span className="font-semibold text-foreground">HSL traversal N(K)</span> — <span className="font-mono text-xs bg-muted px-1 rounded">find-by-needles</span> matches 20 HSLs whose element content contains &quot;Vance&quot;
+                      </li>
+                      <li>
+                        <span className="font-semibold text-foreground">MRO pre-fetch (Phase 3)</span> — each HSL&apos;s element slots are scanned for <span className="font-mono text-xs bg-muted px-1 rounded">[MRO.*]</span> refs; matching MROs are ranked by Jaccard(K_m, K) × freshness × confidence and surfaced as Tier-1 priors
+                      </li>
+                      <li>
+                        <span className="font-semibold text-foreground">Bundle assembly</span> — MRO priors (framing) → HSL neighborhoods (relational context) → AIO evidence (grounding) → query
+                      </li>
+                      <li>
+                        <span className="font-semibold text-foreground">MRO capture &amp; back-link</span> — the response is persisted as a new MRO; its UUID is written into the element slots of all matched HSLs, strengthening the retrieval graph for next time
+                      </li>
+                    </ol>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
             {/* ── SYSTEM ADMIN ── */}
             {activeSection === "system-admin" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Settings className="w-5 h-5" />System Admin Panel</CardTitle></CardHeader>
@@ -341,7 +445,7 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
             {activeSection === "csv-format" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><FileSpreadsheet className="w-5 h-5" />CSV Format Requirements</CardTitle></CardHeader>
               <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p>The AIO/HSL.MRO Demo System accepts standard CSV files with the following requirements:</p>
+                <p>The AIO/HSL/MRO Demo System accepts standard CSV files with the following requirements:</p>
                 <ul className="list-disc list-inside space-y-2">
                   <li>First row must contain column headers (used as AIO element keys).</li>
                   <li>Comma-separated values — standard CSV delimiter.</li>

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, Globe, FileText, Layers, Database, Search, Cpu, Settings, Binary } from "lucide-react"
+import { ArrowLeft, Globe, FileText, Layers, Database, Search, Cpu, Settings, Binary, Brain, GitMerge } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
@@ -19,7 +19,8 @@ export function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void
     { id: "hsl-formation", label: "8. HSL Formation Detail", icon: Layers },
     { id: "chataio", label: "9. ChatAIO", icon: Globe },
     { id: "sysadmin-workflow", label: "10. System Administration", icon: Settings },
-    { id: "structure-models", label: "AIO & HSL Structure Models", icon: Binary },
+    { id: "mro-pipeline", label: "11. MRO Reuse Pipeline", icon: Brain },
+    { id: "structure-models", label: "AIO / HSL / MRO Structure Models", icon: Binary },
   ]
   return (
     <div className="min-h-screen bg-background">
@@ -49,7 +50,7 @@ export function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void
           <div className="space-y-6">
             {activeSection === "overview" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />End-to-End AIO Workflow</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p>AIO/HSL.MRO Demo System V3.5 is the production release — a self-contained platform with its own FastAPI backend and PostgreSQL database. It converts CSV files into Associated Information Objects through a full-stack pipeline. Each stage is described in detail in the sections to the left. At a high level, the flow is:</p>
+                <p>AIO/HSL/MRO Demo System V3.5 is the production release — a self-contained platform with its own FastAPI backend and PostgreSQL database. It converts CSV files into Associated Information Objects through a full-stack pipeline. Each stage is described in detail in the sections to the left. At a high level, the flow is:</p>
                 <ol className="list-decimal list-inside space-y-2">
                   <li><strong>Upload:</strong> User selects one or more <code className="bg-muted px-1 rounded">.csv</code> files via drag-and-drop or file picker.</li>
                   <li><strong>Duplicate check:</strong> If the backend is online, filenames are compared against already-saved CSVs; duplicates are rejected with an error toast.</li>
@@ -64,7 +65,9 @@ export function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void
                   <li><strong>Saved Prompts:</strong> Bookmark frequently used ChatAIO queries for quick recall. Manage saved prompts via System Admin.</li>
                   <li><strong>R &amp; D — Compound HSL:</strong> Build multi-field AND queries by selecting field names from the Information Elements directory, picking values, and creating compound HSLs that match only AIOs containing ALL selected criteria.</li>
                   <li><strong>Information Elements:</strong> An auto-maintained directory of all unique field names across AIOs with occurrence counts. Powers the R &amp; D field picker and is manageable via System Admin.</li>
-                  <li><strong>System Administration:</strong> Manage users, roles, AIO data, HSL data, information elements, saved prompts, and API keys through the admin panel.</li>
+                  <li><strong>MRO Capture:</strong> Every ChatAIO response is automatically persisted as a Memory Result Object (MRO) — query, cue set, evidence bundle, and answer — and linked back to the matched HSLs as <code className="bg-muted px-1 rounded">[MRO.&lt;uuid&gt;]</code> element slots.</li>
+                  <li><strong>MRO Reuse:</strong> On subsequent similar queries, Phase 3 of the search pipeline reads <code className="bg-muted px-1 rounded">[MRO.*]</code> refs from matched HSL slots, ranks prior MROs by Jaccard × freshness × confidence, and injects them as Tier-1 context — making the system progressively smarter with use.</li>
+                  <li><strong>System Administration:</strong> Manage users, roles, AIO data, HSL data, MRO objects, information elements, saved prompts, and API keys through the admin panel.</li>
                 </ol>
               </CardContent></Card>
             )}
@@ -276,7 +279,7 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />9. ChatAIO — AI-Powered Q&amp;A</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
                 <p>ChatAIO is a full-screen AI-powered conversational interface for querying your AIO and HSL data using natural language, powered by Claude AI (claude-sonnet-4-6).</p>
 
-                <h4 className="text-foreground font-medium mt-4">Two Search Modes</h4>
+                <h4 className="text-foreground font-medium mt-4">Three Search Modes</h4>
                 <div className="space-y-3 ml-2">
                   <div>
                     <p className="font-medium text-foreground">Send (Broad Search) — <code className="bg-muted px-1 rounded">POST /api/op/chat</code></p>
@@ -291,12 +294,23 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                   <div>
                     <p className="font-medium text-foreground">AIO Search (Search Algebra) — <code className="bg-muted px-1 rounded">POST /api/op/aio-search</code></p>
                     <ol className="list-decimal list-inside space-y-1 ml-2">
-                      <li><strong>Parse:</strong> Claude extracts structured search terms (names, projects, dates) from the prompt, guided by known field names from the Information Elements table</li>
-                      <li><strong>Match HSLs:</strong> Searches all HSL records for case-insensitive substring matches against extracted terms</li>
-                      <li><strong>Gather AIOs:</strong> Collects the AIOs referenced in matching HSLs by looking up <code className="bg-muted px-1 rounded">aio_name</code> in the <code className="bg-muted px-1 rounded">aio_data</code> table</li>
-                      <li><strong>Answer:</strong> Sends ONLY the focused AIO subset to Claude, producing a precise targeted answer</li>
+                      <li><strong>Parse:</strong> Claude extracts structured search terms from the prompt guided by the Information Elements field vocabulary</li>
+                      <li><strong>Match HSLs:</strong> Searches all HSL records for case-insensitive substring matches; returns matched HSL IDs</li>
+                      <li><strong>Gather AIOs + MRO priors:</strong> Collects AIOs from matched HSLs; reads <code className="bg-muted px-1 rounded">[MRO.*]</code> slots from those HSLs and fetches ranked prior MROs</li>
+                      <li><strong>Answer:</strong> Sends focused AIO subset + MRO priors to Claude; persists result as a new MRO; back-links MRO to matched HSLs</li>
                     </ol>
-                    <p className="mt-1">Falls back to direct <code className="bg-muted px-1 rounded">ILIKE</code> search across AIO element columns if no HSLs match. Response footer shows HSL/AIO match counts for transparency.</p>
+                    <p className="mt-1">Falls back to direct <code className="bg-muted px-1 rounded">ILIKE</code> search if no HSLs match. Response footer shows HSL/AIO/MRO match counts.</p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">Substrate Mode (Paper III Pipeline) — <code className="bg-muted px-1 rounded">POST /api/op/substrate-chat</code></p>
+                    <ol className="list-decimal list-inside space-y-1 ml-2">
+                      <li><strong>Cue extraction:</strong> Deterministic parse using field + value vocabulary from all stored AIOs</li>
+                      <li><strong>HSL traversal N(K):</strong> Set-intersection of per-cue AIO sets via <code className="bg-muted px-1 rounded">find-by-needles</code>; bounded neighborhood of matching HSLs</li>
+                      <li><strong>MRO pre-fetch:</strong> Jaccard(K_m, K) × freshness × confidence ranking of prior MROs from matched HSL slots</li>
+                      <li><strong>Bundle assembly:</strong> Tiered context — MRO priors (Tier 1) → HSL context (Tier 2) → AIO evidence (Tier 3) → query</li>
+                      <li><strong>MRO capture:</strong> Response persisted as MRO; UUID written as <code className="bg-muted px-1 rounded">[MRO.&lt;uuid&gt;]</code> into matched HSL element slots</li>
+                    </ol>
+                    <p className="mt-1">The substrate is self-improving — each query strengthens the retrieval graph for next time. See Section 11 for the full MRO reuse pipeline.</p>
                   </div>
                 </div>
 
@@ -348,8 +362,64 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                 </ul>
               </CardContent></Card>
             )}
+            {activeSection === "mro-pipeline" && (
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Brain className="w-5 h-5 text-violet-500" />11. MRO Reuse Pipeline — Self-Improving Retrieval</CardTitle></CardHeader>
+              <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                <p>Every ChatAIO response is automatically persisted as a <strong>Memory Result Object (MRO)</strong>. MROs feed back into the retrieval pipeline so past successful answers become first-class context for future queries — replacing hand-curated Gold-tier curation with self-enriching episodic memory.</p>
+
+                <h4 className="text-foreground font-medium mt-4">Step-by-step MRO lifecycle</h4>
+                <ol className="list-decimal list-inside space-y-3">
+                  <li>
+                    <span className="font-semibold text-foreground">Capture</span> — after each ChatAIO response, a new MRO is written to the <code className="bg-muted px-1 rounded">mro_objects</code> table containing:
+                    <ul className="list-disc list-inside ml-5 mt-1 space-y-1">
+                      <li><code className="bg-muted px-1 rounded">query_text</code> — the original natural-language query</li>
+                      <li><code className="bg-muted px-1 rounded">search_terms</code> — the extracted cue set K (JSONB)</li>
+                      <li><code className="bg-muted px-1 rounded">context_bundle</code> — the serialised evidence sent to Claude</li>
+                      <li><code className="bg-muted px-1 rounded">result_text</code> — Claude&apos;s answer</li>
+                      <li><code className="bg-muted px-1 rounded">seed_hsls</code> — pipe-delimited HSL IDs that contributed</li>
+                      <li><code className="bg-muted px-1 rounded">confidence</code> — initialised at 0.75</li>
+                    </ul>
+                  </li>
+                  <li>
+                    <span className="font-semibold text-foreground">HSL back-link</span> — the MRO&apos;s UUID is written as <code className="bg-muted px-1 rounded">[MRO.&lt;uuid&gt;]</code> into the next free element slot (<code className="bg-muted px-1 rounded">element_1…element_100</code>) of every matched HSL record via <code className="bg-muted px-1 rounded">POST /api/hsl-data/&lt;id&gt;/link-mro</code>
+                  </li>
+                  <li>
+                    <span className="font-semibold text-foreground">Prior retrieval</span> — on the next query, when HSLs are traversed their element slots are scanned for <code className="bg-muted px-1 rounded">[MRO.*]</code> tokens; matching MROs are fetched and ranked:
+                    <div className="p-3 rounded-lg bg-muted font-mono text-xs mt-2">
+                      score = Jaccard(K_m, K) × exp(−λ · age_days) × confidence_m
+                    </div>
+                  </li>
+                  <li>
+                    <span className="font-semibold text-foreground">Tier-1 injection</span> — top-N MRO priors are placed at the head of the context bundle, above raw AIO evidence, so Claude sees prior findings first
+                  </li>
+                  <li>
+                    <span className="font-semibold text-foreground">Compound growth</span> — each new query adds another MRO, enriching the HSL element slots further; the retrieval graph self-curates through use
+                  </li>
+                </ol>
+
+                <h4 className="text-foreground font-medium mt-4">Two back-linking paths</h4>
+                <div className="space-y-2 ml-2">
+                  <div>
+                    <p className="font-medium text-foreground">AIO Search mode</p>
+                    <p>Matched HSL IDs are returned directly by the search endpoint (<code className="bg-muted px-1 rounded">matched_hsl_ids</code>). The MRO is created then <code className="bg-muted px-1 rounded">linkMroToHsl()</code> is called for each ID immediately.</p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">Substrate (Precomputed) mode</p>
+                    <p>After MRO creation, <code className="bg-muted px-1 rounded">findHslsByNeedles(cueValues)</code> identifies matching HSLs by scanning HSL names for cue strings, then back-links the MRO to each result.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2 p-3 bg-violet-500/10 rounded-lg border border-violet-500/20 mt-4">
+                  <GitMerge className="w-4 h-4 text-violet-400 shrink-0 mt-0.5" />
+                  <p className="text-xs leading-relaxed">
+                    <span className="font-semibold text-violet-400">Net result:</span> the system improves with every query. Topics asked frequently accumulate richer MRO priors, producing more consistent, evidence-grounded answers over time — with full provenance and zero manual curation.
+                  </p>
+                </div>
+              </CardContent></Card>
+            )}
+
             {activeSection === "structure-models" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Binary className="w-5 h-5" />AIO &amp; HSL Structure Models</CardTitle></CardHeader><CardContent className="space-y-6 text-sm text-muted-foreground leading-relaxed">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Binary className="w-5 h-5" />AIO / HSL / MRO Structure Models</CardTitle></CardHeader><CardContent className="space-y-6 text-sm text-muted-foreground leading-relaxed">
                 <div>
                   <h4 className="text-foreground font-semibold text-base mb-3">AIO — Atomic Information Object</h4>
                   <h5 className="text-foreground font-medium mt-3">Grammar</h5>
@@ -433,6 +503,39 @@ AIO Name    CSV Source  Line #  Created   ← column headers
                   <p className="mt-2">The <code className="bg-muted px-1 rounded">source_object_id</code> field stores the filename (<code className="bg-muted px-1 rounded">[Department.Engineering].hsl</code>), enabling lookup by element.</p>
                   <h5 className="text-foreground font-medium mt-3">Relationship to AIOs</h5>
                   <p>An HSL is not a container of AIO data — it is a <em>pointer table</em>. It records which AIOs share a trait, but the AIOs themselves remain independent. This means an AIO can appear in multiple HSL files (once per shared element value it participates in).</p>
+                  <h5 className="text-foreground font-medium mt-3">MRO back-link slots</h5>
+                  <p>Elements 51–100 of an HSL record are reserved for MRO back-links written by the pipeline. Each slot holds a token like <code className="bg-muted px-1 rounded">[MRO.abee76dc-db64-4b…]</code>. On retrieval, Phase 3 scans these slots and fetches the referenced MRO objects for Jaccard-ranked prior injection.</p>
+                </div>
+
+                <div className="border-t border-border pt-6">
+                  <h4 className="text-foreground font-semibold text-base mb-3">MRO — Memory Result Object</h4>
+                  <h5 className="text-foreground font-medium mt-3">Purpose</h5>
+                  <p>An MRO is a persisted retrieval episode — the record of a complete query–evidence–answer cycle. It functions as the self-curating Gold tier of the AIO/HSL/MRO stack, improving future retrieval without any manual curation.</p>
+                  <h5 className="text-foreground font-medium mt-3">Database Representation (mro_objects table)</h5>
+                  <div className="overflow-x-auto mt-2">
+                    <table className="w-full text-xs font-mono border-collapse">
+                      <thead><tr className="bg-muted"><th className="border border-border px-2 py-1 text-left">Column</th><th className="border border-border px-2 py-1 text-left">Type</th><th className="border border-border px-2 py-1 text-left">Description</th></tr></thead>
+                      <tbody>
+                        <tr><td className="border border-border px-2 py-1">mro_id</td><td className="border border-border px-2 py-1">uuid</td><td className="border border-border px-2 py-1">Primary key (auto-generated)</td></tr>
+                        <tr><td className="border border-border px-2 py-1">mro_key</td><td className="border border-border px-2 py-1">text</td><td className="border border-border px-2 py-1">Human key: mro-{"{timestamp}"}-{"{rand}"}</td></tr>
+                        <tr><td className="border border-border px-2 py-1">query_text</td><td className="border border-border px-2 py-1">text</td><td className="border border-border px-2 py-1">Original natural-language query</td></tr>
+                        <tr><td className="border border-border px-2 py-1">intent</td><td className="border border-border px-2 py-1">text</td><td className="border border-border px-2 py-1">Detected intent / mode label</td></tr>
+                        <tr><td className="border border-border px-2 py-1">search_terms</td><td className="border border-border px-2 py-1">jsonb</td><td className="border border-border px-2 py-1">Extracted cue set K — array of [Key.Value] pairs</td></tr>
+                        <tr><td className="border border-border px-2 py-1">seed_hsls</td><td className="border border-border px-2 py-1">text</td><td className="border border-border px-2 py-1">Pipe-delimited HSL IDs that contributed</td></tr>
+                        <tr><td className="border border-border px-2 py-1">matched_aios_count</td><td className="border border-border px-2 py-1">int</td><td className="border border-border px-2 py-1">Number of AIOs in the context bundle</td></tr>
+                        <tr><td className="border border-border px-2 py-1">context_bundle</td><td className="border border-border px-2 py-1">text</td><td className="border border-border px-2 py-1">Serialised evidence sent to Claude (newline-delimited)</td></tr>
+                        <tr><td className="border border-border px-2 py-1">result_text</td><td className="border border-border px-2 py-1">text</td><td className="border border-border px-2 py-1">Claude&apos;s full response</td></tr>
+                        <tr><td className="border border-border px-2 py-1">confidence</td><td className="border border-border px-2 py-1">text</td><td className="border border-border px-2 py-1">Retrieval confidence score (0.0–1.0); init 0.75</td></tr>
+                        <tr><td className="border border-border px-2 py-1">policy_scope</td><td className="border border-border px-2 py-1">text</td><td className="border border-border px-2 py-1">Tenant / access scope label</td></tr>
+                        <tr><td className="border border-border px-2 py-1">created_at</td><td className="border border-border px-2 py-1">timestamptz</td><td className="border border-border px-2 py-1">Capture time (used for freshness decay)</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <h5 className="text-foreground font-medium mt-3">Ranking formula</h5>
+                  <div className="p-3 rounded-lg bg-muted font-mono text-xs mt-2">
+                    score(m) = Jaccard(K_m, K) × exp(−λ · age_days) × confidence_m
+                  </div>
+                  <p className="text-xs mt-1">Where K_m = cue set of prior MRO m, K = current query cues, λ = freshness decay constant (default 0.05), age_days = days since MRO was captured.</p>
                 </div>
               </CardContent></Card>
             )}

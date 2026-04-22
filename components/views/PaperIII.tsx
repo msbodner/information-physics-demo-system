@@ -49,7 +49,7 @@ export function PaperIII({ onBack, onSysAdmin }: { onBack: () => void; onSysAdmi
             <CardContent className="text-sm leading-relaxed text-muted-foreground space-y-3">
               <p>This paper proposes that the AIO → HSL → MRO pipeline introduced in the prior two Information Physics papers can serve as a direct structural replacement for traditional Retrieval-Augmented Generation (RAG) pipelines and Medallion-style Bronze/Silver/Gold data curation layers when preparing context for Large Language Models such as Claude.</p>
               <p>Where RAG retrieves semantically similar chunks by approximate vector search over a flat corpus, the Information Physics architecture traverses a precomputed topology of shared semantic elements. Where Medallion Gold presents a statically curated, batch-refreshed set of analytic tables, the MRO layer enables recursive, self-enriching episodic memory that is updated by every successful query.</p>
-              <p>We describe the layer-by-layer mapping, the mathematical differences between traversal-based retrieval and similarity-based retrieval, and a concrete five-step procedure for assembling Claude-ready context bundles. This procedure is now implemented in the AIO/HSL.MRO Demo System V3.5 ChatAIO &quot;Substrate&quot; mode.</p>
+              <p>We describe the layer-by-layer mapping, the mathematical differences between traversal-based retrieval and similarity-based retrieval, and a concrete five-step procedure for assembling Claude-ready context bundles. This procedure is now implemented in the AIO/HSL/MRO Demo System V3.5 ChatAIO &quot;Substrate&quot; mode.</p>
             </CardContent>
           </Card>
 
