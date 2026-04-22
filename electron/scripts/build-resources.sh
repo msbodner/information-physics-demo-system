@@ -79,15 +79,52 @@ mkdir -p "$RESOURCES/frontend/.next"
 cp -r "$PROJECT_ROOT/.next/static" "$RESOURCES/frontend/.next/static"
 [ -d "$PROJECT_ROOT/public" ] && cp -r "$PROJECT_ROOT/public" "$RESOURCES/frontend/public"
 
-# Fix: pnpm standalone build omits styled-jsx which Next.js requires at runtime.
-# Copy it from the pnpm virtual store into the standalone node_modules.
-STYLED_JSX_SRC=$(find "$PROJECT_ROOT/node_modules/.pnpm" -maxdepth 2 -name "styled-jsx" -type d 2>/dev/null | grep "node_modules/styled-jsx$" | head -1)
-if [ -n "$STYLED_JSX_SRC" ]; then
-  cp -r "$STYLED_JSX_SRC" "$RESOURCES/frontend/node_modules/styled-jsx"
-  echo "  ✅ styled-jsx patched into standalone"
-else
-  echo "  ⚠️  styled-jsx not found in pnpm store — frontend may fail to start"
-fi
+# Fix: pnpm standalone builds omit Next.js runtime dependencies because pnpm uses
+# a virtual store with symlinks that Node.js cannot resolve inside a packaged app.
+# Copy all declared Next.js runtime deps + their transitive deps into standalone/node_modules.
+PNPM_SHARED="$PROJECT_ROOT/node_modules/.pnpm/node_modules"
+PNPM_ROOT="$PROJECT_ROOT/node_modules"
+STANDALONE_MODS="$RESOURCES/frontend/node_modules"
+
+patch_pkg() {
+  local pkg="$1"
+  # Handle scoped packages like @next/env → @next/ subdirectory
+  if [[ "$pkg" == @*/* ]]; then
+    local ns="${pkg%%/*}"      # e.g. @next
+    local name="${pkg##*/}"    # e.g. env
+    local dest="$STANDALONE_MODS/$ns"
+    mkdir -p "$dest"
+    if [ -d "$PNPM_SHARED/$ns/$name" ]; then
+      cp -r "$PNPM_SHARED/$ns/$name" "$dest/$name" && echo "  ✅ $pkg"
+    elif [ -d "$PNPM_ROOT/$pkg" ]; then
+      cp -r "$PNPM_ROOT/$pkg" "$dest/$name" && echo "  ✅ $pkg (root)"
+    else
+      echo "  ⚠️  $pkg not found — frontend may fail"
+    fi
+  else
+    if [ -d "$PNPM_SHARED/$pkg" ]; then
+      cp -r "$PNPM_SHARED/$pkg" "$STANDALONE_MODS/$pkg" && echo "  ✅ $pkg"
+    elif [ -d "$PNPM_ROOT/$pkg" ]; then
+      cp -r "$PNPM_ROOT/$pkg" "$STANDALONE_MODS/$pkg" && echo "  ✅ $pkg (root)"
+    else
+      echo "  ⚠️  $pkg not found — frontend may fail"
+    fi
+  fi
+}
+
+echo "  Patching pnpm-omitted Next.js runtime deps..."
+# Next.js declared deps (from next/package.json > dependencies)
+patch_pkg "styled-jsx"
+patch_pkg "@next/env"
+patch_pkg "@swc/helpers"
+patch_pkg "baseline-browser-mapping"
+patch_pkg "caniuse-lite"
+patch_pkg "postcss"
+# postcss transitive deps
+patch_pkg "nanoid"
+patch_pkg "picocolors"
+patch_pkg "source-map-js"
+
 echo "  ✅ Frontend ready"
 
 # ── 4. PostgreSQL Binaries (platform-specific) ───────────────────
