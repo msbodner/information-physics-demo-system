@@ -1745,7 +1745,7 @@ function ArchitecturePane() {
 
           {/* Deploy Layer */}
           <rect x="30" y="610" width="1340" height="35" rx="8" fill="#1E293B"/>
-          <text x="700" y="632" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="11" fontWeight="bold" fill="white">Railway Deployment — GitHub CI/CD — msbodner/v0-information-physics-aio-processor</text>
+          <text x="700" y="632" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="11" fontWeight="bold" fill="white">Railway Deployment — GitHub CI/CD — msbodner/information-physics-demo-system</text>
 
           {/* Recursive loop */}
           <path d="M 1370 175 Q 1390 175 1390 450 Q 1390 660 700 660 Q 30 660 30 450 Q 30 175 120 175" fill="none" stroke="#DC2626" strokeWidth="2.5" strokeDasharray="8,4" markerEnd="url(#ag-a5)"/>

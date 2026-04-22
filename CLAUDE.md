@@ -69,21 +69,27 @@ PostgreSQL 15 with Row-Level Security for tenant isolation. Tenant set via `X-Te
 ## Deployment
 
 ### Railway (Production)
-Both services auto-deploy from GitHub `main` branch. Always deploy to **both** the AIO App and aio-processor Railway projects when pushing changes.
-- Frontend: `railway.toml` at root (healthcheck: `/`)
-- Backend: `infophysics_impl_grade/railway.toml` (healthcheck: `/v1/health`, rootDirectory: `infophysics_impl_grade`)
+All services live in the **Information Physics Demo System** Railway project and auto-deploy from GitHub `main` branch.
+- Frontend (`frontend` service): `railway.toml` at root (healthcheck: `/`)
+- Backend (`infophysics-api` service): `infophysics_impl_grade/railway.toml` (healthcheck: `/v1/health`, rootDirectory: `infophysics_impl_grade`)
+- Database: managed `postgres` service
 
 ### Railway CLI
 ```bash
-export RAILWAY_API_TOKEN="<token>"
-railway link --project "AIO App"
-railway service <service-name>
-railway redeploy --yes
+# Link (one-time)
+railway link --project "Information Physics Demo System"
+
+# Redeploy a service
+railway service redeploy --service frontend --yes
+railway service redeploy --service infophysics-api --yes
+
+# Check status
+railway service status --all
 ```
 
 ## Important Patterns
 
-- **Version string**: Currently V3.1. Update in: `app/layout.tsx`, `app/page.tsx`, `components/chat-aio-dialog.tsx`, `components/user-guide.tsx`, `components/system-management.tsx`, `components/splash-screen.tsx`, `components/dashboard.tsx`, `components/app-sidebar.tsx`, `package.json`, `electron/package.json`, `electron/preload.js`
+- **Version string**: Currently V3.5. Update in: `app/layout.tsx`, `app/page.tsx`, `components/chat-aio-dialog.tsx`, `components/user-guide.tsx`, `components/system-management.tsx`, `components/splash-screen.tsx`, `components/dashboard.tsx`, `components/app-sidebar.tsx`, `package.json`, `electron/package.json`, `electron/preload.js`, `electron/splash.html`
 - **Adding a new API endpoint**: Create FastAPI route in `api/main.py` → create Next.js proxy in `app/api/{name}/route.ts` → add typed client function in `lib/api-client.ts`
 - **Adding a System Admin tab**: Add `TabsTrigger` + `TabsContent` in `components/system-management.tsx`, create a new pane function
 - **SQL migrations**: Add numbered file in `infophysics_impl_grade/migrations/` (e.g., `012_new_table.sql`). Migrations run automatically on backend startup. Use `IF NOT EXISTS` for idempotency.
