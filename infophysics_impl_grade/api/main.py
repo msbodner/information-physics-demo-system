@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from api.db import db, set_tenant, lifespan as _lifespan  # noqa: F401  (re-exported for callers)
 from api.llm import get_effective_api_key, get_anthropic_client  # noqa: F401
+from api.routes.settings import router as settings_router
 from api.routes.users import router as users_router
 
 load_dotenv()
@@ -43,7 +44,8 @@ app.add_middleware(
 )
 
 # Mount extracted route modules. Additional routers will be added in
-# subsequent refactor steps (aio, hsl, mro, chat, settings, ...).
+# subsequent refactor steps (aio, hsl, mro, chat, ...).
+app.include_router(settings_router)
 app.include_router(users_router)
 
 
@@ -215,71 +217,9 @@ class ChatStatOut(BaseModel):
     created_at: str
 
 
-# API key settings
-class ApiKeyRequest(BaseModel):
-    api_key: str
-
-
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
-
-@app.get("/")
-async def root_health():
-    """Root health endpoint for Railway healthcheck."""
-    return {"status": "ok"}
-
-
-@app.get("/v1/health")
-def health():
-    return {"status": "ok"}
-
-
-@app.get("/v1/diag")
-def diag():
-    """Diagnostic endpoint — reports DB table existence and active constraints."""
-    result: Dict[str, Any] = {"tables": {}, "constraints": [], "indexes": []}
-    try:
-        with db() as conn:
-            with conn.cursor() as cur:
-                # Check which key tables exist
-                for tbl in ("information_objects", "users", "system_settings", "tenants"):
-                    cur.execute(
-                        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = %s)",
-                        (tbl,),
-                    )
-                    result["tables"][tbl] = cur.fetchone()[0]
-
-                # Active constraints on information_objects
-                cur.execute(
-                    """
-                    SELECT conname, contype
-                    FROM pg_constraint
-                    WHERE conrelid = 'information_objects'::regclass
-                    """,
-                )
-                result["constraints"] = [{"name": r[0], "type": r[1]} for r in cur.fetchall()]
-
-                # Active unique indexes on information_objects
-                cur.execute(
-                    """
-                    SELECT indexname, indexdef
-                    FROM pg_indexes
-                    WHERE tablename = 'information_objects' AND indexdef LIKE '%UNIQUE%'
-                    """,
-                )
-                result["indexes"] = [{"name": r[0], "def": r[1]} for r in cur.fetchall()]
-
-                # Row counts
-                cur.execute("SELECT COUNT(*) FROM information_objects")
-                result["io_count"] = cur.fetchone()[0]
-                if result["tables"].get("users"):
-                    cur.execute("SELECT COUNT(*) FROM users")
-                    result["user_count"] = cur.fetchone()[0]
-    except Exception as exc:
-        result["error"] = str(exc)
-    return result
-
 
 @app.post("/v1/io", response_model=Dict[str, IOOut], status_code=201)
 def create_io(payload: CreateIORequest, x_tenant_id: str = Header(..., alias="X-Tenant-Id")):
@@ -888,43 +828,6 @@ async def pdf_extract(file: UploadFile = File(...)):
         "document_count": len(rows),
         "filename": file.filename,
     }
-
-
-# ---------------------------------------------------------------------------
-# User management
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Settings: API key
-# ---------------------------------------------------------------------------
-
-@app.get("/v1/settings/apikey")
-def get_api_key_setting():
-    key = get_effective_api_key()
-    if not key:
-        return {"configured": False, "masked": None}
-    masked = key[:7] + "..." + key[-4:] if len(key) > 11 else "***"
-    return {"configured": True, "masked": masked}
-
-
-@app.put("/v1/settings/apikey")
-def update_api_key_setting(payload: ApiKeyRequest):
-    if not payload.api_key or not payload.api_key.startswith("sk-"):
-        raise HTTPException(status_code=400, detail="Invalid API key format")
-    with db() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO system_settings (key, value, updated_at)
-                VALUES ('anthropic_api_key', %s, %s)
-                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
-                """,
-                (payload.api_key, datetime.now(timezone.utc)),
-            )
-        conn.commit()
-    # Update current process env so it takes effect immediately
-    os.environ["ANTHROPIC_API_KEY"] = payload.api_key
-    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
