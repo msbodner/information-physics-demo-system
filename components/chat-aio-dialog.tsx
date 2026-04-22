@@ -653,10 +653,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                   <div className="rounded-lg border p-4 space-y-2">
                     <h3 className="font-semibold text-lg">Tips</h3>
                     <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
-                      <li>Use <span className="font-medium text-foreground">Send</span> for broad exploratory questions across all data</li>
+                      <li><span className="font-medium text-purple-600 font-semibold">Substrate</span> (purple, leftmost) is the default — press <span className="font-medium text-foreground">Enter</span> to run it. Fastest, cheapest, auto-saves MRO</li>
                       <li>Use <span className="font-medium text-foreground">AIO Search</span> when asking about specific people, projects, or entities</li>
-                      <li>Use <span className="font-medium text-purple-600 font-semibold">Substrate</span> (purple button, right side of input bar) for the full Paper III pipeline — most precise, auto-saves MRO</li>
-                      <li>Press <span className="font-medium text-foreground">Enter</span> to quick-send with the Send button</li>
+                      <li>Use <span className="font-medium text-foreground">Send</span> (Broad Search) only for exploratory questions across all data — slow and token-heavy</li>
                       <li>ChatAIO requires a valid Anthropic API key configured in System Admin → API Key</li>
                       <li>Responses include markdown tables when relevant — they render as formatted tables in the chat</li>
                     </ul>
@@ -767,24 +766,32 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                 )}
               </div>
               <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    // Default to Substrate (fast, cheap, MRO-capturing). Fall back to
+                    // broad Send only while the AIO corpus is still loading.
+                    if (substrateReady) handleSubstrateSearch()
+                    else handleSend()
+                  }
+                }}
                 placeholder="Ask about your AIO data…"
                 className="flex-1 text-sm px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
                 disabled={isChatLoading} />
             </div>
-            {/* Row 2: action buttons */}
+            {/* Row 2: action buttons — Substrate is the default (Enter key) */}
             <div className="flex gap-2 justify-end">
-              <Button size="sm" onClick={handleSend} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9">
-                <Send className="w-4 h-4" />Send
+              <Button size="sm" onClick={handleSubstrateSearch}
+                disabled={!chatInput.trim() || isChatLoading || !substrateReady}
+                className="gap-2 shrink-0 h-9 bg-purple-600 hover:bg-purple-700 text-white"
+                title="Substrate Mode (default, Enter key): extract cues, traverse HSL neighborhoods, pre-fetch MRO priors, and persist the answer as a new MRO (Paper III pipeline)">
+                <Brain className="w-4 h-4" />Substrate
               </Button>
               <Button size="sm" variant="outline" onClick={handleAioSearch} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Search HSL library first, then answer with matching AIOs only">
                 <Search className="w-4 h-4" />AIO Search
               </Button>
-              <Button size="sm" variant="outline" onClick={handleSubstrateSearch}
-                disabled={!chatInput.trim() || isChatLoading || !substrateReady}
-                className="gap-2 shrink-0 h-9 border-purple-500/50 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/30"
-                title="Substrate Mode: extract cues, traverse HSL neighborhoods, pre-fetch MRO priors, and persist the answer as a new MRO (Paper III pipeline)">
-                <Brain className="w-4 h-4" />Substrate
+              <Button size="sm" variant="outline" onClick={handleSend} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Broad Search: send ALL stored AIO/HSL records as context (slow, expensive)">
+                <Send className="w-4 h-4" />Send
               </Button>
             </div>
           </div>
