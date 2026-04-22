@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
-  appVersion: "3.4.0",
+  appVersion: "3.5.0",
   platform: process.platform,
   isElectron: true,
 

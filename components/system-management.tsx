@@ -1724,7 +1724,7 @@ function ArchitecturePane() {
           <rect x="920" y="693" width="14" height="14" rx="2" fill="#FEF9C3" stroke="#CA8A04" strokeWidth="1.5" strokeDasharray="3,2"/><text x="940" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#854D0E" fontWeight="bold">SKOs</text><text x="970" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">Future abstractions</text>
           <line x1="1100" y1="700" x2="1130" y2="700" stroke="#DC2626" strokeWidth="2.5" strokeDasharray="5,3"/><text x="1140" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#DC2626" fontWeight="bold">Recursive Loop</text><text x="1240" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">MROs feed back</text>
 
-          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO System App V3.4</text>
+          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO/HSL.MRO Demo System V3.5</text>
         </svg>
       </div>
     </div>
@@ -1769,7 +1769,7 @@ export function SystemManagement({ onBack }: SystemManagementProps) {
 
       {/* Body: left sidebar nav + right content */}
       <div className="flex flex-1 min-h-0">
-        <Tabs defaultValue="users" orientation="vertical" className="flex flex-1 min-h-0">
+        <Tabs defaultValue="users" orientation="vertical" className="flex flex-row flex-1 min-h-0">
 
           {/* ── Vertical sidebar ── */}
           <TabsList className="flex flex-col w-56 shrink-0 bg-slate-900 rounded-none p-3 gap-0.5 items-stretch self-stretch h-full overflow-y-auto">
