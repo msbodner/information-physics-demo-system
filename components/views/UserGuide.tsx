@@ -390,7 +390,7 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                       <span className="font-mono text-xs bg-muted px-1 rounded">[MRO.abee76dc]</span> into each matched HSL element slot,
                       permanently wiring the retrieval episode into the semantic layer for future queries.
                     </p>
-                    <div className="w-full overflow-x-auto bg-[#0f172a] rounded-lg border border-slate-800">
+                    <div className="w-full overflow-x-auto bg-white rounded-lg border border-border">
                       <img
                         src="/vance-topology.svg"
                         alt="Vance HSL–AIO–MRO topology diagram showing query traversal, HSL neighborhood N(K), AIO nodes, MRO capture, and back-link strings"
