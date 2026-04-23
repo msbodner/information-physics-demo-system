@@ -1,0 +1,360 @@
+<svg viewBox="0 0 1400 1050" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <defs>
+    <!-- Drop shadow for boxes -->
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+      <feOffset dx="1" dy="2" result="offsetblur"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.25"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <!-- Arrow marker for connection lines -->
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1F4E79"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="700" y="36" text-anchor="middle" font-size="24" font-weight="bold" fill="#1F4E79">
+    AIO Body and the HSL String
+  </text>
+  <text x="700" y="62" text-anchor="middle" font-size="14" fill="#606060" font-style="italic">
+    One AIO holds many elements. The HSL is a string threading through one shared element across many AIOs.
+  </text>
+
+  <!-- ================================================================== -->
+  <!-- AIO BODY SECTION (top half)                                       -->
+  <!-- ================================================================== -->
+  <text x="40" y="110" font-size="16" font-weight="bold" fill="#1F4E79">AIO BODY</text>
+  <text x="40" y="130" font-size="12" fill="#606060" font-style="italic">
+    A single self-describing object — PRJ-499 Highland Resort &amp; Spa
+  </text>
+
+  <!-- AIO container box -->
+  <rect x="40" y="145" width="1320" height="260" rx="8" ry="8"
+        fill="#F5F9FC" stroke="#1F4E79" stroke-width="2.5" filter="url(#shadow)"/>
+
+  <!-- AIO label tab -->
+  <rect x="40" y="145" width="180" height="28" rx="8" ry="8" fill="#1F4E79"/>
+  <rect x="40" y="165" width="180" height="8" fill="#1F4E79"/>
+  <text x="130" y="164" text-anchor="middle" font-size="13" font-weight="bold" fill="white">AIA305 Sample_0002.aio</text>
+
+  <!-- Elements inside the AIO - row 1 (metadata prefix) -->
+  <g font-size="11">
+    <!-- Metadata prefix elements - shaded differently -->
+    <g>
+      <rect x="60" y="190" width="175" height="28" rx="4" fill="#FFE8D6" stroke="#D97706" stroke-width="1"/>
+      <text x="147" y="208" text-anchor="middle" fill="#92400E">[OriginalCSV.AIA305 Sample]</text>
+    </g>
+    <g>
+      <rect x="245" y="190" width="165" height="28" rx="4" fill="#FFE8D6" stroke="#D97706" stroke-width="1"/>
+      <text x="327" y="208" text-anchor="middle" fill="#92400E">[FileDate.2026-04-21]</text>
+    </g>
+    <g>
+      <rect x="420" y="190" width="160" height="28" rx="4" fill="#FFE8D6" stroke="#D97706" stroke-width="1"/>
+      <text x="500" y="208" text-anchor="middle" fill="#92400E">[FileTime.14:10:10]</text>
+    </g>
+    <g>
+      <rect x="590" y="190" width="140" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="660" y="208" text-anchor="middle" fill="#1F4E79">[Project_ID.PRJ-499]</text>
+    </g>
+    <g>
+      <rect x="740" y="190" width="305" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="892" y="208" text-anchor="middle" fill="#1F4E79">[Project.PRJ-499 Highland Resort &amp; Spa]</text>
+    </g>
+    <g>
+      <rect x="1055" y="190" width="115" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="1112" y="208" text-anchor="middle" fill="#1F4E79">[Status.Active]</text>
+    </g>
+    <g>
+      <rect x="1180" y="190" width="165" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="1262" y="208" text-anchor="middle" fill="#1F4E79">[StartDate.2021-09-28]</text>
+    </g>
+
+    <!-- Row 2 -->
+    <g>
+      <rect x="60" y="228" width="200" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="160" y="246" text-anchor="middle" fill="#1F4E79">[CompletionDate.2022-12-06]</text>
+    </g>
+    <g>
+      <rect x="270" y="228" width="195" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="367" y="246" text-anchor="middle" fill="#1F4E79">[ProjectValue.$64,000,000]</text>
+    </g>
+    <g>
+      <rect x="475" y="228" width="195" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="572" y="246" text-anchor="middle" fill="#1F4E79">[Address.302 N 1st Ave]</text>
+    </g>
+    <g>
+      <rect x="680" y="228" width="130" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="745" y="246" text-anchor="middle" fill="#1F4E79">[City.Charlotte]</text>
+    </g>
+    <g>
+      <rect x="820" y="228" width="90" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="865" y="246" text-anchor="middle" fill="#1F4E79">[State.NC]</text>
+    </g>
+    <g>
+      <rect x="920" y="228" width="100" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="970" y="246" text-anchor="middle" fill="#1F4E79">[Zip.28202]</text>
+    </g>
+    <g>
+      <rect x="1030" y="228" width="170" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="1115" y="246" text-anchor="middle" fill="#1F4E79">[County.Mecklenburg]</text>
+    </g>
+    <g>
+      <rect x="1210" y="228" width="135" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="1277" y="246" text-anchor="middle" fill="#1F4E79">[Market.Hospitality]</text>
+    </g>
+
+    <!-- Row 3 -->
+    <g>
+      <rect x="60" y="266" width="275" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="197" y="284" text-anchor="middle" fill="#1F4E79">[Owner.Horizon Health Network]</text>
+    </g>
+    <g>
+      <rect x="345" y="266" width="200" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="445" y="284" text-anchor="middle" fill="#1F4E79">[Architect.Perkins &amp; Will]</text>
+    </g>
+    <g>
+      <rect x="555" y="266" width="230" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="670" y="284" text-anchor="middle" fill="#1F4E79">[Superintendent.Marcus Reid]</text>
+    </g>
+
+    <!-- The HIGHLIGHTED element -->
+    <g>
+      <rect x="795" y="262" width="270" height="36" rx="5" fill="#FEF3C7" stroke="#D97706" stroke-width="3" filter="url(#shadow)"/>
+      <text x="930" y="284" text-anchor="middle" font-weight="bold" fill="#92400E" font-size="12">[ProjectManager.Destiny Owens]</text>
+    </g>
+
+    <g>
+      <rect x="1075" y="266" width="200" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="1175" y="284" text-anchor="middle" fill="#1F4E79">[Estimator.Laura Vance]</text>
+    </g>
+
+    <!-- Row 4 -->
+    <g>
+      <rect x="60" y="304" width="265" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="192" y="322" text-anchor="middle" fill="#1F4E79">[ProjectAssistant.Destiny Owens]</text>
+    </g>
+    <g>
+      <rect x="335" y="304" width="260" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="465" y="322" text-anchor="middle" fill="#1F4E79">[ProjectAccountant.Fiona Marsh]</text>
+    </g>
+    <g>
+      <rect x="605" y="304" width="335" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="772" y="322" text-anchor="middle" fill="#1F4E79">[ConstructionType.Ground Up New Construction]</text>
+    </g>
+    <g>
+      <rect x="950" y="304" width="240" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="1070" y="322" text-anchor="middle" fill="#1F4E79">[ProjectType.Recreation Bldg]</text>
+    </g>
+    <g>
+      <rect x="1200" y="304" width="145" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="1272" y="322" text-anchor="middle" fill="#1F4E79">[BidType.ServiceWork]</text>
+    </g>
+
+    <!-- Row 5 -->
+    <g>
+      <rect x="60" y="342" width="200" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="160" y="360" text-anchor="middle" fill="#1F4E79">[SquareFootage.416000]</text>
+    </g>
+    <g>
+      <rect x="270" y="342" width="250" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="395" y="360" text-anchor="middle" fill="#1F4E79">[EstimatedValue.$60,500,000]</text>
+    </g>
+    <g>
+      <rect x="530" y="342" width="280" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="670" y="360" text-anchor="middle" fill="#1F4E79">[Current_Contract_Value.$64,000,000]</text>
+    </g>
+    <g>
+      <rect x="820" y="342" width="220" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="930" y="360" text-anchor="middle" fill="#1F4E79">[PaidtoDate.$39,000,000]</text>
+    </g>
+    <g>
+      <rect x="1050" y="342" width="295" height="28" rx="4" fill="#E8F4F8" stroke="#1F4E79" stroke-width="1"/>
+      <text x="1197" y="360" text-anchor="middle" fill="#1F4E79">[Work_Completed.$39,700,000]</text>
+    </g>
+  </g>
+
+  <!-- Legend for element colors -->
+  <g font-size="10">
+    <rect x="60" y="380" width="16" height="14" fill="#FFE8D6" stroke="#D97706"/>
+    <text x="82" y="391" fill="#606060">Metadata prefix (origin/date/time)</text>
+
+    <rect x="280" y="380" width="16" height="14" fill="#E8F4F8" stroke="#1F4E79"/>
+    <text x="302" y="391" fill="#606060">Observed element (semantic label • value)</text>
+
+    <rect x="560" y="380" width="16" height="14" fill="#FEF3C7" stroke="#D97706" stroke-width="2"/>
+    <text x="582" y="391" fill="#606060" font-weight="bold">The shared element that the HSL threads through →</text>
+  </g>
+
+  <!-- ================================================================== -->
+  <!-- Connection from AIO body to HSL string                            -->
+  <!-- ================================================================== -->
+  <path d="M 930 298 Q 930 430 700 480" fill="none" stroke="#D97706" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrow)"/>
+  <text x="960" y="450" font-size="11" font-style="italic" fill="#92400E">
+    This one element is the hook
+  </text>
+  <text x="960" y="466" font-size="11" font-style="italic" fill="#92400E">
+    that many AIOs share in common
+  </text>
+
+  <!-- ================================================================== -->
+  <!-- HSL STRING SECTION (bottom half)                                  -->
+  <!-- ================================================================== -->
+  <text x="40" y="530" font-size="16" font-weight="bold" fill="#1F4E79">HSL STRING</text>
+  <text x="40" y="550" font-size="12" fill="#606060" font-style="italic">
+    [ProjectManager.Destiny Owens].hsl — the precomputed neighborhood: 44 AIOs that share this element
+  </text>
+
+  <!-- The horizontal string (a thick line) with element boxes along it -->
+  <!-- String backbone -->
+  <line x1="60" y1="680" x2="1340" y2="680" stroke="#1F4E79" stroke-width="3"/>
+
+  <!-- The HSL anchor element (centered, prominent) -->
+  <g filter="url(#shadow)">
+    <rect x="560" y="595" width="280" height="60" rx="8" fill="#FEF3C7" stroke="#D97706" stroke-width="3"/>
+    <text x="700" y="620" text-anchor="middle" font-size="14" font-weight="bold" fill="#92400E">
+      [ProjectManager.Destiny Owens]
+    </text>
+    <text x="700" y="640" text-anchor="middle" font-size="11" font-style="italic" fill="#92400E">
+      the HSL anchor element
+    </text>
+  </g>
+  <line x1="700" y1="655" x2="700" y2="680" stroke="#D97706" stroke-width="2"/>
+
+  <!-- AIO boxes dispersed along the string -->
+  <!-- Each represents one of the 44 AIOs in the HSL -->
+
+  <!-- AIO boxes above the string (shown with their Project_ID) -->
+  <g font-size="10">
+    <!-- Left side AIOs -->
+    <g filter="url(#shadow)">
+      <rect x="65" y="700" width="105" height="48" rx="5" fill="white" stroke="#1F4E79" stroke-width="1.5"/>
+      <text x="117" y="718" text-anchor="middle" font-weight="bold" fill="#1F4E79">AIA305_0002</text>
+      <text x="117" y="733" text-anchor="middle" fill="#606060">PRJ-499</text>
+      <text x="117" y="745" text-anchor="middle" fill="#606060" font-size="9">Highland Resort</text>
+    </g>
+    <line x1="117" y1="700" x2="117" y2="680" stroke="#1F4E79" stroke-width="1.5"/>
+
+    <g filter="url(#shadow)">
+      <rect x="185" y="700" width="105" height="48" rx="5" fill="white" stroke="#1F4E79" stroke-width="1.5"/>
+      <text x="237" y="718" text-anchor="middle" font-weight="bold" fill="#1F4E79">AIA305_0005</text>
+      <text x="237" y="733" text-anchor="middle" fill="#606060">PRJ-502</text>
+      <text x="237" y="745" text-anchor="middle" fill="#606060" font-size="9">Civic Plaza</text>
+    </g>
+    <line x1="237" y1="700" x2="237" y2="680" stroke="#1F4E79" stroke-width="1.5"/>
+
+    <g filter="url(#shadow)">
+      <rect x="305" y="700" width="105" height="48" rx="5" fill="white" stroke="#1F4E79" stroke-width="1.5"/>
+      <text x="357" y="718" text-anchor="middle" font-weight="bold" fill="#1F4E79">AIA305_0014</text>
+      <text x="357" y="733" text-anchor="middle" fill="#606060">PRJ-511</text>
+      <text x="357" y="745" text-anchor="middle" fill="#606060" font-size="9">Medical Ctr</text>
+    </g>
+    <line x1="357" y1="700" x2="357" y2="680" stroke="#1F4E79" stroke-width="1.5"/>
+
+    <g filter="url(#shadow)">
+      <rect x="425" y="700" width="105" height="48" rx="5" fill="white" stroke="#1F4E79" stroke-width="1.5"/>
+      <text x="477" y="718" text-anchor="middle" font-weight="bold" fill="#1F4E79">AIA305_0046</text>
+      <text x="477" y="733" text-anchor="middle" fill="#606060">PRJ-524</text>
+      <text x="477" y="745" text-anchor="middle" fill="#606060" font-size="9">Office Tower</text>
+    </g>
+    <line x1="477" y1="700" x2="477" y2="680" stroke="#1F4E79" stroke-width="1.5"/>
+
+    <g filter="url(#shadow)">
+      <rect x="545" y="700" width="105" height="48" rx="5" fill="white" stroke="#1F4E79" stroke-width="1.5"/>
+      <text x="597" y="718" text-anchor="middle" font-weight="bold" fill="#1F4E79">AIA305_0105</text>
+      <text x="597" y="733" text-anchor="middle" fill="#606060">PRJ-538</text>
+      <text x="597" y="745" text-anchor="middle" fill="#606060" font-size="9">Data Center</text>
+    </g>
+    <line x1="597" y1="700" x2="597" y2="680" stroke="#1F4E79" stroke-width="1.5"/>
+
+    <!-- Right side AIOs -->
+    <g filter="url(#shadow)">
+      <rect x="750" y="700" width="105" height="48" rx="5" fill="white" stroke="#1F4E79" stroke-width="1.5"/>
+      <text x="802" y="718" text-anchor="middle" font-weight="bold" fill="#1F4E79">AIA305_0207</text>
+      <text x="802" y="733" text-anchor="middle" fill="#606060">PRJ-551</text>
+      <text x="802" y="745" text-anchor="middle" fill="#606060" font-size="9">Retail Complex</text>
+    </g>
+    <line x1="802" y1="700" x2="802" y2="680" stroke="#1F4E79" stroke-width="1.5"/>
+
+    <g filter="url(#shadow)">
+      <rect x="870" y="700" width="105" height="48" rx="5" fill="white" stroke="#1F4E79" stroke-width="1.5"/>
+      <text x="922" y="718" text-anchor="middle" font-weight="bold" fill="#1F4E79">AIA305_0316</text>
+      <text x="922" y="733" text-anchor="middle" fill="#606060">PRJ-564</text>
+      <text x="922" y="745" text-anchor="middle" fill="#606060" font-size="9">Warehouse</text>
+    </g>
+    <line x1="922" y1="700" x2="922" y2="680" stroke="#1F4E79" stroke-width="1.5"/>
+
+    <g filter="url(#shadow)">
+      <rect x="990" y="700" width="105" height="48" rx="5" fill="white" stroke="#1F4E79" stroke-width="1.5"/>
+      <text x="1042" y="718" text-anchor="middle" font-weight="bold" fill="#1F4E79">AIA305_0410</text>
+      <text x="1042" y="733" text-anchor="middle" fill="#606060">PRJ-572</text>
+      <text x="1042" y="745" text-anchor="middle" fill="#606060" font-size="9">Campus Bldg</text>
+    </g>
+    <line x1="1042" y1="700" x2="1042" y2="680" stroke="#1F4E79" stroke-width="1.5"/>
+
+    <g filter="url(#shadow)">
+      <rect x="1110" y="700" width="105" height="48" rx="5" fill="white" stroke="#1F4E79" stroke-width="1.5"/>
+      <text x="1162" y="718" text-anchor="middle" font-weight="bold" fill="#1F4E79">AIA305_0468</text>
+      <text x="1162" y="733" text-anchor="middle" fill="#606060">PRJ-589</text>
+      <text x="1162" y="745" text-anchor="middle" fill="#606060" font-size="9">Transit Hub</text>
+    </g>
+    <line x1="1162" y1="700" x2="1162" y2="680" stroke="#1F4E79" stroke-width="1.5"/>
+
+    <g filter="url(#shadow)">
+      <rect x="1230" y="700" width="105" height="48" rx="5" fill="white" stroke="#1F4E79" stroke-width="1.5"/>
+      <text x="1282" y="718" text-anchor="middle" font-weight="bold" fill="#1F4E79">AIA305_0482</text>
+      <text x="1282" y="733" text-anchor="middle" fill="#606060">PRJ-601</text>
+      <text x="1282" y="745" text-anchor="middle" fill="#606060" font-size="9">Hotel Renov</text>
+    </g>
+    <line x1="1282" y1="700" x2="1282" y2="680" stroke="#1F4E79" stroke-width="1.5"/>
+  </g>
+
+  <!-- String endpoint caps -->
+  <circle cx="60" cy="680" r="7" fill="#1F4E79"/>
+  <circle cx="1340" cy="680" r="7" fill="#1F4E79"/>
+
+  <!-- "... 44 total AIOs" indicator -->
+  <text x="672" y="785" text-anchor="end" font-size="11" font-style="italic" fill="#606060">
+    ← 10 of 44 AIOs shown →
+  </text>
+  <text x="730" y="785" font-size="11" font-style="italic" fill="#606060">
+    each shares [ProjectManager.Destiny Owens]
+  </text>
+
+  <!-- ================================================================== -->
+  <!-- Explanation box at bottom                                          -->
+  <!-- ================================================================== -->
+  <rect x="40" y="820" width="1320" height="200" rx="8" fill="#F5F9FC" stroke="#CCCCCC" stroke-width="1"/>
+
+  <text x="60" y="848" font-size="14" font-weight="bold" fill="#1F4E79">How to read this diagram</text>
+
+  <g font-size="12" fill="#333">
+    <text x="60" y="875">
+      <tspan font-weight="bold" fill="#1F4E79">Top: the AIO body.</tspan>
+      <tspan> One AIO is a self-describing record made of many bracketed elements — each a semantic-label and value bound together at capture time.</tspan>
+    </text>
+    <text x="60" y="898">
+      <tspan>The highlighted yellow element, </tspan>
+      <tspan font-family="Courier New, monospace" fill="#92400E" font-weight="bold">[ProjectManager.Destiny Owens]</tspan>
+      <tspan>, is just one of roughly 35 elements inside this single AIO.</tspan>
+    </text>
+    <text x="60" y="925">
+      <tspan font-weight="bold" fill="#1F4E79">Bottom: the HSL string.</tspan>
+      <tspan> The HSL file </tspan>
+      <tspan font-family="Courier New, monospace" fill="#92400E">[ProjectManager.Destiny Owens].hsl</tspan>
+      <tspan> is a precomputed string that threads through every AIO in the corpus</tspan>
+    </text>
+    <text x="60" y="948">
+      <tspan>that contains this same element. Each small box along the string is a different AIO — 44 in total for this HSL — representing a different project Destiny manages.</tspan>
+    </text>
+    <text x="60" y="975">
+      <tspan font-weight="bold" fill="#1F4E79">Why this matters:</tspan>
+      <tspan> when the system needs to answer </tspan>
+      <tspan font-style="italic">"show me everything Destiny is managing,"</tspan>
+      <tspan> it does not search the corpus. It walks this one string.</tspan>
+    </text>
+    <text x="60" y="998">
+      <tspan>Retrieval is bounded traversal over a precomputed topology rather than approximate similarity search — exact, auditable, and orders of magnitude cheaper than conventional RAG.</tspan>
+    </text>
+  </g>
+</svg>

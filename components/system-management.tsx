@@ -1895,9 +1895,10 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
     setAuthedUser(null)
   }, [])
 
-  if (!authedUser) {
-    return <LoginGateScreen onLogin={handleLogin} onBack={onBack} />
-  }
+  // Login gate suppressed — System Admin opens without authentication.
+  // To re-enable, restore: `if (!authedUser) return <LoginGateScreen onLogin={handleLogin} onBack={onBack} />`
+  void handleLogin
+  void LoginGateScreen
 
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
@@ -1915,10 +1916,12 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
           </div>
           <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
             <ShieldCheck className="w-4 h-4 text-primary" />
-            <span>{authedUser.username}</span>
-            <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-1 text-xs">
-              <Lock className="w-3 h-3" />Logout
-            </Button>
+            <span>{authedUser?.username ?? "Guest (login suppressed)"}</span>
+            {authedUser && (
+              <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-1 text-xs">
+                <Lock className="w-3 h-3" />Logout
+              </Button>
+            )}
           </div>
         </div>
       </header>

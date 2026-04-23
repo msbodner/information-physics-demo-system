@@ -14,6 +14,7 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
     { id: "hsp", label: "Hyper-Semantic Processor", icon: Cpu },
     { id: "hsl", label: "HSL — Creating & Viewing", icon: Layers },
     { id: "substrate", label: "Substrate Mode (V4.0)", icon: Brain },
+    { id: "aio-hsl-structure", label: "AIO Body & HSL String", icon: GitMerge },
     { id: "mro-topology", label: "MRO Topology Diagram", icon: Network },
     { id: "system-admin", label: "System Admin", icon: Settings },
     { id: "csv-format", label: "CSV Format", icon: FileSpreadsheet },
@@ -280,6 +281,94 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                   <li><strong>R &amp; D — Compound HSL Builder</strong> — the interactive equivalent of Step 2. Use it to see the set-intersection operation without invoking Claude.</li>
                 </ul>
               </CardContent></Card>
+            )}
+
+            {/* ── AIO BODY & HSL STRING ── */}
+            {activeSection === "aio-hsl-structure" && (
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <GitMerge className="w-5 h-5 text-amber-600" />
+                      AIO Body & HSL String — The Two Shapes of the Substrate
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                    <p>
+                      This diagram shows the two fundamental structures that make the AIO/HSL substrate work —
+                      and why retrieval is <span className="font-semibold text-foreground">bounded traversal over a precomputed topology</span> rather
+                      than approximate similarity search.
+                    </p>
+                    <div className="w-full overflow-x-auto bg-white rounded-lg border border-border">
+                      <img
+                        src="/AIO_HSL_Diagram.svg"
+                        alt="AIO body shown with roughly 35 bracketed elements, one element highlighted, and an HSL string below threading through 10 of 44 AIOs that share that element"
+                        className="w-full min-w-[900px]"
+                        style={{ display: "block" }}
+                      />
+                    </div>
+
+                    <div className="grid lg:grid-cols-2 gap-3 pt-2">
+                      <div className="flex items-start gap-2 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                        <Database className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-semibold text-xs text-blue-500">Top — the AIO body</p>
+                          <p className="text-xs leading-relaxed">
+                            One AIO is a single self-describing record made of many bracketed elements. Each element is
+                            a <span className="font-mono">[Key.Value]</span> pair binding a semantic label to an observed value at capture time.
+                            The AIO shown above (<span className="font-mono">AIA305 Sample_0002.aio</span>) carries roughly 35 elements describing
+                            one construction project, <span className="font-semibold text-foreground">PRJ-499 Highland Resort &amp; Spa</span>.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                        <Layers className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-semibold text-xs text-amber-600">Bottom — the HSL string</p>
+                          <p className="text-xs leading-relaxed">
+                            The HSL file <span className="font-mono">[ProjectManager.Destiny Owens].hsl</span> is a precomputed string that
+                            threads through every AIO in the corpus containing that exact element. Each small box along
+                            the string is one of the <span className="font-semibold text-foreground">44 AIOs</span> that share this element — 44 different
+                            projects Destiny manages. 10 of the 44 are shown.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-muted/40 rounded-lg border border-border">
+                      <p className="font-semibold text-xs text-foreground mb-1">Legend</p>
+                      <ul className="text-xs space-y-1 list-disc list-inside">
+                        <li><span className="inline-block w-3 h-3 rounded align-middle mr-1" style={{ background: "#FFE8D6", border: "1px solid #D97706" }} /> Metadata prefix elements (origin CSV, file date, file time) — peach-colored</li>
+                        <li><span className="inline-block w-3 h-3 rounded align-middle mr-1" style={{ background: "#E8F4F8", border: "1px solid #1F4E79" }} /> Observed semantic elements (<span className="font-mono">[Key.Value]</span> pairs from the source record) — blue</li>
+                        <li><span className="inline-block w-3 h-3 rounded align-middle mr-1" style={{ background: "#FEF3C7", border: "2px solid #D97706" }} /> The one shared element the HSL string threads through — highlighted yellow</li>
+                      </ul>
+                    </div>
+
+                    <div className="flex items-start gap-2 p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                      <Zap className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-sm text-emerald-500">Why this matters</p>
+                        <p className="text-xs leading-relaxed">
+                          When the system needs to answer <em>&quot;show me everything Destiny is managing,&quot;</em> it does not search the corpus.
+                          It walks this one string. Retrieval becomes <span className="font-semibold text-foreground">bounded traversal over a precomputed
+                          topology</span> — exact, auditable, and orders of magnitude cheaper than conventional RAG, with no embedding model, no
+                          vector database, and no approximate nearest-neighbor search in the loop.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="font-semibold text-foreground mb-2">How the two shapes compose</p>
+                      <ul className="list-disc list-inside space-y-1 text-xs">
+                        <li>An <span className="font-semibold">AIO</span> is a <em>wide row</em> — one record, many elements.</li>
+                        <li>An <span className="font-semibold">HSL</span> is a <em>long string</em> — one element, many AIOs.</li>
+                        <li>Every element in every AIO is a potential anchor for an HSL. The HSL builder materializes the anchors that actually have ≥2 AIOs sharing them, producing the index that the four-phase AIO Search walks at query time.</li>
+                        <li>When a query mentions <span className="font-mono">&quot;Destiny Owens&quot;</span>, Phase 2 finds the matching HSL, Phase 3 expands its AIO pointers into the 44 actual records, and Phase 4 hands those records to Claude as exact, provenance-preserved context.</li>
+                      </ul>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             )}
 
             {/* ── MRO TOPOLOGY DIAGRAM ── */}
