@@ -61,8 +61,7 @@ def list_chat_stats(
 ):
     tenant = x_tenant_id or "tenantA"
     try:
-        conn = db()
-        with conn:
+        with db() as conn:
             set_tenant(conn, tenant)
             with conn.cursor() as cur:
                 cur.execute(
@@ -106,8 +105,7 @@ def create_chat_stat(
     stat_id = str(uuid.uuid4())
     now = datetime.utcnow()
     try:
-        conn = db()
-        with conn:
+        with db() as conn:
             set_tenant(conn, tenant)
             with conn.cursor() as cur:
                 cur.execute(
