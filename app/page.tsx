@@ -361,6 +361,20 @@ export default function HomePage() {
             ))}
           </div>
 
+          {/* Prominent ChatAIO CTA */}
+          {backendIsOnline && (
+            <div className="mb-16 flex justify-center">
+              <Button
+                size="lg"
+                onClick={() => setShowHomeChatAIO(true)}
+                className="gap-3 px-12 py-8 text-xl font-semibold shadow-lg hover:shadow-xl transition-shadow"
+              >
+                <MessageSquare className="w-6 h-6" />
+                Launch ChatAIO
+              </Button>
+            </div>
+          )}
+
           {/* Conversion process diagram */}
           <div className="mb-16">
             <h3 className="text-2xl font-bold text-foreground mb-8">The Conversion Process</h3>
