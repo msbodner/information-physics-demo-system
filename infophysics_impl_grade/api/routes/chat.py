@@ -206,8 +206,7 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
     aio_lines: List[str] = []
     hsl_blocks: List[str] = []
     try:
-        conn = db()
-        with conn:
+        with db() as conn:
             set_tenant(conn, tenant)
             with conn.cursor() as cur:
                 cur.execute(
@@ -290,8 +289,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     # ── Phase 1: Parse prompt into search terms using Claude ──
     known_fields: List[str] = []
     try:
-        conn = db()
-        with conn:
+        with db() as conn:
             set_tenant(conn, tenant)
             with conn.cursor() as cur:
                 cur.execute("SELECT field_name FROM information_elements ORDER BY aio_count DESC LIMIT 50")
@@ -359,8 +357,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
         name_clause = " OR ".join(["hsl_name ILIKE %s"] * len(needles))
         name_params = [f"%{n}%" for n in needles]
         try:
-            conn = db()
-            with conn:
+            with db() as conn:
                 set_tenant(conn, tenant)
                 with conn.cursor() as cur:
                     cur.execute(
@@ -375,8 +372,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
 
         # Pass 2: elements_text (fast path, migration 016)
         try:
-            conn = db()
-            with conn:
+            with db() as conn:
                 set_tenant(conn, tenant)
                 with conn.cursor() as cur:
                     et_clause = " OR ".join(["elements_text LIKE %s"] * len(needles))
@@ -397,8 +393,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
         # Pass 3: per-element ILIKE fallback (only if still empty)
         if not matched_hsl_rows:
             try:
-                conn = db()
-                with conn:
+                with db() as conn:
                     set_tenant(conn, tenant)
                     with conn.cursor() as cur:
                         probe = needles[:5]
@@ -451,8 +446,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     # Pass 0: AIOs referenced directly by matched HSL elements
     if aio_refs:
         try:
-            conn = db()
-            with conn:
+            with db() as conn:
                 set_tenant(conn, tenant)
                 with conn.cursor() as cur:
                     placeholders = ", ".join(["%s"] * len(aio_refs))
@@ -469,8 +463,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     # Pass 1: aio_name ILIKE — always works, catches named AIOs directly
     if needles:
         try:
-            conn = db()
-            with conn:
+            with db() as conn:
                 set_tenant(conn, tenant)
                 with conn.cursor() as cur:
                     name_clause = " OR ".join(["aio_name ILIKE %s"] * len(needles))
@@ -489,8 +482,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     # Pass 2: elements_text (fast indexed path, migration 016)
     if needles:
         try:
-            conn = db()
-            with conn:
+            with db() as conn:
                 set_tenant(conn, tenant)
                 with conn.cursor() as cur:
                     probe_needles = needles[:10]
@@ -509,8 +501,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     # Pass 3: per-element ILIKE fallback (only if still empty)
     if not matched_aio_lines and needles:
         try:
-            conn = db()
-            with conn:
+            with db() as conn:
                 set_tenant(conn, tenant)
                 with conn.cursor() as cur:
                     probe = needles[:5]
@@ -542,8 +533,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     mro_context_lines: List[str] = []
     if mro_ids_from_hsl:
         try:
-            conn = db()
-            with conn:
+            with db() as conn:
                 set_tenant(conn, tenant)
                 with conn.cursor() as cur:
                     for mro_uuid in mro_ids_from_hsl[:5]:
