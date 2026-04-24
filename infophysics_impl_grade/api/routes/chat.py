@@ -347,25 +347,80 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     needles = list(set(needles))
 
     matched_hsl_rows = []
-    try:
-        conn = db()
-        with conn:
-            set_tenant(conn, tenant)
-            with conn.cursor() as cur:
-                if needles:
-                    # Single indexed predicate against the generated
-                    # elements_text column (pg_trgm GIN, migration 016).
-                    # elements_text is already lowercased.
-                    or_clause = " OR ".join(["elements_text LIKE %s"] * len(needles))
-                    params = [f"%{n}%" for n in needles]
+    if needles:
+        # We search HSLs in three progressively-broader passes:
+        #   1. hsl_name ILIKE  — always works, catches named HSLs like
+        #      "[Employee.Sarah Mitchell].hsl" even when the generated
+        #      elements_text column is absent (pre-migration 016 DBs).
+        #   2. elements_text LIKE — the fast indexed path when migration
+        #      016 has applied. Skipped silently on "column does not exist".
+        #   3. per-element ILIKE fallback — unindexed but always works;
+        #      only run if passes 1 and 2 produced nothing.
+        name_clause = " OR ".join(["hsl_name ILIKE %s"] * len(needles))
+        name_params = [f"%{n}%" for n in needles]
+        try:
+            conn = db()
+            with conn:
+                set_tenant(conn, tenant)
+                with conn.cursor() as cur:
                     cur.execute(
                         f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data "
-                        f"WHERE {or_clause} LIMIT 1000",
-                        params,
+                        f"WHERE {name_clause} LIMIT 1000",
+                        name_params,
                     )
                     matched_hsl_rows = cur.fetchall()
-    except Exception:
-        logger.warning("HSL search failed")
+        except Exception:
+            logger.warning("HSL name search failed", exc_info=True)
+        logger.info("AIO Search: %d HSLs via hsl_name pass", len(matched_hsl_rows))
+
+        # Pass 2: elements_text (fast path, migration 016)
+        try:
+            conn = db()
+            with conn:
+                set_tenant(conn, tenant)
+                with conn.cursor() as cur:
+                    et_clause = " OR ".join(["elements_text LIKE %s"] * len(needles))
+                    et_params = [f"%{n}%" for n in needles]
+                    cur.execute(
+                        f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data "
+                        f"WHERE {et_clause} LIMIT 1000",
+                        et_params,
+                    )
+                    seen = {row[0] for row in matched_hsl_rows}
+                    for row in cur.fetchall():
+                        if row[0] not in seen:
+                            matched_hsl_rows.append(row)
+                            seen.add(row[0])
+        except Exception:
+            logger.info("elements_text not available on hsl_data — skipping fast path")
+
+        # Pass 3: per-element ILIKE fallback (only if still empty)
+        if not matched_hsl_rows:
+            try:
+                conn = db()
+                with conn:
+                    set_tenant(conn, tenant)
+                    with conn.cursor() as cur:
+                        probe = needles[:5]
+                        preds = []
+                        params: List[str] = []
+                        for n in probe:
+                            preds.append(
+                                "(" + " OR ".join(
+                                    [f"hsl_element_{i} ILIKE %s" for i in range(1, 101)]
+                                ) + ")"
+                            )
+                            params.extend([f"%{n}%"] * 100)
+                        where = " OR ".join(preds)
+                        cur.execute(
+                            f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data "
+                            f"WHERE {where} LIMIT 500",
+                            params,
+                        )
+                        matched_hsl_rows = cur.fetchall()
+                logger.info("AIO Search: %d HSLs via per-element fallback", len(matched_hsl_rows))
+            except Exception:
+                logger.warning("HSL per-element fallback failed", exc_info=True)
 
     matched_hsl_ids = [str(row[0]) for row in matched_hsl_rows]
     logger.info("AIO Search: %d HSLs matched", len(matched_hsl_rows))
@@ -383,39 +438,102 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
                     aio_refs.add(ref)
 
     matched_aio_lines: List[str] = []
-    try:
-        conn = db()
-        with conn:
-            set_tenant(conn, tenant)
-            with conn.cursor() as cur:
-                if aio_refs:
+    seen_aio_names: set = set()
+
+    def _add_aio_row(row):
+        name = row[0]
+        if name in seen_aio_names:
+            return
+        seen_aio_names.add(name)
+        elements = [e for e in row[1:] if e]
+        matched_aio_lines.append(f"{name}: " + "".join(elements))
+
+    # Pass 0: AIOs referenced directly by matched HSL elements
+    if aio_refs:
+        try:
+            conn = db()
+            with conn:
+                set_tenant(conn, tenant)
+                with conn.cursor() as cur:
                     placeholders = ", ".join(["%s"] * len(aio_refs))
                     cur.execute(
                         f"SELECT aio_name, {_AIO_COLS} FROM aio_data WHERE aio_name IN ({placeholders})",
                         list(aio_refs),
                     )
                     for row in cur.fetchall():
-                        elements = [e for e in row[1:] if e]
-                        matched_aio_lines.append(f"{row[0]}: " + "".join(elements))
+                        _add_aio_row(row)
+        except Exception:
+            logger.warning("AIO ref lookup failed", exc_info=True)
+        logger.info("AIO Search: %d AIOs via HSL refs", len(matched_aio_lines))
 
-                if not matched_aio_lines and needles:
-                    # Was: 50 columns × up to 10 needles = 500 ILIKE
-                    # predicates per query, all unindexed. Now a single
-                    # indexed LIKE per needle against elements_text
-                    # (pg_trgm GIN, migration 016).
+    # Pass 1: aio_name ILIKE — always works, catches named AIOs directly
+    if needles:
+        try:
+            conn = db()
+            with conn:
+                set_tenant(conn, tenant)
+                with conn.cursor() as cur:
+                    name_clause = " OR ".join(["aio_name ILIKE %s"] * len(needles))
+                    name_params = [f"%{n}%" for n in needles]
+                    cur.execute(
+                        f"SELECT aio_name, {_AIO_COLS} FROM aio_data "
+                        f"WHERE {name_clause} LIMIT 500",
+                        name_params,
+                    )
+                    for row in cur.fetchall():
+                        _add_aio_row(row)
+        except Exception:
+            logger.warning("AIO name search failed", exc_info=True)
+        logger.info("AIO Search: %d AIOs after aio_name pass", len(matched_aio_lines))
+
+    # Pass 2: elements_text (fast indexed path, migration 016)
+    if needles:
+        try:
+            conn = db()
+            with conn:
+                set_tenant(conn, tenant)
+                with conn.cursor() as cur:
                     probe_needles = needles[:10]
                     or_clause = " OR ".join(["elements_text LIKE %s"] * len(probe_needles))
-                    params = [f"%{n}%" for n in probe_needles]
+                    et_params = [f"%{n}%" for n in probe_needles]
                     cur.execute(
                         f"SELECT aio_name, {_AIO_COLS} FROM aio_data "
                         f"WHERE {or_clause} LIMIT 200",
+                        et_params,
+                    )
+                    for row in cur.fetchall():
+                        _add_aio_row(row)
+        except Exception:
+            logger.info("elements_text not available on aio_data — skipping fast path")
+
+    # Pass 3: per-element ILIKE fallback (only if still empty)
+    if not matched_aio_lines and needles:
+        try:
+            conn = db()
+            with conn:
+                set_tenant(conn, tenant)
+                with conn.cursor() as cur:
+                    probe = needles[:5]
+                    preds = []
+                    params: List[str] = []
+                    for n in probe:
+                        preds.append(
+                            "(" + " OR ".join(
+                                [f"element_{i} ILIKE %s" for i in range(1, 51)]
+                            ) + ")"
+                        )
+                        params.extend([f"%{n}%"] * 50)
+                    where = " OR ".join(preds)
+                    cur.execute(
+                        f"SELECT aio_name, {_AIO_COLS} FROM aio_data "
+                        f"WHERE {where} LIMIT 200",
                         params,
                     )
                     for row in cur.fetchall():
-                        elements = [e for e in row[1:] if e]
-                        matched_aio_lines.append(f"{row[0]}: " + "".join(elements))
-    except Exception:
-        logger.warning("AIO gathering failed")
+                        _add_aio_row(row)
+            logger.info("AIO Search: %d AIOs via per-element fallback", len(matched_aio_lines))
+        except Exception:
+            logger.warning("AIO per-element fallback failed", exc_info=True)
 
     matched_aio_lines = list(dict.fromkeys(matched_aio_lines))
     logger.info("AIO Search: %d AIOs in context", len(matched_aio_lines))
