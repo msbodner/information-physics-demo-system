@@ -201,7 +201,7 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
     if not payload.messages:
         raise HTTPException(status_code=400, detail="messages must not be empty")
 
-    tenant = x_tenant_id or "default"
+    tenant = x_tenant_id or "tenantA"
 
     aio_lines: List[str] = []
     hsl_blocks: List[str] = []
@@ -284,7 +284,7 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     if not payload.messages:
         raise HTTPException(status_code=400, detail="messages must not be empty")
 
-    tenant = x_tenant_id or "default"
+    tenant = x_tenant_id or "tenantA"
     user_prompt = payload.messages[-1].content
 
     # ── Phase 1: Parse prompt into search terms using Claude ──
