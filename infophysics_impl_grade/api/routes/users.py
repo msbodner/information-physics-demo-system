@@ -178,15 +178,17 @@ def login(payload: LoginRequest):
     try:
         with db() as conn:
             with conn.cursor() as cur:
+                # Accept either email or username in the `email` field
                 cur.execute(
-                    "SELECT user_id, username, email, role, password_hash FROM users WHERE email = %s AND is_active = true",
-                    (payload.email,),
+                    "SELECT user_id, username, email, role, password_hash FROM users "
+                    "WHERE (email = %s OR username = %s) AND is_active = true",
+                    (payload.email, payload.email),
                 )
                 row = cur.fetchone()
     except psycopg.Error:
         raise HTTPException(status_code=503, detail="Database unavailable")
     if not row:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="Invalid credentials or password")
     user_id, username, email, role, pw_hash = row
     try:
         # Strip whitespace from stored hash (defensive)
@@ -195,7 +197,7 @@ def login(payload: LoginRequest):
         logger.exception("bcrypt error for user %s", payload.email)
         raise HTTPException(status_code=500, detail=f"Password check error: {exc}")
     if not pw_match:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="Invalid credentials or password")
     # Record last login time (non-fatal)
     try:
         with db() as conn:

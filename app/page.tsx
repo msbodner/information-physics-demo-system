@@ -402,8 +402,8 @@ export default function HomePage() {
             </DialogHeader>
             <form onSubmit={handleLogin} className="flex flex-col gap-4 mt-2">
               <div className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-foreground">Email</label>
-                <input type="email" autoComplete="email" required value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" placeholder="admin@example.com" />
+                <label className="text-sm font-medium text-foreground">Email or Username</label>
+                <input type="text" autoComplete="username" required value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30" placeholder="admin@example.com or username" />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-sm font-medium text-foreground">Password</label>
