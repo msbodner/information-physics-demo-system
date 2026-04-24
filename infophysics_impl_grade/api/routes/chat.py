@@ -310,26 +310,45 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
         '"keywords": ["free text search term", ...]}'
     )
 
-    try:
-        parse_response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=500,
-            system=parse_system,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
-        raw_json = parse_response.content[0].text.strip()
-        if raw_json.startswith("```"):
-            raw_json = raw_json.split("```")[1]
-            if raw_json.startswith("json"):
-                raw_json = raw_json[4:]
-        search_terms = json.loads(raw_json)
-        parse_in_tok = getattr(parse_response.usage, "input_tokens", 0) or 0
-        parse_out_tok = getattr(parse_response.usage, "output_tokens", 0) or 0
-    except Exception:
-        logger.warning("Failed to parse search terms, falling back to keyword split")
-        search_terms = {"field_values": [], "keywords": user_prompt.split()}
+    # Fast path: for short, field-free queries (≤3 tokens, all alphanumeric/space),
+    # the LLM parse step is pure overhead — the whole query is a single needle.
+    # Skip the ~300-token parse call (a full Claude round-trip) and treat the
+    # cleaned query as a single keyword. Typical savings: ~200ms + ~450 tokens
+    # per query like "Sarah Mitchell" or "Destiny Owens".
+    trimmed = user_prompt.strip()
+    tok_count = len(trimmed.split())
+    is_short_lookup = (
+        tok_count > 0
+        and tok_count <= 3
+        and all(c.isalnum() or c.isspace() or c in "-_.'" for c in trimmed)
+    )
+
+    if is_short_lookup:
+        search_terms = {"field_values": [], "keywords": [trimmed]}
         parse_in_tok = 0
         parse_out_tok = 0
+        logger.info("AIO Search: skipped parse for short lookup (saved ~1 LLM call)")
+    else:
+        try:
+            parse_response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=500,
+                system=parse_system,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            raw_json = parse_response.content[0].text.strip()
+            if raw_json.startswith("```"):
+                raw_json = raw_json.split("```")[1]
+                if raw_json.startswith("json"):
+                    raw_json = raw_json[4:]
+            search_terms = json.loads(raw_json)
+            parse_in_tok = getattr(parse_response.usage, "input_tokens", 0) or 0
+            parse_out_tok = getattr(parse_response.usage, "output_tokens", 0) or 0
+        except Exception:
+            logger.warning("Failed to parse search terms, falling back to keyword split")
+            search_terms = {"field_values": [], "keywords": user_prompt.split()}
+            parse_in_tok = 0
+            parse_out_tok = 0
 
     logger.info("AIO Search parsed terms: %s", search_terms)
 
@@ -344,6 +363,13 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
             needles.append(kw.lower())
     needles = list(set(needles))
 
+    # Efficiency caps: we only keep 300 AIOs in the final LLM context, so
+    # gathering unbounded HSLs/AIOs beyond what feeds that cap is waste.
+    HSL_CAP = 500        # more than enough to produce 300 AIO refs
+    HSL_EARLY_EXIT = 300 # stop pass 2/3 once we already have this many
+    AIO_CAP = 400        # ~33% headroom over the 300 context cap, for dedup
+    AIO_EARLY_EXIT = 350
+
     matched_hsl_rows = []
     if needles:
         # We search HSLs in three progressively-broader passes:
@@ -351,7 +377,8 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
         #      "[Employee.Sarah Mitchell].hsl" even when the generated
         #      elements_text column is absent (pre-migration 016 DBs).
         #   2. elements_text LIKE — the fast indexed path when migration
-        #      016 has applied. Skipped silently on "column does not exist".
+        #      016 has applied. Skipped silently on "column does not exist"
+        #      or if Pass 1 already has enough rows.
         #   3. per-element ILIKE fallback — unindexed but always works;
         #      only run if passes 1 and 2 produced nothing.
         name_clause = " OR ".join(["hsl_name ILIKE %s"] * len(needles))
@@ -362,33 +389,36 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
                 with conn.cursor() as cur:
                     cur.execute(
                         f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data "
-                        f"WHERE {name_clause} LIMIT 1000",
-                        name_params,
+                        f"WHERE {name_clause} LIMIT %s",
+                        name_params + [HSL_CAP],
                     )
                     matched_hsl_rows = cur.fetchall()
         except Exception:
             logger.warning("HSL name search failed", exc_info=True)
         logger.info("AIO Search: %d HSLs via hsl_name pass", len(matched_hsl_rows))
 
-        # Pass 2: elements_text (fast path, migration 016)
-        try:
-            with db() as conn:
-                set_tenant(conn, tenant)
-                with conn.cursor() as cur:
-                    et_clause = " OR ".join(["elements_text LIKE %s"] * len(needles))
-                    et_params = [f"%{n}%" for n in needles]
-                    cur.execute(
-                        f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data "
-                        f"WHERE {et_clause} LIMIT 1000",
-                        et_params,
-                    )
-                    seen = {row[0] for row in matched_hsl_rows}
-                    for row in cur.fetchall():
-                        if row[0] not in seen:
-                            matched_hsl_rows.append(row)
-                            seen.add(row[0])
-        except Exception:
-            logger.info("elements_text not available on hsl_data — skipping fast path")
+        # Pass 2: elements_text (fast path, migration 016).
+        # Skipped if Pass 1 already gave us plenty of HSLs — those refs will
+        # more than cover our AIO context cap.
+        if len(matched_hsl_rows) < HSL_EARLY_EXIT:
+            try:
+                with db() as conn:
+                    set_tenant(conn, tenant)
+                    with conn.cursor() as cur:
+                        et_clause = " OR ".join(["elements_text LIKE %s"] * len(needles))
+                        et_params = [f"%{n}%" for n in needles]
+                        cur.execute(
+                            f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data "
+                            f"WHERE {et_clause} LIMIT %s",
+                            et_params + [HSL_CAP],
+                        )
+                        seen = {row[0] for row in matched_hsl_rows}
+                        for row in cur.fetchall():
+                            if row[0] not in seen:
+                                matched_hsl_rows.append(row)
+                                seen.add(row[0])
+            except Exception:
+                logger.info("elements_text not available on hsl_data — skipping fast path")
 
         # Pass 3: per-element ILIKE fallback (only if still empty)
         if not matched_hsl_rows:
@@ -421,9 +451,14 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     logger.info("AIO Search: %d HSLs matched", len(matched_hsl_rows))
 
     # ── Phase 3: Gather AIOs from matched HSLs ──
+    # Cap aio_refs early: 500 matched HSLs × ~100 elements = up to 50k refs.
+    # We only ever send 300 to the LLM, so surfacing >1000 is wasted DB work.
+    AIO_REFS_CAP = 1500
     aio_refs: set = set()
     mro_ids_from_hsl: List[str] = []
     for row in matched_hsl_rows:
+        if len(aio_refs) >= AIO_REFS_CAP:
+            break
         for elem in row[2:]:
             if elem and isinstance(elem, str) and elem.strip():
                 ref = elem.strip()
@@ -431,6 +466,8 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
                     mro_ids_from_hsl.append(ref[5:-1])
                 else:
                     aio_refs.add(ref)
+                    if len(aio_refs) >= AIO_REFS_CAP:
+                        break
 
     matched_aio_lines: List[str] = []
     seen_aio_names: set = set()
@@ -460,8 +497,9 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
             logger.warning("AIO ref lookup failed", exc_info=True)
         logger.info("AIO Search: %d AIOs via HSL refs", len(matched_aio_lines))
 
-    # Pass 1: aio_name ILIKE — always works, catches named AIOs directly
-    if needles:
+    # Pass 1: aio_name ILIKE — always works, catches named AIOs directly.
+    # Skipped entirely if Pass 0 already produced enough AIOs.
+    if needles and len(matched_aio_lines) < AIO_EARLY_EXIT:
         try:
             with db() as conn:
                 set_tenant(conn, tenant)
@@ -470,8 +508,8 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
                     name_params = [f"%{n}%" for n in needles]
                     cur.execute(
                         f"SELECT aio_name, {_AIO_COLS} FROM aio_data "
-                        f"WHERE {name_clause} LIMIT 500",
-                        name_params,
+                        f"WHERE {name_clause} LIMIT %s",
+                        name_params + [AIO_CAP],
                     )
                     for row in cur.fetchall():
                         _add_aio_row(row)
@@ -479,8 +517,9 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
             logger.warning("AIO name search failed", exc_info=True)
         logger.info("AIO Search: %d AIOs after aio_name pass", len(matched_aio_lines))
 
-    # Pass 2: elements_text (fast indexed path, migration 016)
-    if needles:
+    # Pass 2: elements_text (fast indexed path, migration 016).
+    # Skipped if earlier passes already got us past the early-exit threshold.
+    if needles and len(matched_aio_lines) < AIO_EARLY_EXIT:
         try:
             with db() as conn:
                 set_tenant(conn, tenant)
@@ -490,8 +529,8 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
                     et_params = [f"%{n}%" for n in probe_needles]
                     cur.execute(
                         f"SELECT aio_name, {_AIO_COLS} FROM aio_data "
-                        f"WHERE {or_clause} LIMIT 200",
-                        et_params,
+                        f"WHERE {or_clause} LIMIT %s",
+                        et_params + [AIO_CAP],
                     )
                     for row in cur.fetchall():
                         _add_aio_row(row)

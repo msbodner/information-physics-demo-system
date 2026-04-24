@@ -16,7 +16,9 @@ import {
   buildMRO,
   buildValueVocabulary,
   buildFieldVocabulary,
+  computeHslBoost,
   type ContextBundle,
+  type HslLite,
   type MRO,
   type ScoredMRO,
 } from "./aio-math"
@@ -118,6 +120,11 @@ export async function runChatPipeline(
     history?: ChatMessage[]
     /** Pre-loaded MRO objects — avoids a network round-trip on every call. */
     cachedMros?: ReturnType<typeof listMroObjects> extends Promise<infer T> ? T : never
+    /** Pre-loaded HSL records — when supplied, Substrate uses HSL coverage
+     *  as a non-gating ranking boost on the AIO neighborhood (see
+     *  computeHslBoost in aio-math). No HSLs = pure AIO-similarity ranking
+     *  as before. */
+    hsls?: HslLite[]
   } = {},
 ): Promise<PipelineResult | { error: string }> {
   // Step 1 — cue extraction
@@ -131,9 +138,15 @@ export async function runChatPipeline(
     .map(mroObjectToMRO)
     .filter((m): m is MRO => m !== null)
 
+  // Step 2b — optional HSL boost map (non-gating ranking signal)
+  const hslBoost = options.hsls && options.hsls.length > 0
+    ? computeHslBoost(cues, options.hsls)
+    : undefined
+
   const bundle = assembleBundle(cues, aios, priorMROs, {
     maxPriors: options.maxPriors ?? 3,
     maxAios: options.maxAios ?? 50,
+    hslBoost,
   })
 
   // Step 4 — serialize the bundle; it becomes the SOLE system context via

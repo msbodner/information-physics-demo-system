@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye } from "lucide-react"
-import { chatWithAIO, aioSearchChat, listSavedPrompts, createSavedPrompt, listMroObjects, createMroObject, listAioData, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord } from "@/lib/api-client"
+import { chatWithAIO, aioSearchChat, listSavedPrompts, createSavedPrompt, listMroObjects, createMroObject, listAioData, listHslData, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord } from "@/lib/api-client"
 import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
@@ -219,6 +219,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   const [viewMro, setViewMro] = useState<MroObject | null>(null)
   const [lastSearchMeta, setLastSearchMeta] = useState<{ matched_hsls: number; matched_aios: number; search_terms: string; seed_hsls: string } | null>(null)
   const [substrateAios, setSubstrateAios] = useState<ParsedAio[]>([])
+  const [substrateHsls, setSubstrateHsls] = useState<HslDataRecord[]>([])
   const [substrateReady, setSubstrateReady] = useState(false)
   const [substrateCache, setSubstrateCache] = useState<{ mros: MroObject[] } | null>(null)
   const [lastSubstrateMeta, setLastSubstrateMeta] = useState<{ cues: number; neighborhood: number; priors: number; mroSaved: boolean } | null>(null)
@@ -229,14 +230,17 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [chatMessages, isChatLoading])
 
-  // Load AIO corpus + MRO cache when the dialog opens (for Substrate Mode).
-  // Both are fetched in parallel so the first Substrate query pays no extra latency.
+  // Load AIO + HSL corpus + MRO cache when the dialog opens (for Substrate Mode).
+  // All three are fetched in parallel so the first Substrate query pays no
+  // extra latency. HSLs are used as a non-gating ranking booster — missing
+  // them only removes the boost; it never breaks retrieval.
   useEffect(() => {
     if (!open || substrateReady) return
     Promise.all([
       listAioData().catch(() => [] as AioDataRecord[]),
       listMroObjects().catch(() => [] as MroObject[]),
-    ]).then(([records, mros]) => {
+      listHslData().catch(() => [] as HslDataRecord[]),
+    ]).then(([records, mros, hsls]) => {
       const parsed: ParsedAio[] = records.map((r) => {
         const raw = r.elements.filter(Boolean).join("")
         const csvRoot = r.aio_name.replace(/\s*-\s*Row\s*\d+$/i, "").replace(/\.csv$/i, "") || "backend"
@@ -245,6 +249,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         return { fileName: r.aio_name, elements: parseAioLine(raw), raw, csvRoot, lineNumber }
       })
       setSubstrateAios(parsed)
+      setSubstrateHsls(hsls)
       setSubstrateCache({ mros })
       setSubstrateReady(true)
     })
@@ -387,6 +392,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       maxAios: 40,
       saveMRO: true,
       cachedMros: substrateCache?.mros,
+      hsls: substrateHsls,
     })
     const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
@@ -436,7 +442,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         }
       }
     }
-  }, [chatInput, chatMessages, isChatLoading, substrateAios, substrateCache])
+  }, [chatInput, chatMessages, isChatLoading, substrateAios, substrateHsls, substrateCache])
 
   const handleDownloadChat = useCallback(() => {
     if (chatMessages.length === 0) return
