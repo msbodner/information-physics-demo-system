@@ -1664,6 +1664,7 @@ export function SearchStatsPane() {
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<"All" | "Send" | "PureLLM" | "AIOSearch" | "Substrate">("All")
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [pdfPreviewHtml, setPdfPreviewHtml] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1823,10 +1824,31 @@ export function SearchStatsPane() {
     printViaHiddenIframe(buildPrintableHtml())
   }, [buildPrintableHtml, printViaHiddenIframe])
 
-  const handleSavePdf = useCallback(() => {
-    toast.info("In the print dialog, choose 'Save as PDF' as the destination.")
-    printViaHiddenIframe(buildPrintableHtml())
-  }, [buildPrintableHtml, printViaHiddenIframe])
+  // PDF button: open an in-app preview window. The user can review the
+  // formatted document, then click Save (which routes to the browser's
+  // "Save as PDF" via the print pipeline) or Back to dismiss.
+  const handleOpenPdfPreview = useCallback(() => {
+    setPdfPreviewHtml(buildPrintableHtml())
+  }, [buildPrintableHtml])
+
+  // Triggered from inside the preview dialog. We print the iframe that's
+  // already rendered (no second HTML build), so users see exactly what they
+  // previewed in the resulting PDF.
+  const handleSaveFromPreview = useCallback(() => {
+    const frame = document.getElementById("pdf-preview-frame") as HTMLIFrameElement | null
+    const win = frame?.contentWindow
+    if (!win) {
+      toast.error("Preview not ready yet — please retry.")
+      return
+    }
+    try {
+      toast.info("In the print dialog, choose 'Save as PDF' as the destination.")
+      win.focus()
+      win.print()
+    } catch (e) {
+      toast.error("Save failed: " + String(e))
+    }
+  }, [])
 
   return (
     <div className="space-y-4">
@@ -1865,7 +1887,7 @@ export function SearchStatsPane() {
           </button>
         ))}
         <div className="flex-1" />
-        <Button size="sm" variant="outline" onClick={handleSavePdf} disabled={loading || visible.length === 0} className="gap-1.5">
+        <Button size="sm" variant="outline" onClick={handleOpenPdfPreview} disabled={loading || visible.length === 0} className="gap-1.5">
           <FileText className="w-3.5 h-3.5" />PDF
         </Button>
         <Button size="sm" variant="outline" onClick={handlePrint} disabled={loading || visible.length === 0} className="gap-1.5">
@@ -2010,6 +2032,35 @@ export function SearchStatsPane() {
           <strong> AIO Search</strong> and <strong>Substrate</strong> are where the substrate earns its keep: bounded retrieval, real provenance, and (for Substrate) episodic memory across sessions.
         </p>
       </div>
+
+      {/* PDF preview dialog — shown when the user clicks the PDF button.
+          Renders the same printable HTML inside a sandboxed iframe so the
+          user sees exactly what will be saved, with Save / Back actions. */}
+      <Dialog open={pdfPreviewHtml !== null} onOpenChange={(o) => { if (!o) setPdfPreviewHtml(null) }}>
+        <DialogContent className="max-w-5xl w-[95vw] h-[90vh] p-0 gap-0 flex flex-col">
+          <DialogHeader className="px-5 py-3 border-b border-border">
+            <DialogTitle>PDF Preview — Search Stats</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 bg-muted/30">
+            {pdfPreviewHtml && (
+              <iframe
+                id="pdf-preview-frame"
+                title="Search Stats PDF Preview"
+                srcDoc={pdfPreviewHtml}
+                className="w-full h-full border-0 bg-white"
+              />
+            )}
+          </div>
+          <DialogFooter className="px-5 py-3 border-t border-border gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setPdfPreviewHtml(null)}>
+              Back
+            </Button>
+            <Button onClick={handleSaveFromPreview} className="gap-1.5">
+              <FileText className="w-4 h-4" />Save as PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

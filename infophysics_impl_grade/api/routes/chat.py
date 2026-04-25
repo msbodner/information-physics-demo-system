@@ -529,9 +529,78 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
             logger.warning("HSL name search failed", exc_info=True)
         logger.info("AIO Search: %d HSLs via hsl_name pass", len(matched_hsl_rows))
 
-        # Pass 2: elements_text (fast path, migration 016).
-        # Skipped if Pass 1 already gave us plenty of HSLs — those refs will
-        # more than cover our AIO context cap.
+        # Pass 2a: information_element_refs inverted index (migration 017).
+        # The element refs table maps every parsed [Key.Value] token to its
+        # owning hsl_id. An equality probe on value_lower is one indexed
+        # query, regardless of how many element columns exist. This is the
+        # preferred fast path; elements_text trgm GIN is the fallback.
+        if len(matched_hsl_rows) < HSL_EARLY_EXIT:
+            try:
+                with db() as conn:
+                    set_tenant(conn, tenant)
+                    with conn.cursor() as cur:
+                        seen = {row[0] for row in matched_hsl_rows}
+                        # Equality probe first (cheapest).
+                        cur.execute(
+                            f"""
+                            SELECT h.hsl_id, h.hsl_name, {_HSL_COLS}
+                              FROM hsl_data h
+                              JOIN (
+                                SELECT DISTINCT hsl_id
+                                  FROM information_element_refs
+                                 WHERE hsl_id IS NOT NULL
+                                   AND value_lower = ANY(%s)
+                              ) ier ON ier.hsl_id = h.hsl_id
+                             LIMIT %s
+                            """,
+                            (needles, HSL_CAP),
+                        )
+                        for row in cur.fetchall():
+                            if row[0] not in seen:
+                                matched_hsl_rows.append(row)
+                                seen.add(row[0])
+                        logger.info(
+                            "AIO Search: %d HSLs after element_refs equality probe",
+                            len(matched_hsl_rows),
+                        )
+
+                        # Substring probe: only run if equality didn't fill
+                        # the bucket. Uses the trigram GIN on value_lower.
+                        if len(matched_hsl_rows) < HSL_EARLY_EXIT:
+                            ilike_clause = " OR ".join(
+                                ["value_lower LIKE %s"] * len(needles)
+                            )
+                            ilike_params = [f"%{n}%" for n in needles]
+                            cur.execute(
+                                f"""
+                                SELECT h.hsl_id, h.hsl_name, {_HSL_COLS}
+                                  FROM hsl_data h
+                                  JOIN (
+                                    SELECT DISTINCT hsl_id
+                                      FROM information_element_refs
+                                     WHERE hsl_id IS NOT NULL
+                                       AND ({ilike_clause})
+                                  ) ier ON ier.hsl_id = h.hsl_id
+                                 LIMIT %s
+                                """,
+                                ilike_params + [HSL_CAP],
+                            )
+                            for row in cur.fetchall():
+                                if row[0] not in seen:
+                                    matched_hsl_rows.append(row)
+                                    seen.add(row[0])
+                            logger.info(
+                                "AIO Search: %d HSLs after element_refs substring probe",
+                                len(matched_hsl_rows),
+                            )
+            except Exception:
+                logger.info(
+                    "information_element_refs not available — skipping inverted index",
+                    exc_info=True,
+                )
+
+        # Pass 2b: elements_text (legacy fast path, migration 016).
+        # Only used if the inverted index was unavailable or under-populated.
         if len(matched_hsl_rows) < HSL_EARLY_EXIT:
             try:
                 with db() as conn:
