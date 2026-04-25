@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye, Sparkles } from "lucide-react"
-import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, listSavedPrompts, createSavedPrompt, listMroObjects, createMroObject, listAioData, listHslData, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type AioSearchStreamMeta } from "@/lib/api-client"
+import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, listSavedPrompts, createSavedPrompt, listMroObjects, getMroObject, createMroObject, listAioData, listHslData, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type AioSearchStreamMeta } from "@/lib/api-client"
 import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
@@ -240,7 +240,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       listAioData().catch(() => [] as AioDataRecord[]),
       // Summary mode: drops result_text + context_bundle (~80% smaller
       // payload). The substrate pipeline hydrates the top-K priors lazily.
-      listMroObjects(5000, { summary: true }).catch(() => [] as MroObject[]),
+      listMroObjects(200, { summary: true }).catch(() => [] as MroObject[]),
       listHslData().catch(() => [] as HslDataRecord[]),
     ]).then(([records, mros, hsls]) => {
       const parsed: ParsedAio[] = records.map((r) => {
@@ -500,7 +500,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       // Refresh MRO cache (summary mode again) so the newly saved MRO is
       // available as a prior next query
       if (result.mro_saved) {
-        listMroObjects(5000, { summary: true })
+        listMroObjects(200, { summary: true })
           .then((mros) => setSubstrateCache({ mros }))
           .catch(() => {})
 
@@ -609,9 +609,25 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   const handleLoadMros = useCallback(async () => {
     setShowMroViewer(true)
     setMroLoading(true)
-    const data = await listMroObjects()
+    // Index in summary mode — heavy fields (result_text, context_bundle)
+    // are lazy-loaded via getMroObject when the user clicks View on a row.
+    const data = await listMroObjects(500, { summary: true })
     setMroList(data)
     setMroLoading(false)
+  }, [])
+
+  // Click-to-hydrate: the list is loaded in summary mode, so when the user
+  // opens an MRO we fetch the full record (with result_text / context_bundle)
+  // before the detail dialog reads those fields.
+  const handleViewMro = useCallback(async (mro: MroObject) => {
+    if (mro.result_text && mro.context_bundle !== null) {
+      // Already hydrated (e.g. created in this session) — show as-is.
+      setViewMro(mro)
+      return
+    }
+    setViewMro(mro)  // immediate open with summary fields visible
+    const full = await getMroObject(mro.mro_id).catch(() => null)
+    if (full) setViewMro(full)
   }, [])
 
   return (
@@ -951,7 +967,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                         <td className="px-4 py-2 text-xs">{mro.matched_aios_count}</td>
                         <td className="px-4 py-2 text-xs text-muted-foreground">{mro.created_at?.substring(0, 19)}</td>
                         <td className="px-4 py-2">
-                          <Button size="sm" variant="ghost" className="h-7 px-2 text-blue-600" onClick={() => setViewMro(mro)}>
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-blue-600" onClick={() => handleViewMro(mro)}>
                             <Eye className="w-3 h-3 mr-1" />View
                           </Button>
                         </td>

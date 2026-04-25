@@ -72,7 +72,10 @@ export function Dashboard({ backendIsOnline, onNavigate }: DashboardProps) {
       const [aios, hsls, mros, fields, fieldMaps, apiKey] = await Promise.all([
         listAioData(),
         listHslData(),
-        listMroObjects().catch(() => [] as MroObject[]),
+        // Dashboard tile shows total MRO count — pass a high limit and
+        // summary mode (just IDs / cues, no result_text) so the count is
+        // accurate without dragging in megabytes of free text.
+        listMroObjects(10000, { summary: true }).catch(() => [] as MroObject[]),
         listInformationElements().catch(() => [] as InformationElement[]),
         listFieldMaps().catch(() => [] as FieldMapKey[]),
         getApiKeySetting().catch(() => null),

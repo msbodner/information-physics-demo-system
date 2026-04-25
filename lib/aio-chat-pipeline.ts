@@ -144,7 +144,7 @@ export async function runChatPipeline(
   // The cached payload is expected to be in summary mode (no result_text /
   // context_bundle) — we hydrate just the priors that win the ranking below.
   const priorMroObjects = options.cachedMros
-    ?? await listMroObjects(5000, { summary: true }).catch(() => [])
+    ?? await listMroObjects(200, { summary: true }).catch(() => [])
   const priorMROs: MRO[] = priorMroObjects
     .map(mroObjectToMRO)
     .filter((m): m is MRO => m !== null)

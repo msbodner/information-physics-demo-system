@@ -61,19 +61,30 @@ def _mro_from_row(r):
 
 @router.get("/v1/mro-objects", response_model=List[MroObjectOut])
 def list_mro_objects(
-    limit: int = Query(5000, ge=1, le=100000),
+    limit: int = Query(200, ge=1, le=100000),
     summary: bool = Query(False, description="When true, omit heavy fields (result_text, context_bundle)"),
+    fields: Optional[str] = Query(None, description="Alias for summary; set to 'summary' to use the lightweight projection"),
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
 ):
     """List MROs ordered by recency.
 
-    summary=true returns only the fields needed for prior ranking
-    (cue_set / search_terms, confidence, created_at) and replaces
-    ``result_text`` and ``context_bundle`` with empty strings — cuts
-    payload size ~80% on corpora with long answers. Callers fetch the
-    full record by id once they pick which priors to actually use.
+    summary=true (or fields=summary) returns only the fields needed for
+    prior ranking (cue_set / search_terms, confidence, created_at) and
+    replaces ``result_text`` and ``context_bundle`` with empty strings
+    — cuts payload size ~80% on corpora with long answers. Callers fetch
+    the full record by id once they pick which priors to actually use.
+
+    Default ``limit`` is 200: enough headroom for Jaccard ranking to
+    pick the top-K priors without dragging down dialog-open latency on
+    larger corpora. Pass an explicit limit when you need everything
+    (e.g. the System Admin MRO browser).
     """
     tenant = x_tenant_id or "tenantA"
+    # Accept either ?summary=true or ?fields=summary; the latter is the
+    # canonical name suggested by the perf review and matches the way
+    # other paginated APIs in this codebase project a sparse view.
+    if fields is not None and fields.strip().lower() == "summary":
+        summary = True
     if summary:
         # Lightweight projection: skip the two large free-text columns.
         cols = "mro_id, mro_key, query_text, intent, seed_hsls, matched_aios_count, search_terms, confidence, policy_scope, tenant_id, created_at, updated_at"

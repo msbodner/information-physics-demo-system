@@ -932,19 +932,19 @@ function HslDataPane() {
                 {editElements.map((el, i) => {
                   const isFilled = el !== null && el !== ""
                   return (
-                    <div key={i} className={`flex items-center gap-2 rounded px-3 py-1.5 transition-colors ${isFilled ? "bg-[#0F3460]/15 border border-[#0F3460]/30" : "bg-muted/20 border border-transparent"}`}>
-                      <span className="text-[10px] text-muted-foreground w-16 shrink-0 font-mono">E{String(i + 1).padStart(2, "0")}</span>
+                    <div key={i} className={`flex items-center gap-2 rounded px-3 py-1.5 transition-colors ${isFilled ? "bg-white border border-[#0F3460]/40" : "bg-muted/20 border border-transparent"}`}>
+                      <span className={`text-[10px] w-16 shrink-0 font-mono ${isFilled ? "text-[#0F3460]" : "text-muted-foreground"}`}>E{String(i + 1).padStart(2, "0")}</span>
                       <input
                         value={el ?? ""}
                         onChange={(e) => setEditElem(i, e.target.value)}
                         placeholder={`Element ${i + 1}`}
-                        className={`flex-1 bg-transparent text-xs outline-none border-none placeholder:text-muted-foreground/40 ${isFilled ? "text-white font-mono" : "text-foreground"}`}
-                        style={isFilled ? { color: "white", textShadow: "none" } : {}}
+                        className={`flex-1 bg-transparent text-xs outline-none border-none placeholder:text-muted-foreground/40 ${isFilled ? "text-black font-bold font-mono" : "text-foreground"}`}
+                        style={isFilled ? { color: "#000000", textShadow: "none" } : {}}
                       />
                       {isFilled && (
                         <button
                           onClick={() => setEditElem(i, "")}
-                          className="text-white/30 hover:text-white/70 text-[10px] shrink-0"
+                          className="text-[#0F3460]/40 hover:text-[#0F3460] text-[10px] shrink-0"
                           title="Clear"
                         >✕</button>
                       )}

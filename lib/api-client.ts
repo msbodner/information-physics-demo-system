@@ -656,11 +656,20 @@ export interface MroObject {
 }
 
 export async function listMroObjects(
-  limit: number = 5000,
+  limit: number = 200,
   opts: { summary?: boolean } = {},
 ): Promise<MroObject[]> {
+  // Default limit dropped from 5000 → 200 to keep dialog-open and
+  // Substrate-cache refreshes snappy. ChatAIO callers pass summary:true
+  // and rely on lazy hydration via getMroObject(id) when a prior is
+  // actually selected. Bulk admin browsers should pass an explicit limit.
   const qs = new URLSearchParams({ limit: String(limit) })
-  if (opts.summary) qs.set("summary", "true")
+  if (opts.summary) {
+    // Send both for forward/back compat: backends since this change
+    // accept either ?summary=true or ?fields=summary.
+    qs.set("summary", "true")
+    qs.set("fields", "summary")
+  }
   const result = await safeFetch<MroObject[]>(`/api/mro-objects?${qs.toString()}`)
   return result ?? []
 }
