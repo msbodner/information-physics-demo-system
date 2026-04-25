@@ -391,24 +391,60 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
         '"keywords": ["free text search term", ...]}'
     )
 
-    # Fast path: for short, field-free queries (≤3 tokens, all alphanumeric/space),
-    # the LLM parse step is pure overhead — the whole query is a single needle.
-    # Skip the ~300-token parse call (a full Claude round-trip) and treat the
-    # cleaned query as a single keyword. Typical savings: ~200ms + ~450 tokens
-    # per query like "Sarah Mitchell" or "Destiny Owens".
+    # Stopwords stripped from short queries before they become needles.
+    # Without this, a query like "Projects involving Vance" becomes the literal
+    # needle "projects involving vance" (which matches nothing) instead of the
+    # token list ["projects", "vance"] (which finds Project HSLs and Vance refs).
+    STOPWORDS = {
+        "a", "an", "the", "of", "for", "to", "in", "on", "at", "by", "with",
+        "and", "or", "but", "is", "are", "was", "were", "be", "been", "being",
+        "involving", "involved", "involve", "containing", "contain", "contains",
+        "having", "have", "has", "had", "about", "regarding", "related",
+        "concerning", "all", "any", "show", "list", "find", "get", "give",
+        "tell", "me", "us", "what", "which", "who", "whom", "whose", "where",
+        "when", "why", "how", "do", "does", "did", "can", "could", "would",
+        "should", "shall", "will", "may", "might", "must", "that", "this",
+        "these", "those", "from", "as", "if", "into", "out", "up", "down",
+    }
+
+    def _tokenize_query(q: str) -> List[str]:
+        """Split a query into significant tokens — strips stopwords & short tokens.
+
+        Keeps the original phrase too as a longer needle, so multi-word proper
+        nouns ("Sarah Mitchell") still match HSL names that contain the full
+        phrase, while individual significant tokens ("vance", "projects") match
+        on their own.
+        """
+        words = [w.strip(".,;:!?'\"()[]{}").lower() for w in q.split()]
+        toks = [w for w in words if len(w) >= 3 and w not in STOPWORDS]
+        return list(dict.fromkeys(toks))  # de-dupe, preserve order
+
+    # Fast path: for short, field-free queries (≤4 tokens, all alphanumeric/space
+    # plus light punctuation), the LLM parse step is pure overhead — we tokenize
+    # locally and let the multi-pass HSL/AIO search handle the OR-of-needles
+    # logic. Saves ~200ms + ~450 tokens per short query.
     trimmed = user_prompt.strip()
     tok_count = len(trimmed.split())
     is_short_lookup = (
         tok_count > 0
-        and tok_count <= 3
+        and tok_count <= 4
         and all(c.isalnum() or c.isspace() or c in "-_.'" for c in trimmed)
     )
 
     if is_short_lookup:
-        search_terms = {"field_values": [], "keywords": [trimmed]}
+        toks = _tokenize_query(trimmed)
+        keywords: List[str] = list(toks)
+        # Also keep the cleaned full phrase if it's >1 word and not pure stopwords —
+        # lets HSL names like "[Employee.Sarah Mitchell].hsl" match on the full
+        # value while individual tokens still cover "Vance" / "Projects" cases.
+        if len(toks) > 1:
+            keywords.insert(0, trimmed.lower())
+        if not keywords:
+            keywords = [trimmed.lower()]  # nothing significant — fall back to literal
+        search_terms = {"field_values": [], "keywords": keywords}
         parse_in_tok = 0
         parse_out_tok = 0
-        logger.info("AIO Search: skipped parse for short lookup (saved ~1 LLM call)")
+        logger.info("AIO Search: short-lookup tokens=%s (saved 1 LLM call)", keywords)
     else:
         try:
             parse_response = client.messages.create(
@@ -442,7 +478,16 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     for kw in search_terms.get("keywords", []):
         if kw and len(kw) >= 2:
             needles.append(kw.lower())
-    needles = list(set(needles))
+
+    # Safety net: regardless of which parse path ran, always add the
+    # significant non-stopword tokens from the raw user prompt as needles.
+    # This rescues queries like "Projects involving Vance" where the LLM
+    # might return only field_values like {field:"Project", value:"Vance"}
+    # and miss the implied "Project*" HSL coverage.
+    for tok in _tokenize_query(trimmed):
+        needles.append(tok)
+
+    needles = list(dict.fromkeys(needles))  # de-dupe, preserve order
 
     # Efficiency caps: we only keep 300 AIOs in the final LLM context, so
     # gathering unbounded HSLs/AIOs beyond what feeds that cap is waste.
