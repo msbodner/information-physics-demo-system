@@ -876,14 +876,14 @@ function HslDataPane() {
                           {filledElems.slice(0, 10).map((el, idx) => (
                             <span
                               key={idx}
-                              className="inline-flex items-center px-1.5 py-0 rounded text-[10px] font-mono text-white leading-5"
+                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-bold text-white leading-6 tracking-wide"
                               style={{ backgroundColor: SIDEBAR_BLUE }}
                             >
                               {el}
                             </span>
                           ))}
                           {filledElems.length > 10 && (
-                            <span className="inline-flex items-center px-1.5 py-0 rounded text-[10px] bg-muted/60 text-muted-foreground border border-border leading-5">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-muted/60 text-muted-foreground border border-border leading-6">
                               +{filledElems.length - 10}
                             </span>
                           )}
@@ -1711,10 +1711,16 @@ export function SearchStatsPane() {
       : m === "AIOSearch" ? "AIO Search"
       : m === "Substrate" ? "Substrate"
       : m
+    const modeBadgeClass = (m: string) =>
+      m === "Send" ? "badge-blind"
+      : m === "PureLLM" ? "badge-csv"
+      : m === "AIOSearch" ? "badge-aio"
+      : m === "Substrate" ? "badge-sub"
+      : "badge-default"
     const rowsHtml = visible.map((s) => `
       <tr>
         <td>${esc(new Date(s.created_at).toLocaleString())}</td>
-        <td>${esc(modeLabel(s.search_mode))}</td>
+        <td><span class="badge ${modeBadgeClass(s.search_mode)}">${esc(modeLabel(s.search_mode))}</span></td>
         <td class="query">${esc(s.query_text)}</td>
         <td class="num">${(s.elapsed_ms ?? 0).toLocaleString()}</td>
         <td class="num">${(s.input_tokens ?? 0).toLocaleString()}</td>
@@ -1734,17 +1740,26 @@ export function SearchStatsPane() {
   <meta charset="UTF-8" />
   <title>Search Stats — ${new Date().toLocaleDateString()}</title>
   <style>
+    /* CRITICAL for color-preserving Print → Save as PDF.
+       Without these the print engine will strip backgrounds/borders. */
+    *, *::before, *::after {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: #ffffff; }
     body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 11px; color: #1a1a2e; padding: 32px; }
     h1 { color: #0f3460; font-size: 20px; margin-bottom: 4px; }
+    h2 { color: #0f3460; font-size: 14px; margin: 18px 0 8px; }
     .subtitle { color: #64748b; font-size: 11px; margin-bottom: 16px; }
     .summary { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-bottom: 18px; }
-    .summary .card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; text-align: center; }
+    .summary .card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; text-align: center; background: #f8fafc; }
     .summary .num { font-size: 16px; font-weight: 700; color: #0f3460; }
     .summary .lbl { font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
     table { width: 100%; border-collapse: collapse; font-size: 10px; }
-    thead tr { background: #0f3460; color: white; }
-    thead th { padding: 6px 8px; text-align: left; font-weight: 600; border-right: 1px solid #1a4a7a; }
+    thead tr { background: #0f3460 !important; color: #ffffff !important; }
+    thead th { padding: 6px 8px; text-align: left; font-weight: 600; border-right: 1px solid #1a4a7a; color: #ffffff; }
     thead th.num, thead th.center { text-align: right; }
     thead th.center { text-align: center; }
     tbody tr { border-bottom: 1px solid #e2e8f0; }
@@ -1754,7 +1769,36 @@ export function SearchStatsPane() {
     td.bold { font-weight: 600; }
     td.center { text-align: center; }
     td.query { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
-    @media print { body { padding: 16px; } }
+
+    /* Mode badges — match the in-app pill colors */
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 9999px; font-size: 9px; font-weight: 600; white-space: nowrap; }
+    .badge-blind { background: #dbeafe; color: #1d4ed8; }
+    .badge-csv   { background: #fef3c7; color: #b45309; }
+    .badge-aio   { background: #d1fae5; color: #047857; }
+    .badge-sub   { background: #ede9fe; color: #6d28d9; }
+    .badge-default { background: #f1f5f9; color: #475569; }
+
+    /* Mode-comparison reference table */
+    .modes { margin-top: 22px; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px; background: #f8fafc; page-break-inside: avoid; }
+    .modes h2 { margin-top: 0; }
+    .modes p.intro { font-size: 10px; color: #475569; margin-bottom: 10px; line-height: 1.5; }
+    table.modes-table { font-size: 10px; border: 1px solid #e2e8f0; }
+    table.modes-table thead tr { background: #0f3460 !important; }
+    table.modes-table tbody td { padding: 8px; vertical-align: top; line-height: 1.45; }
+    table.modes-table tbody tr:nth-child(odd)  { background: #ffffff; }
+    table.modes-table tbody tr:nth-child(even) { background: #f1f5f9; }
+    .modes .legend { font-size: 9px; color: #64748b; margin-top: 8px; line-height: 1.5; }
+    .pill { display: inline-block; padding: 1px 6px; border-radius: 9999px; font-weight: 700; font-size: 9px; }
+    .pill-blind { background: #dbeafe; color: #1d4ed8; }
+    .pill-csv   { background: #fef3c7; color: #b45309; }
+    .pill-aio   { background: #d1fae5; color: #047857; }
+    .pill-sub   { background: #ede9fe; color: #6d28d9; }
+
+    @media print {
+      body { padding: 16px; }
+      thead { display: table-header-group; }
+      tr, .modes, .summary .card { page-break-inside: avoid; }
+    }
   </style>
 </head>
 <body>
@@ -1779,6 +1823,47 @@ export function SearchStatsPane() {
     </thead>
     <tbody>${rowsHtml || `<tr><td colspan="11" style="padding:16px;text-align:center;color:#94a3b8;">No records</td></tr>`}</tbody>
   </table>
+
+  <div class="modes">
+    <h2>How the four search modes differ</h2>
+    <p class="intro">All four modes call the same model — <code>claude-sonnet-4-6</code>, <code>max_tokens=2048</code>. What changes is the <em>corpus selection strategy</em> upstream of the LLM. None of these is "raw Claude"; each injects a system prompt with different context.</p>
+    <table class="modes-table" style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="color:#fff;">
+          <th style="padding:6px 8px;text-align:left;width:170px;">Mode</th>
+          <th style="padding:6px 8px;text-align:left;width:230px;">Retrieval algorithm</th>
+          <th style="padding:6px 8px;text-align:left;">Context sent to Claude</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="pill pill-csv">CSV→LLM Raw</span></td>
+          <td>None — control case</td>
+          <td>Up to 50 raw saved CSV files (capped ~30 KB each). No AIO bracket notation, no HSL, no MRO. Vanilla "you are a data analyst" system prompt.</td>
+        </tr>
+        <tr>
+          <td><span class="pill pill-blind">Blind Dump AIO/HSL</span></td>
+          <td>None — blind dump</td>
+          <td>First 300 AIOs + 10 HSLs from the DB (no relevance filtering). ChatAIO system preamble instructing Claude to parse <code>[Key.Value]</code> notation, group/sum/count, show work.</td>
+        </tr>
+        <tr>
+          <td><span class="pill pill-aio">AIO Search</span></td>
+          <td>4-phase: parse → HSL match → AIO gather → synthesize</td>
+          <td>Only the AIOs reached via HSL traversal of cues extracted from the query. Falls back to direct ILIKE if no HSL matches.</td>
+        </tr>
+        <tr>
+          <td><span class="pill pill-sub">Substrate</span></td>
+          <td>Deterministic cue extraction + Jaccard ranking</td>
+          <td>Pre-assembled tiered bundle: cues → neighborhood AIOs → MRO priors. Self-improving (each query persists a new MRO).</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="legend">
+      <strong>Blind Dump AIO/HSL</strong> is the cheapest to implement but the most token-wasteful — it ships ~300 unrelated records every query.
+      <strong>CSV→LLM Raw</strong> is the apples-to-apples baseline against vanilla Claude — same data, no Information-Physics machinery.
+      <strong>AIO Search</strong> and <strong>Substrate</strong> are where the substrate earns its keep: bounded retrieval, real provenance, and (for Substrate) episodic memory across sessions.
+    </p>
+  </div>
 </body>
 </html>`
   }, [visible, stats.length, filter, totalSearches, byMode, totalTokens, avgElapsed])
