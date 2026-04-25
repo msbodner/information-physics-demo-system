@@ -304,27 +304,37 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                     <p className="mt-1">Best for broad exploratory questions across all AIO/HSL data when no targeted filter is known yet. Slow and token-heavy.</p>
                   </div>
                   <div>
-                    <p className="font-medium text-foreground">AIO Search (Search Algebra) — <code className="bg-muted px-1 rounded">POST /api/op/aio-search</code></p>
+                    <p className="font-medium text-foreground">AIO Search (Search Algebra) — <code className="bg-muted px-1 rounded">POST /api/op/aio-search</code> · streaming variant <code className="bg-muted px-1 rounded">/api/op/aio-search/stream</code></p>
                     <ol className="list-decimal list-inside space-y-1 ml-2">
-                      <li><strong>Parse:</strong> Claude extracts structured search terms from the prompt guided by the Information Elements field vocabulary</li>
+                      <li><strong>Parse:</strong> Claude extracts structured search terms from the prompt guided by the Information Elements field vocabulary (skipped for short field-free queries — local tokenization, saves ~200 ms + ~450 tokens)</li>
                       <li><strong>Match HSLs:</strong> Searches all HSL records for case-insensitive substring matches; returns matched HSL IDs</li>
                       <li><strong>Gather AIOs + MRO priors:</strong> Collects AIOs from matched HSLs; reads <code className="bg-muted px-1 rounded">[MRO.*]</code> slots from those HSLs and fetches ranked prior MROs</li>
-                      <li><strong>Answer:</strong> Sends focused AIO subset + MRO priors to Claude; persists result as a new MRO; back-links MRO to matched HSLs</li>
+                      <li><strong>Answer:</strong> Sends focused AIO subset + MRO priors to Claude with prompt caching (<code className="bg-muted px-1 rounded">cache_control: ephemeral</code>) for ~90% input-token discount on repeat queries; persists result as a new MRO; back-links MRO to matched HSLs</li>
                     </ol>
-                    <p className="mt-1">Falls back to direct <code className="bg-muted px-1 rounded">ILIKE</code> search if no HSLs match. Response footer shows HSL/AIO/MRO match counts.</p>
+                    <p className="mt-1">Falls back to direct <code className="bg-muted px-1 rounded">ILIKE</code> search if no HSLs match. Streaming variant emits SSE <code className="bg-muted px-1 rounded">text</code> events as Claude writes; <code className="bg-muted px-1 rounded">meta</code> event at end carries match counts, search terms, and HSL UUIDs. Response footer shows HSL/AIO/MRO match counts.</p>
                   </div>
                   <div>
-                    <p className="font-medium text-foreground">Substrate Mode (Paper III Pipeline) — <code className="bg-muted px-1 rounded">POST /api/op/substrate-chat</code></p>
+                    <p className="font-medium text-foreground">Substrate Mode (Paper III Pipeline) — <code className="bg-muted px-1 rounded">POST /api/op/substrate-chat</code> · streaming variant <code className="bg-muted px-1 rounded">/api/op/substrate-chat/stream</code></p>
                     <ol className="list-decimal list-inside space-y-1 ml-2">
-                      <li><strong>Cue extraction:</strong> Deterministic parse using field + value vocabulary from all stored AIOs</li>
-                      <li><strong>HSL traversal N(K):</strong> Set-intersection of per-cue AIO sets via <code className="bg-muted px-1 rounded">find-by-needles</code>; bounded neighborhood of matching HSLs</li>
-                      <li><strong>MRO pre-fetch:</strong> Jaccard(K_m, K) × freshness × confidence ranking of prior MROs from matched HSL slots</li>
+                      <li><strong>Cue extraction:</strong> Deterministic parse using field + value vocabulary from all stored AIOs (browser-side)</li>
+                      <li><strong>HSL traversal N(K):</strong> Set-intersection of per-cue AIO sets via <code className="bg-muted px-1 rounded">find-by-needles</code>; bounded neighborhood of matching HSLs. Matched HSL IDs are captured in-memory (<code className="bg-muted px-1 rounded">getMatchedHslIds</code>) for reuse during back-link, eliminating a duplicate server scan.</li>
+                      <li><strong>MRO pre-fetch (summary mode):</strong> Initial MRO list fetched in summary projection — no <code className="bg-muted px-1 rounded">result_text</code> or <code className="bg-muted px-1 rounded">context_bundle</code> in payload (~80% smaller). Jaccard(K_m, K) × freshness × confidence ranks priors; only top-K survivors are hydrated on demand via <code className="bg-muted px-1 rounded">GET /v1/mro-objects/{`{id}`}</code> in parallel.</li>
                       <li><strong>Bundle assembly:</strong> Tiered context — MRO priors (Tier 1) → HSL context (Tier 2) → AIO evidence (Tier 3) → query</li>
-                      <li><strong>MRO capture:</strong> Response persisted as MRO; UUID written as <code className="bg-muted px-1 rounded">[MRO.&lt;uuid&gt;]</code> into matched HSL element slots</li>
+                      <li><strong>Synthesize with caching:</strong> System prompt (bundle + framing) marked <code className="bg-muted px-1 rounded">cache_control: ephemeral</code>; follow-up questions within ~5 min hit the cache at 90% input-token discount. Streaming variant emits SSE <code className="bg-muted px-1 rounded">text</code> events token-by-token.</li>
+                      <li><strong>MRO capture:</strong> Response persisted as MRO; UUID written as <code className="bg-muted px-1 rounded">[MRO.&lt;uuid&gt;]</code> into matched HSL element slots using the in-memory match set</li>
                     </ol>
                     <p className="mt-1">The substrate is self-improving — each query strengthens the retrieval graph for next time. See Section 11 for the full MRO reuse pipeline.</p>
                   </div>
                 </div>
+
+                <h4 className="text-foreground font-medium mt-4">Recall vs. filter — the synthesis prompt applies user filters</h4>
+                <p>Both AIO Search and Substrate are tuned for <strong>recall</strong>: the retrieval phase surfaces a generous candidate set so nothing relevant is missed. The synthesis system prompt now explicitly tells Claude that the candidate set is <em>not</em> pre-filtered against the semantic intent of the question, and to apply numeric / categorical filters from the question before composing the answer:</p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li>Numeric comparators (&quot;over $10M&quot;, &quot;after 2020&quot;, &quot;at least 5&quot;) are parsed from the prompt. Non-matching candidates are dropped — not listed with a red X or rejection annotation.</li>
+                  <li>Categorical filters (&quot;completed projects&quot;, &quot;vendors in Texas&quot;) are applied the same way.</li>
+                  <li>Records missing the field needed to evaluate the filter are treated as non-matching.</li>
+                  <li>Counts, totals, and percentages reflect only surviving records. The applied filter is stated in one short sentence at the top of the answer.</li>
+                </ul>
 
                 <h4 className="text-foreground font-medium mt-4">Saved Prompts</h4>
                 <ul className="list-disc list-inside space-y-1">
@@ -417,7 +427,7 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                   </div>
                   <div>
                     <p className="font-medium text-foreground">Substrate (Precomputed) mode</p>
-                    <p>After MRO creation, <code className="bg-muted px-1 rounded">findHslsByNeedles(cueValues)</code> identifies matching HSLs by scanning HSL names for cue strings, then back-links the MRO to each result.</p>
+                    <p>The HSL match set is captured in-memory during cue traversal (<code className="bg-muted px-1 rounded">getMatchedHslIds</code> in <code className="bg-muted px-1 rounded">lib/aio-math.ts</code>) and returned on the pipeline result as <code className="bg-muted px-1 rounded">matched_hsl_ids</code>. After MRO creation the dialog calls <code className="bg-muted px-1 rounded">linkMroToHsl()</code> directly for each ID — no duplicate server-side scan. <code className="bg-muted px-1 rounded">findHslsByNeedles(cueValues)</code> remains as a fallback when client-side HSL data is not loaded.</p>
                   </div>
                 </div>
 

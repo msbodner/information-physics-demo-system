@@ -278,6 +278,24 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                 <h4 className="text-foreground font-medium mt-4">Why Substrate gets better over time</h4>
                 <p>Each Substrate query persists an MRO containing the cue set, the traversal path, and the answer. When you (or any user) ask a similar question later, the Jaccard-ranked MRO priors are injected into the new prompt as framing — the system literally remembers its prior successful retrievals. Traditional RAG has no equivalent mechanism; its Gold layer is static.</p>
 
+                <h4 className="text-foreground font-medium mt-4">V4.2 Performance &amp; Quality Enhancements</h4>
+                <p>The latest iteration of the search pipeline ships four optimizations that are visible to you as a faster, cheaper, more accurate experience without changing how you ask questions:</p>
+                <ul className="list-disc list-inside space-y-2 ml-2">
+                  <li><strong>Streaming responses (SSE)</strong> — both Substrate and AIO Search now stream tokens to the dialog as Claude generates them, so the answer begins appearing within roughly a second instead of after the full reply is composed. The footer (token counts, MRO save, perf metrics) is appended on stream completion. Implementation: <code className="bg-muted px-1 rounded">/v1/op/substrate-chat/stream</code> and <code className="bg-muted px-1 rounded">/v1/op/aio-search/stream</code> over Server-Sent Events.</li>
+                  <li><strong>Prompt caching</strong> — the assembled system prompt (HSL neighborhood, MRO priors, AIO evidence) is marked with Anthropic&apos;s <code className="bg-muted px-1 rounded">cache_control: ephemeral</code>. Repeat or follow-up questions within roughly five minutes are served at a 90% input-token discount. Cache hits are logged server-side as <code className="bg-muted px-1 rounded">cache_read</code>/<code className="bg-muted px-1 rounded">cache_create</code> token counts.</li>
+                  <li><strong>Summary-mode MRO list</strong> — when the dialog opens it now fetches MROs in summary projection (no <code className="bg-muted px-1 rounded">result_text</code>, no <code className="bg-muted px-1 rounded">context_bundle</code>) — about 80% smaller payload. Only the top-K priors that survive Jaccard ranking are hydrated on demand via <code className="bg-muted px-1 rounded">GET /v1/mro-objects/{`{id}`}</code>, in parallel.</li>
+                  <li><strong>In-memory HSL back-link</strong> — when a Substrate response is saved as a new MRO, the contributing HSLs are linked using the cue/HSL match set already computed client-side (<code className="bg-muted px-1 rounded">getMatchedHslIds</code>). This eliminates a duplicate server-side <code className="bg-muted px-1 rounded">ILIKE</code> scan and one network round-trip per query.</li>
+                </ul>
+
+                <h4 className="text-foreground font-medium mt-4">Recall vs. filter — semantic filtering of the candidate set</h4>
+                <p>Both Substrate and AIO Search are tuned for <strong>recall</strong> — the retrieval step surfaces a generous candidate set so nothing relevant is missed. The synthesis prompt now explicitly instructs Claude that this candidate set is <em>not pre-filtered</em> against the semantic intent of the question, and to apply numeric and categorical filters from the question before answering:</p>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li>Numeric comparators (&quot;over $10M&quot;, &quot;after 2020&quot;, &quot;at least 5&quot;) are parsed from the prompt; non-matching candidates are dropped from the answer rather than listed with a red X or rejection annotation.</li>
+                  <li>Categorical filters (&quot;completed projects&quot;, &quot;vendors in Texas&quot;) are applied the same way.</li>
+                  <li>Records missing the field needed to evaluate the filter are treated as non-matching.</li>
+                  <li>Counts, totals, and percentages reflect only surviving records. The applied filter is stated in one short sentence at the top of the answer.</li>
+                </ul>
+
                 <h4 className="text-foreground font-medium mt-4">See also</h4>
                 <ul className="list-disc list-inside space-y-1">
                   <li><strong>Paper III</strong> — the full theoretical treatment. Home page → Paper III button.</li>
