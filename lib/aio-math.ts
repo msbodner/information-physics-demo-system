@@ -43,6 +43,11 @@ export interface MRO {
   operators: string[]    // O_t — e.g. ["intersect", "broadcast"]
   result_text: string    // R_t — the synthesis returned by the model
   confidence: number     // 0..1 — caller-supplied or heuristic
+  /** Reinforcement signal: incremented each time this MRO is reused as
+   *  a prior. Higher trust ⇒ historically useful prior ⇒ lifted in the
+   *  ranking even when its Jaccard overlap is comparable to a stranger.
+   *  Defaults to 0 for legacy / freshly persisted MROs. */
+  trust_score?: number
   provenance: {          // P_t
     model_ref: string
     tenant_id?: string
@@ -54,8 +59,10 @@ export interface MRO {
 export interface ScoredMRO {
   mro: MRO
   relevance: number   // 0..1 — Jaccard overlap with current cue set
+  textSim: number     // 0..1 — tsvector-style overlap on query_text tokens
   freshness: number   // 0..1 — exponential decay over age
-  score: number       // relevance × freshness × confidence
+  trustBoost: number  // 1..N — log-scaled multiplier from trust_score
+  score: number       // (max(relevance, textSim)) × freshness × confidence × trustBoost
 }
 
 /** A context bundle ready to be serialized into Claude's prompt window. */
@@ -348,33 +355,86 @@ export function freshness(
 
 // ── 5. MRO ranking ───────────────────────────────────────────────────
 
+const _MRO_STOPWORDS = new Set([
+  "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+  "of", "to", "in", "on", "at", "for", "by", "with", "from", "and", "or",
+  "but", "as", "if", "then", "than", "this", "that", "these", "those",
+  "it", "its", "what", "who", "when", "where", "why", "how", "show", "me",
+])
+
+/** Cheap query-text tokenizer mirroring chat.py's _tokenize_query: lowercase,
+ *  alnum-only, drop stopwords and tokens shorter than 3 chars. Used as the
+ *  text-similarity feature so paraphrases ("revenue" vs "income") that share
+ *  no `[Key.Value]` cues can still surface relevant priors. */
+function tokenizeQuery(text: string): Set<string> {
+  if (!text) return new Set()
+  const out = new Set<string>()
+  for (const tok of text.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (tok.length < 3) continue
+    if (_MRO_STOPWORDS.has(tok)) continue
+    out.add(tok)
+  }
+  return out
+}
+
+function jaccardTokens(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0
+  let inter = 0
+  for (const t of a) if (b.has(t)) inter++
+  const union = a.size + b.size - inter
+  return union === 0 ? 0 : inter / union
+}
+
 /**
  * Rank prior MROs against the current cue set using the combined score:
  *
- *     score(m, K) = J(K_m, K) · f(t_m) · c_m
+ *     relevance = max(J(K_m, K), J_tok(Q_m, Q))         // structural ∪ textual
+ *     trustBoost = 1 + ln(1 + trust_score)              // log-scaled, never zero
+ *     score(m, K) = relevance · f(t_m) · c_m · trustBoost
  *
- * where J is Jaccard relevance, f is freshness, and c is the stored
- * confidence. Returns MROs sorted by score descending, with relevance
- * and freshness exposed for transparency.
+ * The textual term lets paraphrases ("show me revenue" vs "what was income")
+ * score above zero when their cue sets share no exact tokens. The trust boost
+ * is gradient reinforcement — priors that have been useful before drift up
+ * the ranking; priors that never get reused stay flat.
  */
 export function rankMROs(
   cueSet: ElementCue[],
   mros: MRO[],
-  options: { minRelevance?: number; halfLifeDays?: number } = {},
+  options: {
+    minRelevance?: number
+    halfLifeDays?: number
+    /** Current natural-language query. When supplied, enables tsvector-style
+     *  text similarity against each MRO's query_text. */
+    queryText?: string
+  } = {},
 ): ScoredMRO[] {
   const minRel = options.minRelevance ?? 0.1
   const hl = options.halfLifeDays ?? 30
   const now = new Date()
+  const queryTokens = options.queryText ? tokenizeQuery(options.queryText) : new Set<string>()
 
   const scored: ScoredMRO[] = mros.map((mro) => {
     const relevance = jaccardSimilarity(cueSet, mro.cue_set)
+    const textSim = queryTokens.size > 0
+      ? jaccardTokens(queryTokens, tokenizeQuery(mro.query_text))
+      : 0
     const fresh = freshness(mro.created_at, hl, now)
     const conf = Math.max(0, Math.min(1, mro.confidence ?? 0.5))
-    return { mro, relevance, freshness: fresh, score: relevance * fresh * conf }
+    const trust = Math.max(0, mro.trust_score ?? 0)
+    const trustBoost = 1 + Math.log(1 + trust)
+    const blended = Math.max(relevance, textSim)
+    return {
+      mro,
+      relevance,
+      textSim,
+      freshness: fresh,
+      trustBoost,
+      score: blended * fresh * conf * trustBoost,
+    }
   })
 
   return scored
-    .filter((s) => s.relevance >= minRel)
+    .filter((s) => Math.max(s.relevance, s.textSim) >= minRel)
     .sort((a, b) => b.score - a.score)
 }
 
@@ -408,6 +468,9 @@ export function assembleBundle(
      *  ranking booster on top of the traversal score. Non-gating:
      *  AIOs with no HSL coverage still pass through. */
     hslBoost?: Map<string, number>
+    /** Original natural-language query — threaded through to rankMROs so
+     *  the text-similarity feature lights up on paraphrases. */
+    queryText?: string
   } = {},
 ): ContextBundle {
   const maxPriors = options.maxPriors ?? 3
@@ -436,6 +499,7 @@ export function assembleBundle(
   const rankedMros = rankMROs(cueSet, mros, {
     minRelevance: options.minPriorRelevance ?? 0.2,
     halfLifeDays: options.halfLifeDays ?? 30,
+    queryText: options.queryText,
   })
   const priors = rankedMros.slice(0, maxPriors)
 

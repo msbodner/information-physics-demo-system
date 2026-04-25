@@ -12,6 +12,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel
 
 from api.db import db, set_tenant
+from api import mro_compact as _mro_compact
 
 logger = logging.getLogger("infophysics.api.mro")
 
@@ -31,6 +32,7 @@ class MroObjectOut(BaseModel):
     confidence: str = "derived"
     policy_scope: str = "tenantA"
     tenant_id: Optional[str] = None
+    trust_score: float = 0.0
     created_at: datetime
     updated_at: datetime
 
@@ -48,14 +50,15 @@ class CreateMroObjectRequest(BaseModel):
     policy_scope: str = "tenantA"
 
 
-_MRO_SELECT = "mro_id, mro_key, query_text, intent, seed_hsls, matched_aios_count, search_terms, result_text, context_bundle, confidence, policy_scope, tenant_id, created_at, updated_at"
+_MRO_SELECT = "mro_id, mro_key, query_text, intent, seed_hsls, matched_aios_count, search_terms, result_text, context_bundle, confidence, policy_scope, tenant_id, COALESCE(trust_score, 0)::float, created_at, updated_at"
 
 
 def _mro_from_row(r):
     return MroObjectOut(
         mro_id=r[0], mro_key=r[1], query_text=r[2], intent=r[3], seed_hsls=r[4],
         matched_aios_count=r[5], search_terms=r[6], result_text=r[7], context_bundle=r[8],
-        confidence=r[9], policy_scope=r[10], tenant_id=r[11], created_at=r[12], updated_at=r[13],
+        confidence=r[9], policy_scope=r[10], tenant_id=r[11], trust_score=float(r[12] or 0.0),
+        created_at=r[13], updated_at=r[14],
     )
 
 
@@ -87,7 +90,7 @@ def list_mro_objects(
         summary = True
     if summary:
         # Lightweight projection: skip the two large free-text columns.
-        cols = "mro_id, mro_key, query_text, intent, seed_hsls, matched_aios_count, search_terms, confidence, policy_scope, tenant_id, created_at, updated_at"
+        cols = "mro_id, mro_key, query_text, intent, seed_hsls, matched_aios_count, search_terms, confidence, policy_scope, tenant_id, COALESCE(trust_score, 0)::float, created_at, updated_at"
     else:
         cols = _MRO_SELECT
     with db() as conn:
@@ -106,10 +109,100 @@ def list_mro_objects(
                 matched_aios_count=r[5], search_terms=r[6],
                 result_text="", context_bundle=None,
                 confidence=r[7], policy_scope=r[8], tenant_id=r[9],
-                created_at=r[10], updated_at=r[11],
+                trust_score=float(r[10] or 0.0),
+                created_at=r[11], updated_at=r[12],
             ))
         return out
     return [_mro_from_row(r) for r in rows]
+
+
+@router.get("/v1/mro-objects-ranked", response_model=List[MroObjectOut])
+def list_mro_objects_ranked(
+    q: str = Query(..., description="Query text — used for tsvector text similarity"),
+    limit: int = Query(50, ge=1, le=500),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Rank MROs against a query using tsvector + trust_score.
+
+    Returns the lightweight projection (no result_text / context_bundle)
+    sorted by ``ts_rank(query_tsv, plainto_tsquery(q)) * (1 + log(1 + trust_score))``.
+    Callers hydrate the chosen priors via /v1/mro-objects/{id}.
+
+    Falls back to recency ordering when no rows score above zero — keeps
+    the empty-corpus / cold-start case from returning nothing useful.
+    """
+    tenant = x_tenant_id or "tenantA"
+    cols = "mro_id, mro_key, query_text, intent, seed_hsls, matched_aios_count, search_terms, confidence, policy_scope, tenant_id, COALESCE(trust_score, 0)::float, created_at, updated_at"
+    with db() as conn:
+        set_tenant(conn, tenant)
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {cols},
+                       ts_rank(query_tsv, plainto_tsquery('english', %s)) AS rank
+                  FROM mro_objects
+                 WHERE query_tsv @@ plainto_tsquery('english', %s)
+                 ORDER BY rank * (1 + ln(1 + COALESCE(trust_score, 0))) DESC,
+                          updated_at DESC
+                 LIMIT %s
+                """,
+                (q, q, limit),
+            )
+            rows = cur.fetchall()
+            if not rows:
+                cur.execute(
+                    f"SELECT {cols} FROM mro_objects ORDER BY updated_at DESC LIMIT %s",
+                    (limit,),
+                )
+                rows = cur.fetchall()
+    out: List[MroObjectOut] = []
+    for r in rows:
+        out.append(MroObjectOut(
+            mro_id=r[0], mro_key=r[1], query_text=r[2], intent=r[3], seed_hsls=r[4],
+            matched_aios_count=r[5], search_terms=r[6],
+            result_text="", context_bundle=None,
+            confidence=r[7], policy_scope=r[8], tenant_id=r[9],
+            trust_score=float(r[10] or 0.0),
+            created_at=r[11], updated_at=r[12],
+        ))
+    return out
+
+
+class TrustBumpRequest(BaseModel):
+    parent_mro_ids: List[str]
+    delta: float = 1.0
+
+
+@router.post("/v1/mro-objects/bump-trust")
+def bump_trust(
+    payload: TrustBumpRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Increment ``trust_score`` for a list of parent MROs.
+
+    Called by the chat pipeline whenever a new MRO is saved that used the
+    listed priors as context. Acts as a gradient-reinforcement signal —
+    priors that get reused drift up the ranking; priors that never get
+    reused stay flat. Idempotent failures are swallowed (a missing parent
+    just gets skipped) so a partial-id list doesn't poison the save flow.
+    """
+    if not payload.parent_mro_ids:
+        return {"updated": 0}
+    tenant = x_tenant_id or "tenantA"
+    delta = float(payload.delta or 0.0)
+    if delta == 0.0:
+        return {"updated": 0}
+    with db() as conn:
+        set_tenant(conn, tenant)
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE mro_objects SET trust_score = COALESCE(trust_score, 0) + %s "
+                "WHERE mro_id = ANY(%s::uuid[]) RETURNING mro_id",
+                (delta, list(payload.parent_mro_ids)),
+            )
+            updated = len(cur.fetchall())
+        conn.commit()
+    return {"updated": updated}
 
 
 @router.get("/v1/mro-objects/{mro_id}", response_model=MroObjectOut)
@@ -163,7 +256,7 @@ def create_mro_object(
         intent=payload.intent, seed_hsls=payload.seed_hsls, matched_aios_count=payload.matched_aios_count,
         search_terms=payload.search_terms, result_text=payload.result_text.strip(),
         context_bundle=payload.context_bundle, confidence=payload.confidence, policy_scope=payload.policy_scope,
-        tenant_id=tenant, created_at=now, updated_at=now,
+        tenant_id=tenant, trust_score=0.0, created_at=now, updated_at=now,
     )
 
 
@@ -182,3 +275,64 @@ def delete_mro_object(
                 raise HTTPException(status_code=404, detail="MRO object not found")
         conn.commit()
     return {"deleted": mro_id}
+
+
+# ---------------------------------------------------------------------------
+# #11 MRO compaction (admin)
+# ---------------------------------------------------------------------------
+
+class MroCompactPlan(BaseModel):
+    canonical_id: str
+    absorbed_ids: List[str]
+    canonical_query: str
+    cluster_size: int
+    summed_trust: float
+    union_seed_count: int
+
+
+class MroCompactResponse(BaseModel):
+    tenant: str
+    total_mros: int
+    clusters: int
+    absorbed: int
+    applied: bool
+    plans: List[MroCompactPlan]
+
+
+@router.post("/v1/op/mro-compact", response_model=MroCompactResponse)
+def mro_compact_endpoint(
+    dry_run: bool = Query(True, description="When true, only return the cluster plan; do not mutate."),
+    hsl_threshold: float = Query(0.85, ge=0.0, le=1.0),
+    query_threshold: float = Query(0.60, ge=0.0, le=1.0),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Cluster near-duplicate MROs and (optionally) merge them.
+
+    Defaults are conservative — high HSL overlap (≥85%) AND meaningful
+    query overlap (≥60%) — so a single dry-run pass on a healthy tenant
+    typically reports zero clusters. Operators raise the rate by
+    lowering thresholds or running the merge after they've reviewed the
+    plan.
+    """
+    tenant = x_tenant_id or "tenantA"
+    report = _mro_compact.compact(
+        tenant=tenant,
+        hsl_thresh=hsl_threshold,
+        query_thresh=query_threshold,
+        dry_run=dry_run,
+    )
+    return MroCompactResponse(
+        tenant=report.tenant,
+        total_mros=report.total_mros,
+        clusters=report.clusters,
+        absorbed=report.absorbed,
+        applied=report.applied,
+        plans=[MroCompactPlan(
+            canonical_id=p.canonical_id,
+            absorbed_ids=p.absorbed_ids,
+            canonical_query=p.canonical_query,
+            cluster_size=p.cluster_size,
+            summed_trust=p.summed_trust,
+            union_seed_count=p.union_seed_count,
+        ) for p in report.plans],
+    )

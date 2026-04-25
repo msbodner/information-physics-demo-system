@@ -651,6 +651,7 @@ export interface MroObject {
   confidence: string
   policy_scope: string
   tenant_id: string | null
+  trust_score?: number
   created_at: string
   updated_at: string
 }
@@ -700,6 +701,21 @@ export async function createMroObject(data: {
 export async function deleteMroObject(id: string): Promise<boolean> {
   const result = await safeFetch<{ deleted: string }>(`/api/mro-objects/${id}`, { method: "DELETE" })
   return result !== null
+}
+
+/**
+ * Increment trust_score on a list of parent MROs.
+ * Called by the Substrate pipeline whenever a new MRO is saved that used
+ * the listed priors as context — reinforces priors that get reused.
+ */
+export async function bumpMroTrust(parentMroIds: string[], delta: number = 1.0): Promise<number> {
+  if (parentMroIds.length === 0) return 0
+  const result = await safeFetch<{ updated: number }>("/api/mro-objects/bump-trust", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parent_mro_ids: parentMroIds, delta }),
+  })
+  return result?.updated ?? 0
 }
 
 // HSL ↔ MRO Linking

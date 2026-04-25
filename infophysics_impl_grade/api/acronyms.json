@@ -1,0 +1,89 @@
+{
+  "_comment": "Alias expansion dictionary for cue extraction. Each entry maps a surface form (the form likely to appear in a user's question or in AIO data) to a list of equivalent forms. The helper expands BOTH directions: querying any key returns its aliases, and any value also resolves back to its key plus siblings.",
+  "_field_disambiguation": "Some aliases differ by [Key] context (e.g. 'Dr.' is 'Drive' in [Address.*] but 'Doctor' in [Employee.*]). When a field is provided, only field-appropriate expansions are emitted.",
+  "global": {
+    "inc": ["Incorporated", "Inc."],
+    "incorporated": ["Inc.", "Inc"],
+    "corp": ["Corporation", "Corp."],
+    "corporation": ["Corp.", "Corp"],
+    "ltd": ["Limited", "Ltd."],
+    "limited": ["Ltd.", "Ltd"],
+    "llc": ["L.L.C.", "Limited Liability Company"],
+    "co": ["Company", "Co."],
+    "company": ["Co.", "Co"],
+    "intl": ["International", "Int'l"],
+    "international": ["Intl", "Int'l"],
+    "mgr": ["Manager"],
+    "manager": ["Mgr"],
+    "vp": ["Vice President", "V.P."],
+    "ceo": ["Chief Executive Officer"],
+    "cfo": ["Chief Financial Officer"],
+    "cto": ["Chief Technology Officer"],
+    "coo": ["Chief Operating Officer"],
+    "qty": ["Quantity"],
+    "amt": ["Amount"],
+    "yr": ["Year"],
+    "mo": ["Month"],
+    "q1": ["first quarter", "1Q"],
+    "q2": ["second quarter", "2Q"],
+    "q3": ["third quarter", "3Q"],
+    "q4": ["fourth quarter", "4Q"],
+    "fy": ["Fiscal Year"],
+    "ytd": ["Year to Date"],
+    "mtd": ["Month to Date"],
+    "usd": ["Dollars", "US$"],
+    "us": ["United States", "USA", "U.S."],
+    "usa": ["United States", "US"],
+    "uk": ["United Kingdom", "U.K.", "Britain"],
+    "eu": ["European Union", "E.U."]
+  },
+  "by_field": {
+    "Address": {
+      "st": ["Street"],
+      "street": ["St", "St."],
+      "ave": ["Avenue"],
+      "avenue": ["Ave", "Ave."],
+      "blvd": ["Boulevard"],
+      "boulevard": ["Blvd", "Blvd."],
+      "rd": ["Road"],
+      "road": ["Rd", "Rd."],
+      "dr": ["Drive"],
+      "drive": ["Dr", "Dr."],
+      "ln": ["Lane"],
+      "lane": ["Ln", "Ln."],
+      "pl": ["Place"],
+      "place": ["Pl", "Pl."],
+      "ct": ["Court"],
+      "court": ["Ct", "Ct."],
+      "apt": ["Apartment"],
+      "apartment": ["Apt", "Apt."],
+      "ste": ["Suite"],
+      "suite": ["Ste", "Ste."]
+    },
+    "Employee": {
+      "dr": ["Doctor", "Dr."],
+      "doctor": ["Dr", "Dr."],
+      "mr": ["Mister"],
+      "mrs": ["Missus"],
+      "ms": ["Miss"],
+      "prof": ["Professor"],
+      "professor": ["Prof"]
+    },
+    "Person": {
+      "dr": ["Doctor", "Dr."],
+      "doctor": ["Dr", "Dr."]
+    },
+    "Title": {
+      "dr": ["Doctor"],
+      "prof": ["Professor"]
+    },
+    "Contact": {
+      "dr": ["Doctor"]
+    }
+  },
+  "numeric_suffixes": {
+    "k": "1000",
+    "m": "1000000",
+    "b": "1000000000"
+  }
+}

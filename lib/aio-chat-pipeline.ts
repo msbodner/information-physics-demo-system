@@ -30,6 +30,7 @@ import {
   createMroObject,
   listMroObjects,
   getMroObject,
+  bumpMroTrust,
   type ChatMessage,
 } from "./api-client"
 
@@ -75,6 +76,7 @@ function mroObjectToMRO(obj: any): MRO | null {
       confidence: typeof obj.confidence === "string"
         ? parseFloat(obj.confidence) || 0.5
         : (obj.confidence ?? 0.5),
+      trust_score: typeof obj.trust_score === "number" ? obj.trust_score : 0,
       provenance: {
         model_ref: "claude",
         tenant_id: obj.tenant_id,
@@ -164,6 +166,7 @@ export async function runChatPipeline(
     maxPriors: options.maxPriors ?? 3,
     maxAios: options.maxAios ?? 50,
     hslBoost,
+    queryText: query,
   })
 
   // Step 3b — hydrate the picked priors. They came from a summary fetch
@@ -255,6 +258,17 @@ export async function runChatPipeline(
     const saved = await createMroObject(payload).catch(() => null)
     mroSaved = saved !== null
     savedMroId = saved?.mro_id ?? undefined
+
+    // Reinforcement: bump trust_score on every prior that contributed to
+    // this answer. Best-effort — a failed bump never blocks the save.
+    if (mroSaved && bundle.mro_priors.length > 0) {
+      const parentIds = bundle.mro_priors
+        .map((p) => p.mro.mro_id)
+        .filter((id): id is string => !!id)
+      if (parentIds.length > 0) {
+        bumpMroTrust(parentIds, 1.0).catch(() => {})
+      }
+    }
   }
 
   // Collect cue values for downstream HSL needle-matching

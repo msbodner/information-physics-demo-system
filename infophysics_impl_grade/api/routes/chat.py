@@ -28,6 +28,20 @@ from api.db import db, set_tenant
 from api.llm import get_effective_api_key
 from api.routes.aio import _AIO_COLS
 from api.routes.hsl import _HSL_COLS
+from api.search_helpers import (
+    adaptive_aio_cap,
+    apply_exclusions,
+    apply_filters,
+    describe_filters,
+    parse_exclusions,
+    parse_filters,
+    split_field_needles,
+)
+from api import embeddings
+from api import query_cache as _qcache
+from api import budget as _budget
+from api.aliases import expand_with_tenant
+from api.citations import cite_aios, summarize_citations
 
 logger = logging.getLogger("infophysics.api.chat")
 
@@ -97,11 +111,50 @@ class AioSearchResponse(BaseModel):
     search_terms: Dict[str, Any]
     input_tokens: int = 0
     output_tokens: int = 0
+    # ── Hit metadata (#8 query_hash micro-cache) ──
+    served_from_cache: bool = False
+    cache_id: Optional[str] = None
+    cached_mro_id: Optional[str] = None
+    # ── Provenance metadata (#9 citation post-pass) ──
+    sources_used: Optional[Dict[str, Any]] = None
+    # ── Server-applied retrieval-time policies (#2/#3) ──
+    applied_filters: Optional[str] = None
+    exclusions: List[str] = []
 
 
 class SubstrateChatRequest(BaseModel):
     messages: List[ChatMessage]
     context_bundle: str
+
+
+class CompareModesRequest(BaseModel):
+    """Side-by-side mode comparison (#10).
+
+    The same prompt is dispatched to ``modes`` in parallel; the response
+    contains one entry per mode with reply text, latency, token counts,
+    and (where applicable) retrieval/citation metadata. Useful for
+    A/B-style demos and for measuring the value of each retrieval layer.
+    """
+    messages: List[ChatMessage]
+    modes: List[str] = Field(default_factory=lambda: ["chat", "aio-search", "pure-llm"])
+    bypass_cache: bool = False
+
+
+class CompareModeResult(BaseModel):
+    mode: str
+    reply: str
+    latency_ms: int
+    input_tokens: int = 0
+    output_tokens: int = 0
+    matched_aios: int = 0
+    sources_used: Optional[Dict[str, Any]] = None
+    served_from_cache: bool = False
+    error: Optional[str] = None
+
+
+class CompareModesResponse(BaseModel):
+    results: List[CompareModeResult]
+    model_ref: str = "claude-sonnet-4-6"
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +257,7 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
         raise HTTPException(status_code=400, detail="messages must not be empty")
 
     tenant = x_tenant_id or "tenantA"
+    _budget.check_budget(tenant)
 
     aio_lines: List[str] = []
     hsl_blocks: List[str] = []
@@ -267,6 +321,7 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
         logger.exception("Anthropic API error during chat")
         raise HTTPException(status_code=502, detail=f"LLM error: {str(exc)}")
 
+    _budget.record_usage(tenant, in_tok, out_tok)
     return ChatResponse(
         reply=reply_text,
         model_ref="claude-sonnet-4-6",
@@ -294,6 +349,7 @@ def pure_llm(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, ali
         raise HTTPException(status_code=400, detail="messages must not be empty")
 
     tenant = x_tenant_id or "tenantA"
+    _budget.check_budget(tenant)
 
     csv_blocks: List[tuple[str, str]] = []  # (name, body)
     try:
@@ -347,6 +403,7 @@ def pure_llm(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, ali
         logger.exception("Anthropic API error during pure-llm")
         raise HTTPException(status_code=502, detail=f"LLM error: {str(exc)}")
 
+    _budget.record_usage(tenant, in_tok, out_tok)
     return ChatResponse(
         reply=reply_text,
         model_ref="claude-sonnet-4-6",
@@ -495,6 +552,34 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
 
     needles = list(dict.fromkeys(needles))  # de-dupe, preserve order
 
+    # Synonym / alias expansion (#7). Pull static-dict aliases plus any
+    # tenant-scoped entity_aliases rows so paraphrases ("Inc" ↔
+    # "Incorporated", "10M" ↔ "10000000", "Dr." ↔ "Drive"/"Doctor")
+    # become first-class needles. Field-aware where possible: each
+    # field_value pair contributes its (value, field) to the expansion
+    # so address-context "Dr." resolves to "Drive" not "Doctor".
+    alias_inputs: List[tuple] = []
+    for fv in search_terms.get("field_values", []):
+        v = (fv.get("value") or "").strip()
+        f = (fv.get("field") or "").strip() or None
+        if v:
+            alias_inputs.append((v, f))
+    for kw in search_terms.get("keywords", []):
+        v = (kw or "").strip()
+        if v:
+            alias_inputs.append((v, None))
+    try:
+        aliases = expand_with_tenant(alias_inputs, tenant)
+    except Exception:
+        logger.info("alias expansion skipped", exc_info=True)
+        aliases = []
+    if aliases:
+        # Append, then re-dedupe so existing needles win order.
+        needles.extend(aliases)
+        needles = list(dict.fromkeys(needles))
+        logger.info("AIO Search: %d aliases added → %d total needles",
+                    len(aliases), len(needles))
+
     # Efficiency caps: we only keep 300 AIOs in the final LLM context, so
     # gathering unbounded HSLs/AIOs beyond what feeds that cap is waste.
     HSL_CAP = 500        # more than enough to produce 300 AIO refs
@@ -528,6 +613,59 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         except Exception:
             logger.warning("HSL name search failed", exc_info=True)
         logger.info("AIO Search: %d HSLs via hsl_name pass", len(matched_hsl_rows))
+
+        # Pass 2a': FIELD-AWARE probe (#1) — when the parser identified
+        # explicit (field, value) pairs, hit the (field_name, value_lower)
+        # compound index. A match here is stronger evidence than a free
+        # value match (we know "[Project.Vance]" not just "vance"
+        # appearing somewhere) so these rows lead the matched_hsl_rows
+        # list and rank above the free-text equality probe below.
+        field_needles, _free_pruned = split_field_needles(
+            search_terms.get("field_values", []),
+            [],  # only field-restricted half here; free already in `needles`
+        )
+        if field_needles and len(matched_hsl_rows) < HSL_EARLY_EXIT:
+            try:
+                with db() as conn:
+                    set_tenant(conn, tenant)
+                    with conn.cursor() as cur:
+                        # ROW(...)::record IN ((..,..),...) is the cleanest
+                        # cross-version way to do compound-key probes.
+                        # ANY/array-of-row isn't supported by older psycopg.
+                        placeholders = ", ".join(["(%s, %s)"] * len(field_needles))
+                        flat: List[str] = []
+                        for f, v in field_needles:
+                            flat.extend([f, v])
+                        seen = {row[0] for row in matched_hsl_rows}
+                        cur.execute(
+                            f"""
+                            SELECT h.hsl_id, h.hsl_name, {_HSL_COLS}
+                              FROM hsl_data h
+                              JOIN (
+                                SELECT DISTINCT hsl_id
+                                  FROM information_element_refs
+                                 WHERE hsl_id IS NOT NULL
+                                   AND (field_name, value_lower) IN ({placeholders})
+                              ) ier ON ier.hsl_id = h.hsl_id
+                             LIMIT %s
+                            """,
+                            flat + [HSL_CAP],
+                        )
+                        added = 0
+                        for row in cur.fetchall():
+                            if row[0] not in seen:
+                                matched_hsl_rows.append(row)
+                                seen.add(row[0])
+                                added += 1
+                        logger.info(
+                            "AIO Search: %d HSLs after field-aware probe (+%d new)",
+                            len(matched_hsl_rows), added,
+                        )
+            except Exception:
+                logger.info(
+                    "field-aware probe failed — falling through to value-only equality",
+                    exc_info=True,
+                )
 
         # Pass 2a: information_element_refs inverted index (migration 017).
         # The element refs table maps every parsed [Key.Value] token to its
@@ -769,7 +907,92 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
             logger.warning("AIO per-element fallback failed", exc_info=True)
 
     matched_aio_lines = list(dict.fromkeys(matched_aio_lines))
-    logger.info("AIO Search: %d AIOs in context", len(matched_aio_lines))
+    logger.info("AIO Search: %d AIOs in context (raw)", len(matched_aio_lines))
+
+    # ── Negative-cue parsing (#3) ──
+    # Drop AIOs whose serialized text contains an excluded phrase. Done
+    # BEFORE numeric filtering so the filter only sees relevant records.
+    exclusions = parse_exclusions(user_prompt)
+    if exclusions:
+        before = len(matched_aio_lines)
+        matched_aio_lines = apply_exclusions(matched_aio_lines, exclusions)
+        logger.info(
+            "AIO Search: exclusions %s dropped %d records",
+            exclusions, before - len(matched_aio_lines),
+        )
+
+    # ── Numeric / date predicate pushdown (#2) ──
+    # Apply parsed comparators (e.g. "over $10M", "after 2020") in Python
+    # before the LLM sees the bundle. The system prompt still tells the
+    # model to verify the filter — but pushing it into retrieval shrinks
+    # the candidate set and prevents the LLM from being misled by records
+    # that lexically match a cue but numerically fail the question.
+    numeric_filters = parse_filters(user_prompt)
+    filter_summary = describe_filters(numeric_filters) if numeric_filters else ""
+    if numeric_filters:
+        before = len(matched_aio_lines)
+        matched_aio_lines = apply_filters(matched_aio_lines, numeric_filters)
+        logger.info(
+            "AIO Search: filters %s dropped %d records",
+            filter_summary, before - len(matched_aio_lines),
+        )
+
+    # ── Embedding-rerank sidecar (#6) ──
+    # When an embedding provider is configured (VOYAGE_API_KEY) and
+    # vectors are present in aio_embeddings, blend cosine similarity
+    # against the lexical ordering. Pure tie-breaker / smoother — a
+    # missing provider or empty embedding table is silently a no-op.
+    if embeddings.is_enabled() and matched_aio_lines:
+        try:
+            qres = embeddings.embed_query(user_prompt)
+            if qres and qres.vectors:
+                qvec = qres.vectors[0]
+                # Look up vectors for the AIOs we already gathered. We
+                # match on aio_name (the prefix before ": ") because that
+                # is what the SELECT used; each line is "name: …".
+                names = []
+                for line in matched_aio_lines:
+                    head = line.split(":", 1)[0].strip()
+                    if head:
+                        names.append(head)
+                if names:
+                    with db() as conn:
+                        set_tenant(conn, tenant)
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                """
+                                SELECT a.aio_name, e.vector
+                                  FROM aio_embeddings e
+                                  JOIN aio_data a ON a.aio_id = e.aio_id
+                                 WHERE a.aio_name = ANY(%s::text[])
+                                   AND e.model_ref = %s
+                                """,
+                                (names, qres.model_ref),
+                            )
+                            vec_by_name = {r[0]: r[1] for r in cur.fetchall()}
+                    if vec_by_name:
+                        # Lexical position → score that decays linearly so
+                        # the top of the list has the most weight.
+                        n = len(matched_aio_lines)
+                        scored = []
+                        for i, line in enumerate(matched_aio_lines):
+                            head = line.split(":", 1)[0].strip()
+                            lex = (n - i) / n  # 1.0 at top, descending
+                            v = vec_by_name.get(head)
+                            cos = embeddings.cosine(qvec, v) if v else 0.0
+                            blended = 0.65 * lex + 0.35 * cos
+                            scored.append((blended, i, line))
+                        # Stable: ties preserve original order via index.
+                        scored.sort(key=lambda t: (-t[0], t[1]))
+                        matched_aio_lines = [t[2] for t in scored]
+                        logger.info(
+                            "AIO Search: embedding rerank applied (%d/%d had vectors)",
+                            len(vec_by_name), n,
+                        )
+        except Exception:
+            logger.info("embedding rerank skipped", exc_info=True)
+
+    logger.info("AIO Search: %d AIOs in context (post-filter)", len(matched_aio_lines))
 
     # ── Fetch MRO priors referenced in HSL elements ──
     mro_context_lines: List[str] = []
@@ -799,7 +1022,12 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         context_section += "\n\n## Prior Retrieval Episodes (MRO priors linked in HSL)\n"
         context_section += "\n\n".join(mro_context_lines)
     if matched_aio_lines:
-        sample = matched_aio_lines[:300]
+        # Adaptive bundle sizing (#5): cap = clamp(50 + 50*len(needles), 100, 300).
+        # Single-cue queries get a tight window so the model doesn't drown
+        # in noise; multi-cue queries get more breadth because each extra
+        # cue narrows the candidate set.
+        cap = adaptive_aio_cap(len(needles))
+        sample = matched_aio_lines[:cap]
         context_section += f"\n\n## Matched AIO Records ({len(sample)} of {len(matched_aio_lines)} total)\n"
         context_section += "\n".join(sample)
 
@@ -831,10 +1059,31 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         "When computing totals or breakdowns, show your work step by step. "
         "Be concise and precise. If the data is insufficient, say so."
     )
+    if filter_summary:
+        # Echo the filter back to the model so its "Filter: …" reporting
+        # line in the answer aligns with what we already pushed down.
+        answer_system += (
+            f"\n\nServer applied a numeric filter to retrieval: {filter_summary}. "
+            "The records below already satisfy this filter — still echo "
+            "\"Filter: …\" in your answer so the user sees what was applied."
+        )
+    if exclusions:
+        answer_system += (
+            "\n\nServer applied exclusion phrases to retrieval: "
+            + ", ".join(exclusions)
+            + ". Records mentioning these phrases were dropped."
+        )
     if context_section:
         answer_system += "\n\n# Data Context" + context_section
     else:
         answer_system += "\n\nNo matching AIO records were found for this query."
+
+    # ``shipped_records`` is what actually went into the LLM context
+    # window — the citation post-pass scores its tokens against the
+    # answer text. We deliberately ship the post-cap slice (``sample``)
+    # rather than the full matched list, so "sources used: N of M"
+    # reports against what Claude could plausibly cite.
+    shipped_records = matched_aio_lines[: adaptive_aio_cap(len(needles))] if matched_aio_lines else []
 
     return {
         "api_key": api_key,
@@ -845,12 +1094,57 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         "matched_aio_count": len(matched_aio_lines),
         "parse_in_tok": parse_in_tok,
         "parse_out_tok": parse_out_tok,
+        "applied_filters": filter_summary,
+        "exclusions": exclusions,
+        "shipped_records": shipped_records,
+        "user_prompt": user_prompt,
+        "tenant": tenant,
     }
 
 
 @router.post("/v1/op/aio-search", response_model=AioSearchResponse)
-def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id")):
-    """Four-phase search algebra: parse → match HSLs → gather AIOs → answer."""
+def aio_search(
+    payload: ChatRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+    bypass_cache: bool = False,
+):
+    """Four-phase search algebra: parse → match HSLs → gather AIOs → answer.
+
+    Adds two cross-cutting layers on top of the prepare/answer split:
+      * **Query micro-cache** (#8) — exact (mode, normalized_query, tenant)
+        hits short-circuit the entire pipeline. Skipped when
+        ``?bypass_cache=true`` so demo flows can force a re-run.
+      * **Citation post-pass** (#9) — after the LLM answers, scan the
+        shipped AIO records for distinctive tokens that appear in the
+        reply and report ``sources_used: N of M``.
+    """
+    tenant = x_tenant_id or "tenantA"
+    _budget.check_budget(tenant)
+    user_prompt = payload.messages[-1].content if payload.messages else ""
+
+    # ── Cache short-circuit (#8) ──
+    if not bypass_cache and user_prompt:
+        hit = _qcache.lookup(tenant, "aio-search", user_prompt)
+        if hit:
+            logger.info(
+                "aio-search cache HIT cache_id=%s mro=%s hits=%d (skipping LLM)",
+                hit.cache_id, hit.mro_id, hit.hit_count,
+            )
+            return AioSearchResponse(
+                reply=hit.answer_text,
+                model_ref="claude-sonnet-4-6",
+                context_records=0,
+                matched_hsls=0,
+                matched_aios=0,
+                matched_hsl_ids=[],
+                search_terms={"field_values": [], "keywords": []},
+                input_tokens=0,
+                output_tokens=0,
+                served_from_cache=True,
+                cache_id=hit.cache_id,
+                cached_mro_id=hit.mro_id,
+            )
+
     prep = _aio_search_prepare(payload, x_tenant_id)
 
     # Prompt caching: marking the assembled system prompt as ephemeral
@@ -874,10 +1168,37 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
         cache_read = getattr(answer_response.usage, "cache_read_input_tokens", 0) or 0
         cache_create = getattr(answer_response.usage, "cache_creation_input_tokens", 0) or 0
         if cache_read or cache_create:
-            logger.info("aio-search cache: read=%d create=%d", cache_read, cache_create)
+            logger.info("aio-search prompt-cache: read=%d create=%d", cache_read, cache_create)
     except Exception as exc:
         logger.exception("Anthropic API error during AIO search answer")
         raise HTTPException(status_code=502, detail=f"LLM error: {str(exc)}")
+
+    # ── Citation post-pass (#9) ──
+    shipped: List[str] = prep.get("shipped_records") or []
+    citation_summary = None
+    try:
+        stats = cite_aios(reply_text, shipped)
+        citation_summary = summarize_citations(stats, total_shipped=len(shipped))
+        logger.info(
+            "aio-search citations: %d of %d records cited",
+            citation_summary["cited"], citation_summary["shipped"],
+        )
+    except Exception:
+        logger.info("citation post-pass failed", exc_info=True)
+
+    # ── Persist into the query micro-cache (#8) ──
+    # Best-effort: a missing migration / RLS quirk doesn't fail the
+    # response. The mro_id is unknown at this point (the frontend
+    # handles MRO persistence in its substrate path) so we store the
+    # answer text only.
+    if not bypass_cache:
+        _qcache.store(tenant, "aio-search", user_prompt, reply_text, mro_id=None)
+
+    _budget.record_usage(
+        tenant,
+        prep["parse_in_tok"] + ans_in_tok,
+        prep["parse_out_tok"] + ans_out_tok,
+    )
 
     return AioSearchResponse(
         reply=reply_text,
@@ -889,6 +1210,10 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
         search_terms=prep["search_terms"],
         input_tokens=prep["parse_in_tok"] + ans_in_tok,
         output_tokens=prep["parse_out_tok"] + ans_out_tok,
+        served_from_cache=False,
+        sources_used=citation_summary,
+        applied_filters=prep.get("applied_filters") or None,
+        exclusions=prep.get("exclusions") or [],
     )
 
 
@@ -987,6 +1312,9 @@ def substrate_chat(
     if not payload.messages:
         raise HTTPException(status_code=400, detail="messages must not be empty")
 
+    tenant = x_tenant_id or "tenantA"
+    _budget.check_budget(tenant)
+
     system = (
         "You are ChatAIO, an intelligent analyst for Information Physics data. "
         "You have been given a PRECOMPUTED SEMANTIC SUBSTRATE assembled by the "
@@ -1038,6 +1366,7 @@ def substrate_chat(
         logger.exception("Anthropic API error during substrate chat")
         raise HTTPException(status_code=502, detail=f"LLM error: {str(exc)}")
 
+    _budget.record_usage(tenant, in_tok, out_tok)
     return ChatResponse(
         reply=reply_text,
         model_ref="claude-sonnet-4-6",
@@ -1206,3 +1535,108 @@ def aio_search_stream(
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
     })
+
+
+# ---------------------------------------------------------------------------
+# #10 Side-by-side mode comparison
+# ---------------------------------------------------------------------------
+
+_COMPARE_SUPPORTED = {"chat", "aio-search", "pure-llm"}
+
+
+def _run_one_mode(mode: str, payload: ChatRequest, tenant: str, bypass_cache: bool) -> CompareModeResult:
+    """Dispatch a single mode and shape the result for the compare response.
+
+    We call the route handlers as plain Python functions — they are
+    thread-safe (each acquires its own DB connection) and we get to
+    reuse their full retrieval / cache / citation pipelines. Errors are
+    captured per-mode so one failing mode doesn't poison the whole
+    comparison.
+    """
+    import time
+    t0 = time.perf_counter()
+    try:
+        if mode == "chat":
+            r = chat(payload, x_tenant_id=tenant)
+            return CompareModeResult(
+                mode=mode, reply=r.reply,
+                latency_ms=int((time.perf_counter() - t0) * 1000),
+                input_tokens=r.input_tokens, output_tokens=r.output_tokens,
+                matched_aios=r.context_records,
+            )
+        if mode == "aio-search":
+            r = aio_search(payload, x_tenant_id=tenant, bypass_cache=bypass_cache)
+            return CompareModeResult(
+                mode=mode, reply=r.reply,
+                latency_ms=int((time.perf_counter() - t0) * 1000),
+                input_tokens=r.input_tokens, output_tokens=r.output_tokens,
+                matched_aios=r.matched_aios,
+                sources_used=r.sources_used,
+                served_from_cache=r.served_from_cache,
+            )
+        if mode == "pure-llm":
+            r = pure_llm(payload, x_tenant_id=tenant)
+            return CompareModeResult(
+                mode=mode, reply=r.reply,
+                latency_ms=int((time.perf_counter() - t0) * 1000),
+                input_tokens=r.input_tokens, output_tokens=r.output_tokens,
+                matched_aios=r.context_records,
+            )
+        return CompareModeResult(
+            mode=mode, reply="",
+            latency_ms=int((time.perf_counter() - t0) * 1000),
+            error=f"unsupported mode: {mode}",
+        )
+    except HTTPException as exc:
+        return CompareModeResult(
+            mode=mode, reply="",
+            latency_ms=int((time.perf_counter() - t0) * 1000),
+            error=f"HTTP {exc.status_code}: {exc.detail}",
+        )
+    except Exception as exc:
+        logger.exception("compare-modes mode=%s failed", mode)
+        return CompareModeResult(
+            mode=mode, reply="",
+            latency_ms=int((time.perf_counter() - t0) * 1000),
+            error=str(exc),
+        )
+
+
+@router.post("/v1/op/compare-modes", response_model=CompareModesResponse)
+def compare_modes(
+    payload: CompareModesRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Run the same prompt through several modes in parallel and return all replies.
+
+    Budget enforcement happens INSIDE each mode handler (so a single 429
+    only kills the over-budget attempt — the other modes still answer
+    if there is any headroom). Token usage is recorded per mode by the
+    underlying handlers, so the budget counter advances correctly even
+    when modes run concurrently.
+    """
+    if not payload.messages:
+        raise HTTPException(status_code=400, detail="messages must not be empty")
+    requested = [m for m in payload.modes if m in _COMPARE_SUPPORTED]
+    if not requested:
+        raise HTTPException(
+            status_code=400,
+            detail=f"no supported modes in {payload.modes}; supported: {sorted(_COMPARE_SUPPORTED)}",
+        )
+
+    tenant = x_tenant_id or "tenantA"
+    # Up-front budget check; per-mode handlers also check.
+    _budget.check_budget(tenant)
+
+    sub_payload = ChatRequest(messages=payload.messages)
+
+    from concurrent.futures import ThreadPoolExecutor
+    results: List[CompareModeResult] = []
+    with ThreadPoolExecutor(max_workers=min(4, len(requested))) as ex:
+        futures = {ex.submit(_run_one_mode, m, sub_payload, tenant, payload.bypass_cache): m for m in requested}
+        for fut in futures:
+            results.append(fut.result())
+
+    order = {m: i for i, m in enumerate(requested)}
+    results.sort(key=lambda r: order.get(r.mode, 999))
+    return CompareModesResponse(results=results)
