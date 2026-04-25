@@ -1597,6 +1597,8 @@ export function SearchStatsPane() {
                   <th className="px-3 py-2 text-right font-semibold">⏱ ms</th>
                   <th className="px-3 py-2 text-right font-semibold">📥 In</th>
                   <th className="px-3 py-2 text-right font-semibold">📤 Out</th>
+                  <th className="px-3 py-2 text-right font-semibold">Σ Tok</th>
+                  <th className="px-3 py-2 text-right font-semibold">HSLs</th>
                   <th className="px-3 py-2 text-right font-semibold">AIOs</th>
                   <th className="px-3 py-2 text-right font-semibold">Cues</th>
                   <th className="px-3 py-2 text-right font-semibold">MRO</th>
@@ -1617,6 +1619,8 @@ export function SearchStatsPane() {
                       <td className="px-3 py-2 text-right tabular-nums">{s.elapsed_ms.toLocaleString()}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{s.input_tokens.toLocaleString()}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{s.output_tokens.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium">{s.total_tokens.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{s.matched_hsls || "—"}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{s.matched_aios || s.neighborhood_size || "—"}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{s.cue_count || "—"}</td>
                       <td className="px-3 py-2 text-center">{s.mro_saved ? "✅" : "—"}</td>
@@ -1629,7 +1633,7 @@ export function SearchStatsPane() {
                     </tr>
                     {expanded === s.stat_id && (
                       <tr key={`${s.stat_id}-exp`} className="bg-blue-50 dark:bg-blue-950/20">
-                        <td colSpan={10} className="px-4 py-3">
+                        <td colSpan={12} className="px-4 py-3">
                           <div className="space-y-2">
                             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Query</div>
                             <div className="text-sm text-foreground">{s.query_text}</div>
