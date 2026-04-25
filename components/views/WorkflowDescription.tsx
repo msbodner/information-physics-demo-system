@@ -218,7 +218,7 @@ export function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void
                 <p>When the backend is online, the <strong>ChatAIO</strong> button opens a full-screen conversational interface with four search modes:</p>
                 <ul className="list-disc list-inside space-y-1 ml-2">
                   <li><strong>Pure LLM (Control):</strong> Standard Claude prompt with the raw saved CSV files as context (up to 50 files, ~30 KB each). No AIO/HSL/MRO machinery. Use this to benchmark what a vanilla LLM does with the same data.</li>
-                  <li><strong>Straight LLM (Broad AIO/HSL Dump):</strong> Sends your question to Claude along with ALL stored AIO and HSL records as context (up to 500 records). Best for general exploratory questions.</li>
+                  <li><strong>Blind Dump AIO/HSL (Broad AIO/HSL Dump):</strong> Sends your question to Claude along with ALL stored AIO and HSL records as context (up to 500 records). Best for general exploratory questions.</li>
                   <li><strong>AIO Search (Search Algebra):</strong> A four-phase targeted search: (1) Claude parses your prompt to extract key terms, (2) searches the HSL library for matching records, (3) gathers only the AIOs referenced in those HSLs, (4) answers using only that focused subset. Falls back to direct AIO element search if no HSLs match.</li>
                   <li><strong>Substrate (Paper III Pipeline):</strong> Default. Deterministic cue extraction → HSL neighborhood traversal → Jaccard-ranked MRO pre-fetch → tiered bundle assembly → MRO capture. Self-improving over time.</li>
                 </ul>
@@ -294,9 +294,9 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                     <p className="mt-1">This is the <em>control case</em>. It demonstrates what Claude can do with the same source data and no AIO/HSL/MRO substrate. Use it to benchmark the lift the Information-Physics layers provide.</p>
                   </div>
                   <div>
-                    <p className="font-medium text-foreground">Straight LLM (Broad AIO/HSL Dump) — <code className="bg-muted px-1 rounded">POST /api/op/chat</code></p>
+                    <p className="font-medium text-foreground">Blind Dump AIO/HSL (Broad AIO/HSL Dump) — <code className="bg-muted px-1 rounded">POST /api/op/chat</code></p>
                     <ol className="list-decimal list-inside space-y-1 ml-2">
-                      <li>User types a question and clicks <strong>Straight LLM</strong></li>
+                      <li>User types a question and clicks <strong>Blind Dump AIO/HSL</strong></li>
                       <li>Backend fetches up to 500 AIO/HSL records from the database</li>
                       <li>Builds a system prompt with up to 300 AIO lines and 10 HSL blocks as context</li>
                       <li>Sends to Claude, which returns a contextual answer grounded in all available data</li>

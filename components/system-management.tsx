@@ -1520,7 +1520,7 @@ export function SearchStatsPane() {
   const visible = filter === "All" ? stats : stats.filter((s) => s.search_mode === filter)
 
   const modeBadge = (mode: string) => {
-    if (mode === "Send") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Straight LLM</span>
+    if (mode === "Send") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Blind Dump AIO/HSL</span>
     if (mode === "PureLLM") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Pure LLM</span>
     if (mode === "AIOSearch") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">AIO Search</span>
     if (mode === "Substrate") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">Substrate</span>
@@ -1544,7 +1544,7 @@ export function SearchStatsPane() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
           { label: "Total Searches", value: totalSearches },
-          { label: "Straight LLM", value: byMode.Send ?? 0 },
+          { label: "Blind Dump AIO/HSL", value: byMode.Send ?? 0 },
           { label: "Pure LLM", value: byMode.PureLLM ?? 0 },
           { label: "AIO Search", value: byMode.AIOSearch ?? 0 },
           { label: "Substrate", value: byMode.Substrate ?? 0 },
@@ -1571,7 +1571,7 @@ export function SearchStatsPane() {
         {(["All", "Send", "PureLLM", "AIOSearch", "Substrate"] as const).map((m) => (
           <button key={m} onClick={() => setFilter(m)}
             className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${filter === m ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
-            {m === "AIOSearch" ? "AIO Search" : m === "Send" ? "Straight LLM" : m === "PureLLM" ? "Pure LLM" : m}
+            {m === "AIOSearch" ? "AIO Search" : m === "Send" ? "Blind Dump AIO/HSL" : m === "PureLLM" ? "Pure LLM" : m}
           </button>
         ))}
         <div className="flex-1" />
@@ -1661,6 +1661,55 @@ export function SearchStatsPane() {
           </div>
         </div>
       )}
+
+      {/* Mode comparison reference */}
+      <div className="rounded-lg border border-border bg-muted/20 p-5 space-y-3">
+        <div>
+          <h3 className="text-base font-semibold text-foreground">How the four search modes differ</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            All four modes call the same model — <code className="bg-muted px-1 rounded">claude-sonnet-4-6</code>, <code className="bg-muted px-1 rounded">max_tokens=2048</code>.
+            What changes is the <em>corpus selection strategy</em> upstream of the LLM. None of these is &quot;raw Claude&quot;; each injects a system prompt with different context.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-xs border border-border">
+            <thead>
+              <tr className="bg-[#0f3460] text-white">
+                <th className="px-3 py-2 text-left font-semibold">Mode</th>
+                <th className="px-3 py-2 text-left font-semibold">Retrieval</th>
+                <th className="px-3 py-2 text-left font-semibold">Context sent to Claude</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-border bg-background">
+                <td className="px-3 py-2 align-top"><span className="font-semibold text-amber-700">Pure LLM</span></td>
+                <td className="px-3 py-2 align-top">None — control case</td>
+                <td className="px-3 py-2 align-top">Up to 50 raw saved CSV files (capped ~30 KB each). No AIO bracket notation, no HSL, no MRO. Vanilla &quot;you are a data analyst&quot; system prompt.</td>
+              </tr>
+              <tr className="border-b border-border bg-muted/20">
+                <td className="px-3 py-2 align-top"><span className="font-semibold text-blue-700">Blind Dump AIO/HSL</span></td>
+                <td className="px-3 py-2 align-top">None — blind dump</td>
+                <td className="px-3 py-2 align-top">First 300 AIOs + 10 HSLs from the DB (no relevance filtering). ChatAIO system preamble instructing Claude to parse <code className="bg-muted px-1 rounded">[Key.Value]</code> notation, group/sum/count, show work.</td>
+              </tr>
+              <tr className="border-b border-border bg-background">
+                <td className="px-3 py-2 align-top"><span className="font-semibold text-green-700">AIO Search</span></td>
+                <td className="px-3 py-2 align-top">4-phase: parse → HSL match → AIO gather → synthesize</td>
+                <td className="px-3 py-2 align-top">Only the AIOs reached via HSL traversal of cues extracted from the query. Falls back to direct ILIKE if no HSL matches.</td>
+              </tr>
+              <tr className="bg-muted/20">
+                <td className="px-3 py-2 align-top"><span className="font-semibold text-purple-700">Substrate</span></td>
+                <td className="px-3 py-2 align-top">Deterministic cue extraction + Jaccard ranking</td>
+                <td className="px-3 py-2 align-top">Pre-assembled tiered bundle: cues → neighborhood AIOs → MRO priors. Self-improving (each query persists a new MRO).</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          <strong>Blind Dump AIO/HSL</strong> is the cheapest to implement but the most token-wasteful — it ships ~300 unrelated records every query.
+          <strong> Pure LLM</strong> is the apples-to-apples baseline against vanilla Claude — same data, no Information-Physics machinery.
+          <strong> AIO Search</strong> and <strong>Substrate</strong> are where the substrate earns its keep: bounded retrieval, real provenance, and (for Substrate) episodic memory across sessions.
+        </p>
+      </div>
     </div>
   )
 }

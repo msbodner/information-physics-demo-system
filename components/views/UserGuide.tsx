@@ -225,16 +225,16 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
             {activeSection === "substrate" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Brain className="w-5 h-5 text-purple-600" />Substrate Mode — Claude Answers Grounded in the AIO/HSL/MRO Substrate</CardTitle></CardHeader>
               <CardContent className="space-y-5 text-sm text-muted-foreground leading-relaxed">
-                <p>V4.1 introduces <strong>Substrate Mode</strong> in the ChatAIO dialog — one of four retrieval modes alongside <strong>Pure LLM</strong> (raw CSVs, no IP machinery), <strong>Straight LLM</strong> (broad AIO/HSL dump), and <strong>AIO Search</strong> (HSL-guided four-phase). It implements the full five-step pipeline from <em>Paper III: Precomputed Semantic Substrates for Large Language Models</em>, using your stored AIOs, HSL neighborhoods, and prior Memory Result Objects (MROs) as a direct replacement for traditional Retrieval-Augmented Generation.</p>
+                <p>V4.1 introduces <strong>Substrate Mode</strong> in the ChatAIO dialog — one of four retrieval modes alongside <strong>Pure LLM</strong> (raw CSVs, no IP machinery), <strong>Blind Dump AIO/HSL</strong> (broad AIO/HSL dump), and <strong>AIO Search</strong> (HSL-guided four-phase). It implements the full five-step pipeline from <em>Paper III: Precomputed Semantic Substrates for Large Language Models</em>, using your stored AIOs, HSL neighborhoods, and prior Memory Result Objects (MROs) as a direct replacement for traditional Retrieval-Augmented Generation.</p>
 
                 <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
                   <p className="text-purple-800 dark:text-purple-200 text-xs leading-relaxed">
-                    <strong>Where to find it:</strong> Click <strong>ChatAIO</strong> on the home page. In the input bar at the bottom you will see four buttons: <strong>Substrate</strong> (purple, default — Enter key), <strong>AIO Search</strong> (HSL-guided), <strong>Pure LLM</strong> (raw CSV control case), and <strong>Straight LLM</strong> (broad AIO/HSL dump).
+                    <strong>Where to find it:</strong> Click <strong>ChatAIO</strong> on the home page. In the input bar at the bottom you will see four buttons: <strong>Substrate</strong> (purple, default — Enter key), <strong>AIO Search</strong> (HSL-guided), <strong>Pure LLM</strong> (raw CSV control case), and <strong>Blind Dump AIO/HSL</strong> (broad AIO/HSL dump).
                   </p>
                 </div>
 
                 <h4 className="text-foreground font-medium mt-4">What happens when you click Substrate</h4>
-                <p>Unlike Straight LLM, which ships up to 500 raw records to Claude as context, Substrate runs a precomputed-topology traversal before calling the model:</p>
+                <p>Unlike Blind Dump AIO/HSL, which ships up to 500 raw records to Claude as context, Substrate runs a precomputed-topology traversal before calling the model:</p>
                 <ol className="list-decimal list-inside space-y-2 ml-2">
                   <li><strong>Cue extraction</strong> — your question is parsed against the Information Elements directory and the full AIO value vocabulary to extract a cue set <code className="bg-muted px-1 rounded">K</code> of <code className="bg-muted px-1 rounded">[Key.Value]</code> pairs. This is deterministic and happens in the browser.</li>
                   <li><strong>HSL traversal</strong> — the neighborhood <code className="bg-muted px-1 rounded">N(K) = ⋂ H(k)</code> is computed as the set intersection of per-cue AIO sets. Only the AIOs that match all cues are retrieved.</li>
@@ -262,12 +262,12 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                     <p>The control case. Sends only the original saved CSV files (up to 50, capped at ~30 KB each) to Claude with no Information-Physics framing — no AIO bracket notation, no HSL traversal, no MRO priors. Use this to demonstrate what a vanilla LLM can do with the same data and to benchmark the lift the AIO/HSL/MRO substrate provides.</p>
                   </div>
                   <div className="pl-3 border-l-2 border-blue-500/50">
-                    <p className="text-foreground font-medium text-xs">Straight LLM — Broad AIO/HSL Dump</p>
+                    <p className="text-foreground font-medium text-xs">Blind Dump AIO/HSL — Broad AIO/HSL Dump</p>
                     <p>Standard Claude prompt with up to 300 AIO records plus 10 HSL files dumped into the system prompt unfiltered. Exploratory questions across the full corpus. Best when you do not know yet which elements matter. Cost: full context window, no reuse, no provenance.</p>
                   </div>
                   <div className="pl-3 border-l-2 border-green-500/50">
                     <p className="text-foreground font-medium text-xs">AIO Search — HSL-Guided Four-Phase</p>
-                    <p>Targeted questions where an HSL library already exists. Backend parses the query, matches HSLs by element overlap, gathers only the AIOs reached via those HSLs, and synthesizes an answer. Cost: one round-trip for HSL search, dramatically smaller token footprint than Straight LLM.</p>
+                    <p>Targeted questions where an HSL library already exists. Backend parses the query, matches HSLs by element overlap, gathers only the AIOs reached via those HSLs, and synthesizes an answer. Cost: one round-trip for HSL search, dramatically smaller token footprint than Blind Dump AIO/HSL.</p>
                   </div>
                   <div className="pl-3 border-l-2 border-purple-500/50">
                     <p className="text-foreground font-medium text-xs">Substrate — Paper III Pipeline</p>
