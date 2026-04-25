@@ -1521,7 +1521,7 @@ export function SearchStatsPane() {
 
   const modeBadge = (mode: string) => {
     if (mode === "Send") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Blind Dump AIO/HSL</span>
-    if (mode === "PureLLM") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">CSV->LLM Raw</span>
+    if (mode === "PureLLM") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">CSV→LLM Raw</span>
     if (mode === "AIOSearch") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">AIO Search</span>
     if (mode === "Substrate") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">Substrate</span>
     return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-muted text-muted-foreground">{mode}</span>
@@ -1545,7 +1545,7 @@ export function SearchStatsPane() {
         {[
           { label: "Total Searches", value: totalSearches },
           { label: "Blind Dump AIO/HSL", value: byMode.Send ?? 0 },
-          { label: "CSV->LLM Raw", value: byMode.PureLLM ?? 0 },
+          { label: "CSV→LLM Raw", value: byMode.PureLLM ?? 0 },
           { label: "AIO Search", value: byMode.AIOSearch ?? 0 },
           { label: "Substrate", value: byMode.Substrate ?? 0 },
         ].map((card) => (
@@ -1571,7 +1571,7 @@ export function SearchStatsPane() {
         {(["All", "Send", "PureLLM", "AIOSearch", "Substrate"] as const).map((m) => (
           <button key={m} onClick={() => setFilter(m)}
             className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${filter === m ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
-            {m === "AIOSearch" ? "AIO Search" : m === "Send" ? "Blind Dump AIO/HSL" : m === "PureLLM" ? "CSV->LLM Raw" : m}
+            {m === "AIOSearch" ? "AIO Search" : m === "Send" ? "Blind Dump AIO/HSL" : m === "PureLLM" ? "CSV→LLM Raw" : m}
           </button>
         ))}
         <div className="flex-1" />
@@ -1686,7 +1686,7 @@ export function SearchStatsPane() {
             </thead>
             <tbody>
               <tr className="border-b border-border bg-background">
-                <td className="px-3 py-2 align-top"><span className="font-semibold text-amber-700">CSV->LLM Raw</span></td>
+                <td className="px-3 py-2 align-top"><span className="font-semibold text-amber-700">CSV→LLM Raw</span></td>
                 <td className="px-3 py-2 align-top">None — control case</td>
                 <td className="px-3 py-2 align-top">Up to 50 raw saved CSV files (capped ~30 KB each). No AIO bracket notation, no HSL, no MRO. Vanilla &quot;you are a data analyst&quot; system prompt.</td>
               </tr>
@@ -1710,7 +1710,7 @@ export function SearchStatsPane() {
         </div>
         <p className="text-xs text-muted-foreground">
           <strong>Blind Dump AIO/HSL</strong> is the cheapest to implement but the most token-wasteful — it ships ~300 unrelated records every query.
-          <strong> CSV->LLM Raw</strong> is the apples-to-apples baseline against vanilla Claude — same data, no Information-Physics machinery.
+          <strong> CSV→LLM Raw</strong> is the apples-to-apples baseline against vanilla Claude — same data, no Information-Physics machinery.
           <strong> AIO Search</strong> and <strong>Substrate</strong> are where the substrate earns its keep: bounded retrieval, real provenance, and (for Substrate) episodic memory across sessions.
         </p>
       </div>

@@ -17,6 +17,7 @@ import {
   buildValueVocabulary,
   buildFieldVocabulary,
   computeHslBoost,
+  getMatchedHslIds,
   type ContextBundle,
   type HslLite,
   type MRO,
@@ -24,9 +25,11 @@ import {
 } from "./aio-math"
 import {
   substrateChatWithAIO,
+  substrateChatWithAIOStream,
   chatWithAIO,
   createMroObject,
   listMroObjects,
+  getMroObject,
   type ChatMessage,
 } from "./api-client"
 
@@ -39,6 +42,7 @@ export interface PipelineResult {
   mro_saved: boolean            // did we persist a new MRO
   mro_id?: string               // UUID of the newly saved MRO (for HSL linking)
   cue_values: string[]          // extracted value strings (for HSL needle search)
+  matched_hsl_ids: string[]     // HSL UUIDs that contributed (for in-memory back-link)
   model_ref: string
   input_tokens: number
   output_tokens: number
@@ -125,6 +129,10 @@ export async function runChatPipeline(
      *  computeHslBoost in aio-math). No HSLs = pure AIO-similarity ranking
      *  as before. */
     hsls?: HslLite[]
+    /** When provided, the LLM call streams via SSE and each text chunk is
+     *  pushed through this callback. The final reply (full text) is still
+     *  returned in the resolved PipelineResult. Useful for incremental UI. */
+    onChunk?: (chunk: string) => void
   } = {},
 ): Promise<PipelineResult | { error: string }> {
   // Step 1 — cue extraction
@@ -132,8 +140,11 @@ export async function runChatPipeline(
   const vocab = buildValueVocabulary(aios)
   const cues = extractCues(query, fields, vocab)
 
-  // Step 2-3 — use cached MROs if provided, otherwise fetch
-  const priorMroObjects = options.cachedMros ?? await listMroObjects().catch(() => [])
+  // Step 2-3 — use cached MROs if provided, otherwise fetch.
+  // The cached payload is expected to be in summary mode (no result_text /
+  // context_bundle) — we hydrate just the priors that win the ranking below.
+  const priorMroObjects = options.cachedMros
+    ?? await listMroObjects(5000, { summary: true }).catch(() => [])
   const priorMROs: MRO[] = priorMroObjects
     .map(mroObjectToMRO)
     .filter((m): m is MRO => m !== null)
@@ -143,11 +154,35 @@ export async function runChatPipeline(
     ? computeHslBoost(cues, options.hsls)
     : undefined
 
+  // Step 2c — collect matched HSL ids so the caller can back-link the new
+  // MRO without re-querying the server for a duplicate needle scan.
+  const matchedHslIds = options.hsls && options.hsls.length > 0
+    ? getMatchedHslIds(cues, options.hsls)
+    : []
+
   const bundle = assembleBundle(cues, aios, priorMROs, {
     maxPriors: options.maxPriors ?? 3,
     maxAios: options.maxAios ?? 50,
     hslBoost,
   })
+
+  // Step 3b — hydrate the picked priors. They came from a summary fetch
+  // (empty result_text), so before serializing we pull the full record
+  // for just the top-K that survived ranking. ≤ maxPriors round-trips,
+  // run in parallel, ~80% smaller dialog-open payload as a tradeoff.
+  if (bundle.mro_priors.length > 0) {
+    const needHydrate = bundle.mro_priors.filter((p) => !p.mro.result_text)
+    if (needHydrate.length > 0) {
+      await Promise.all(needHydrate.map(async (sp) => {
+        const full = await getMroObject(sp.mro.mro_id).catch(() => null)
+        if (!full) return
+        sp.mro.result_text = full.result_text ?? ""
+        sp.mro.context_aio_raws = full.context_bundle
+          ? full.context_bundle.split("\n---\n")
+          : sp.mro.context_aio_raws
+      }))
+    }
+  }
 
   // Step 4 — serialize the bundle; it becomes the SOLE system context via
   // /v1/op/substrate-chat (which does NOT add a raw DB dump — unlike /v1/op/chat)
@@ -161,20 +196,48 @@ export async function runChatPipeline(
   ]
 
   // Step 5 — call Claude via the substrate endpoint (no DB context injection).
-  // Falls back to the standard chat endpoint if substrate-chat is not yet
-  // deployed on this backend (e.g. during a rolling Railway deploy).
-  let chatResponse = await substrateChatWithAIO(messages, bundleText)
-  const errLower = (chatResponse && "error" in chatResponse) ? chatResponse.error.toLowerCase() : ""
-  if (errLower.includes("404") || errLower.includes("not found") || errLower.includes("backend_unavailable")) {
-    // Fallback: inject bundle as the first user message so Claude still sees it
-    const fallbackMessages: ChatMessage[] = [
-      { role: "user", content: "Use the following precomputed substrate as your evidence:\n\n" + bundleText },
-      ...messages,
-    ]
-    chatResponse = await chatWithAIO(fallbackMessages)
+  // Streaming path: when the caller supplied onChunk, use SSE so the UI
+  // can render tokens as they arrive. The final reply text is rebuilt
+  // from the chunks; usage counts come from the trailing meta event.
+  let chatReply: string
+  let chatModel = "claude-sonnet-4-6"
+  let chatInTok = 0
+  let chatOutTok = 0
+  if (options.onChunk) {
+    let acc = ""
+    let metaIn = 0
+    let metaOut = 0
+    let metaModel = "claude-sonnet-4-6"
+    let errMsg: string | null = null
+    await substrateChatWithAIOStream(messages, bundleText, {
+      onText: (c) => { acc += c; options.onChunk!(c) },
+      onMeta: (m) => { metaIn = m.input_tokens; metaOut = m.output_tokens; metaModel = m.model_ref },
+      onError: (e) => { errMsg = e },
+    }).catch((e) => { errMsg = String(e) })
+    if (errMsg) return { error: errMsg }
+    chatReply = acc
+    chatInTok = metaIn
+    chatOutTok = metaOut
+    chatModel = metaModel
+  } else {
+    // Non-streaming path. Falls back to the standard chat endpoint if
+    // substrate-chat is not yet deployed (e.g. rolling Railway deploy).
+    let chatResponse = await substrateChatWithAIO(messages, bundleText)
+    const errLower = (chatResponse && "error" in chatResponse) ? chatResponse.error.toLowerCase() : ""
+    if (errLower.includes("404") || errLower.includes("not found") || errLower.includes("backend_unavailable")) {
+      const fallbackMessages: ChatMessage[] = [
+        { role: "user", content: "Use the following precomputed substrate as your evidence:\n\n" + bundleText },
+        ...messages,
+      ]
+      chatResponse = await chatWithAIO(fallbackMessages)
+    }
+    if (!chatResponse) return { error: "Backend unavailable" }
+    if ("error" in chatResponse) return { error: chatResponse.error }
+    chatReply = chatResponse.reply
+    chatModel = chatResponse.model_ref
+    chatInTok = chatResponse.input_tokens ?? 0
+    chatOutTok = chatResponse.output_tokens ?? 0
   }
-  if (!chatResponse) return { error: "Backend unavailable" }
-  if ("error" in chatResponse) return { error: chatResponse.error }
 
   // Step 6 — persist as MRO
   let mroSaved = false
@@ -184,8 +247,8 @@ export async function runChatPipeline(
       query_text: query,
       cue_set: cues,
       bundle,
-      result_text: chatResponse.reply,
-      model_ref: chatResponse.model_ref,
+      result_text: chatReply,
+      model_ref: chatModel,
       confidence: 0.75,
     })
     const payload = mroToCreatePayload(newMRO)
@@ -200,15 +263,16 @@ export async function runChatPipeline(
     .filter((v): v is string => !!v && v !== "*" && v.length >= 3)
 
   return {
-    reply: chatResponse.reply,
+    reply: chatReply,
     bundle,
     priors_used: bundle.mro_priors,
     mro_saved: mroSaved,
     mro_id: savedMroId,
     cue_values: cueValues,
-    model_ref: chatResponse.model_ref,
-    input_tokens: chatResponse.input_tokens ?? 0,
-    output_tokens: chatResponse.output_tokens ?? 0,
+    matched_hsl_ids: matchedHslIds,
+    model_ref: chatModel,
+    input_tokens: chatInTok,
+    output_tokens: chatOutTok,
     cost: {
       cues: cues.length,
       neighborhood: bundle.traversal_cost,

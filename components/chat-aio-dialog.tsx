@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye, Sparkles } from "lucide-react"
-import { chatWithAIO, pureLlmChat, aioSearchChat, listSavedPrompts, createSavedPrompt, listMroObjects, createMroObject, listAioData, listHslData, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord } from "@/lib/api-client"
+import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, listSavedPrompts, createSavedPrompt, listMroObjects, createMroObject, listAioData, listHslData, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type AioSearchStreamMeta } from "@/lib/api-client"
 import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
@@ -238,7 +238,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     if (!open || substrateReady) return
     Promise.all([
       listAioData().catch(() => [] as AioDataRecord[]),
-      listMroObjects().catch(() => [] as MroObject[]),
+      // Summary mode: drops result_text + context_bundle (~80% smaller
+      // payload). The substrate pipeline hydrates the top-K priors lazily.
+      listMroObjects(5000, { summary: true }).catch(() => [] as MroObject[]),
       listHslData().catch(() => [] as HslDataRecord[]),
     ]).then(([records, mros, hsls]) => {
       const parsed: ParsedAio[] = records.map((r) => {
@@ -356,67 +358,92 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
     const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
-    setChatMessages(next)
+    // Push user message + empty assistant placeholder; the placeholder
+    // gets filled incrementally as SSE text chunks arrive.
+    setChatMessages([...next, { role: "assistant", content: "" }])
     setChatInput("")
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
     setIsChatLoading(true)
     const t0 = Date.now()
-    const result = await aioSearchChat(next)
+    let acc = ""
+    let metaCaptured: AioSearchStreamMeta | null = null
+    let errMsg: string | null = null
+    await aioSearchChatStream(next, {
+      onText: (chunk) => {
+        acc += chunk
+        const snap = acc
+        setChatMessages((prev) => {
+          const last = prev[prev.length - 1]
+          if (!last || last.role !== "assistant") return prev
+          return [...prev.slice(0, -1), { ...last, content: snap }]
+        })
+      },
+      onMeta: (m) => { metaCaptured = m },
+      onError: (e) => { errMsg = e },
+    }).catch((e) => { errMsg = String(e) })
     const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
-    if (!result) {
-      setChatMessages([...next, { role: "assistant", content: "Backend unreachable." }])
-    } else if ("error" in result) {
-      setChatMessages([...next, { role: "assistant", content: `Error: ${result.error}` }])
-    } else {
-      const inTok = result.input_tokens ?? 0
-      const outTok = result.output_tokens ?? 0
-      const meta = `\n\n---\n_AIO Search: ${result.matched_hsls} HSLs matched · ${result.matched_aios} AIOs in context · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
-      setChatMessages([...next, { role: "assistant", content: result.reply + meta }])
-      setLastSearchMeta({
-        matched_hsls: result.matched_hsls,
-        matched_aios: result.matched_aios,
-        search_terms: typeof result.search_terms === "string" ? result.search_terms : JSON.stringify(result.search_terms || {}),
-        seed_hsls: `${result.matched_hsls} HSLs`
-      })
-      setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "AIOSearch" })
-
-      // Auto-save MRO for this AIO Search episode, then link to matched HSLs
-      const hslIds = result.matched_hsl_ids ?? []
-      const mroKey = `AIOSearch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-      createMroObject({
-        mro_key: mroKey,
-        query_text: text,
-        intent: "aio-search",
-        seed_hsls: hslIds.join("|"),
-        matched_aios_count: result.matched_aios,
-        search_terms: result.search_terms as Record<string, unknown>,
-        result_text: result.reply,
-        confidence: "0.75",
-        policy_scope: "default",
-      }).then((mro) => {
-        if (mro?.mro_id && hslIds.length > 0) {
-          // Link the new MRO into every matched HSL so future traversals surface it
-          Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, mro.mro_id))).catch(() => {})
-        }
-      }).catch(() => {})
-
-      createChatStat({
-        search_mode: "AIOSearch", query_text: text,
-        result_preview: result.reply.slice(0, 500),
-        elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
-        total_tokens: inTok + outTok, context_records: result.context_records ?? 0,
-        matched_hsls: result.matched_hsls, matched_aios: result.matched_aios,
-        cue_count: 0, neighborhood_size: 0, prior_count: 0, mro_saved: hslIds.length > 0,
-      }).catch(() => {})
+    if (errMsg && !acc) {
+      setChatMessages([...next, { role: "assistant", content: `Error: ${errMsg}` }])
+      return
     }
+    if (!metaCaptured) {
+      // Stream finished without meta — leave the accumulated text and bail
+      // on the bookkeeping path (no MRO save without counts).
+      return
+    }
+    const meta = metaCaptured
+    const inTok = meta.input_tokens ?? 0
+    const outTok = meta.output_tokens ?? 0
+    const footer = `\n\n---\n_AIO Search: ${meta.matched_hsls} HSLs matched · ${meta.matched_aios} AIOs in context · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
+    const finalText = acc + footer
+    setChatMessages((prev) => {
+      const last = prev[prev.length - 1]
+      if (!last || last.role !== "assistant") return prev
+      return [...prev.slice(0, -1), { ...last, content: finalText }]
+    })
+    setLastSearchMeta({
+      matched_hsls: meta.matched_hsls,
+      matched_aios: meta.matched_aios,
+      search_terms: typeof meta.search_terms === "string" ? meta.search_terms : JSON.stringify(meta.search_terms || {}),
+      seed_hsls: `${meta.matched_hsls} HSLs`,
+    })
+    setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "AIOSearch" })
+
+    const hslIds = meta.matched_hsl_ids ?? []
+    const mroKey = `AIOSearch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    createMroObject({
+      mro_key: mroKey,
+      query_text: text,
+      intent: "aio-search",
+      seed_hsls: hslIds.join("|"),
+      matched_aios_count: meta.matched_aios,
+      search_terms: meta.search_terms as Record<string, unknown>,
+      result_text: acc,
+      confidence: "0.75",
+      policy_scope: "default",
+    }).then((mro) => {
+      if (mro?.mro_id && hslIds.length > 0) {
+        Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, mro.mro_id))).catch(() => {})
+      }
+    }).catch(() => {})
+
+    createChatStat({
+      search_mode: "AIOSearch", query_text: text,
+      result_preview: acc.slice(0, 500),
+      elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
+      total_tokens: inTok + outTok, context_records: meta.context_records ?? 0,
+      matched_hsls: meta.matched_hsls, matched_aios: meta.matched_aios,
+      cue_count: 0, neighborhood_size: 0, prior_count: 0, mro_saved: hslIds.length > 0,
+    }).catch(() => {})
   }, [chatInput, chatMessages, isChatLoading])
 
   const handleSubstrateSearch = useCallback(async () => {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
     const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
-    setChatMessages(next)
+    // Push user message + empty assistant placeholder for streaming.
+    setChatMessages([...next, { role: "assistant", content: "" }])
     setChatInput("")
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
     setIsChatLoading(true)
@@ -429,6 +456,13 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       saveMRO: true,
       cachedMros: substrateCache?.mros,
       hsls: substrateHsls,
+      onChunk: (chunk) => {
+        setChatMessages((prev) => {
+          const last = prev[prev.length - 1]
+          if (!last || last.role !== "assistant") return prev
+          return [...prev.slice(0, -1), { ...last, content: last.content + chunk }]
+        })
+      },
     })
     const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
@@ -463,18 +497,29 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         cue_count: result.cost.cues, neighborhood_size: result.cost.neighborhood,
         prior_count: result.cost.priors, mro_saved: result.mro_saved,
       }).catch(() => {})
-      // Refresh MRO cache so the newly saved MRO is available as a prior next query
+      // Refresh MRO cache (summary mode again) so the newly saved MRO is
+      // available as a prior next query
       if (result.mro_saved) {
-        listMroObjects().then((mros) => setSubstrateCache({ mros })).catch(() => {})
+        listMroObjects(5000, { summary: true })
+          .then((mros) => setSubstrateCache({ mros }))
+          .catch(() => {})
 
-        // Link the new MRO into HSLs that contain its cue values,
-        // so future AIO Search traversals also surface this MRO as prior context
-        if (result.mro_id && result.cue_values.length > 0) {
-          findHslsByNeedles(result.cue_values).then((hslIds) => {
-            if (hslIds.length > 0) {
-              Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, result.mro_id!))).catch(() => {})
-            }
-          }).catch(() => {})
+        // Back-link the new MRO into the HSLs that contributed to this
+        // bundle. matched_hsl_ids comes from the in-memory pipeline
+        // (getMatchedHslIds) — no server round-trip, no duplicate ILIKE
+        // scan. Fallback to findHslsByNeedles only if HSLs weren't loaded.
+        if (result.mro_id) {
+          if (result.matched_hsl_ids.length > 0) {
+            Promise.all(result.matched_hsl_ids.map((hslId) =>
+              linkMroToHsl(hslId, result.mro_id!),
+            )).catch(() => {})
+          } else if (result.cue_values.length > 0) {
+            findHslsByNeedles(result.cue_values).then((hslIds) => {
+              if (hslIds.length > 0) {
+                Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, result.mro_id!))).catch(() => {})
+              }
+            }).catch(() => {})
+          }
         }
       }
     }
@@ -697,7 +742,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                     <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
                       <li><span className="font-medium text-purple-600 font-semibold">Substrate</span> (purple, leftmost) is the default — press <span className="font-medium text-foreground">Enter</span> to run it. Fastest, cheapest, auto-saves MRO</li>
                       <li>Use <span className="font-medium text-foreground">AIO Search</span> when asking about specific people, projects, or entities</li>
-                      <li>Use <span className="font-medium text-foreground">CSV->LLM Raw</span> as the control case — standard Claude with the raw saved CSVs only (no AIO/HSL machinery)</li>
+                      <li>Use <span className="font-medium text-foreground">CSV→LLM Raw</span> as the control case — standard Claude with the raw saved CSVs only (no AIO/HSL machinery)</li>
                       <li>Use <span className="font-medium text-foreground">Blind Dump AIO/HSL</span> only for exploratory questions — NO retrieval, just dumps the first 300 AIOs + 10 HSLs at Claude unfiltered (slow, token-heavy)</li>
                       <li>ChatAIO requires a valid Anthropic API key configured in System Admin → API Key</li>
                       <li>Responses include markdown tables when relevant — they render as formatted tables in the chat</li>
@@ -833,8 +878,8 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
               <Button size="sm" variant="outline" onClick={handleAioSearch} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Search HSL library first, then answer with matching AIOs only">
                 <Search className="w-4 h-4" />AIO Search
               </Button>
-              <Button size="sm" variant="outline" onClick={handlePureLlm} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="CSV->LLM Raw: standard Claude prompt with the raw saved CSV files as context (no AIO/HSL/MRO machinery — control case)">
-                <Sparkles className="w-4 h-4" />CSV->LLM Raw
+              <Button size="sm" variant="outline" onClick={handlePureLlm} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="CSV→LLM Raw: standard Claude prompt with the raw saved CSV files as context (no AIO/HSL/MRO machinery — control case)">
+                <Sparkles className="w-4 h-4" />CSV→LLM Raw
               </Button>
               <Button size="sm" variant="outline" onClick={handleSend} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Blind Dump AIO/HSL: NO retrieval — ships the first 300 AIOs + 10 HSLs from the DB to Claude with no relevance filtering. Slow and token-heavy.">
                 <Send className="w-4 h-4" />Blind Dump AIO/HSL

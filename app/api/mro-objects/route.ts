@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 
 const API_BASE = process.env.API_BASE ?? "http://localhost:8000"
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const res = await fetch(`${API_BASE}/v1/mro-objects`)
+    const qs = request.nextUrl.search // includes leading "?" or ""
+    const res = await fetch(`${API_BASE}/v1/mro-objects${qs}`)
     const data = await res.json()
     return NextResponse.json(data, { status: res.status })
   } catch {

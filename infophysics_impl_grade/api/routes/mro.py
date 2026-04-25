@@ -62,18 +62,63 @@ def _mro_from_row(r):
 @router.get("/v1/mro-objects", response_model=List[MroObjectOut])
 def list_mro_objects(
     limit: int = Query(5000, ge=1, le=100000),
+    summary: bool = Query(False, description="When true, omit heavy fields (result_text, context_bundle)"),
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
 ):
+    """List MROs ordered by recency.
+
+    summary=true returns only the fields needed for prior ranking
+    (cue_set / search_terms, confidence, created_at) and replaces
+    ``result_text`` and ``context_bundle`` with empty strings — cuts
+    payload size ~80% on corpora with long answers. Callers fetch the
+    full record by id once they pick which priors to actually use.
+    """
+    tenant = x_tenant_id or "tenantA"
+    if summary:
+        # Lightweight projection: skip the two large free-text columns.
+        cols = "mro_id, mro_key, query_text, intent, seed_hsls, matched_aios_count, search_terms, confidence, policy_scope, tenant_id, created_at, updated_at"
+    else:
+        cols = _MRO_SELECT
+    with db() as conn:
+        set_tenant(conn, tenant)
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {cols} FROM mro_objects ORDER BY updated_at DESC LIMIT %s",
+                (limit,),
+            )
+            rows = cur.fetchall()
+    if summary:
+        out: List[MroObjectOut] = []
+        for r in rows:
+            out.append(MroObjectOut(
+                mro_id=r[0], mro_key=r[1], query_text=r[2], intent=r[3], seed_hsls=r[4],
+                matched_aios_count=r[5], search_terms=r[6],
+                result_text="", context_bundle=None,
+                confidence=r[7], policy_scope=r[8], tenant_id=r[9],
+                created_at=r[10], updated_at=r[11],
+            ))
+        return out
+    return [_mro_from_row(r) for r in rows]
+
+
+@router.get("/v1/mro-objects/{mro_id}", response_model=MroObjectOut)
+def get_mro_object(
+    mro_id: str,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Fetch a single MRO with all heavy fields populated."""
     tenant = x_tenant_id or "tenantA"
     with db() as conn:
         set_tenant(conn, tenant)
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT {_MRO_SELECT} FROM mro_objects ORDER BY updated_at DESC LIMIT %s",
-                (limit,),
+                f"SELECT {_MRO_SELECT} FROM mro_objects WHERE mro_id = %s",
+                (mro_id,),
             )
-            rows = cur.fetchall()
-    return [_mro_from_row(r) for r in rows]
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="MRO object not found")
+    return _mro_from_row(row)
 
 
 @router.post("/v1/mro-objects", response_model=MroObjectOut, status_code=201)

@@ -189,6 +189,108 @@ export async function aioSearchChat(messages: ChatMessage[]): Promise<AioSearchR
   }
 }
 
+// ── Streaming variants (SSE) ──────────────────────────────────────────────
+// The /stream endpoints emit Server-Sent Events:
+//   event: text\n data: <json string>\n\n   — token chunks
+//   event: meta\n data: <json>\n\n           — final metadata
+//   event: error\n data: <json>\n\n          — fatal error (terminates)
+//
+// `consumeSSE` reads them via the Fetch streams API and dispatches to the
+// supplied callbacks. We don't depend on EventSource because EventSource
+// only supports GET — our endpoints are POST.
+
+interface SSECallbacks<MetaT> {
+  onText: (chunk: string) => void
+  onMeta?: (meta: MetaT) => void
+  onError?: (err: string) => void
+}
+
+async function consumeSSE<MetaT>(
+  url: string,
+  body: unknown,
+  cb: SSECallbacks<MetaT>,
+): Promise<void> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok || !res.body) {
+    cb.onError?.(`HTTP ${res.status}`)
+    return
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ""
+  // SSE messages are separated by a blank line ("\n\n"). Each message
+  // can have multiple lines (event:, data:, id:, retry:). We collect
+  // messages by splitting on blank-line and then parse each.
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let sep: number
+    while ((sep = buf.indexOf("\n\n")) !== -1) {
+      const raw = buf.slice(0, sep)
+      buf = buf.slice(sep + 2)
+      let event = "message"
+      const dataLines: string[] = []
+      for (const line of raw.split("\n")) {
+        if (line.startsWith("event:")) event = line.slice(6).trim()
+        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim())
+      }
+      if (dataLines.length === 0) continue
+      const data = dataLines.join("\n")
+      try {
+        const parsed = JSON.parse(data)
+        if (event === "text") cb.onText(typeof parsed === "string" ? parsed : String(parsed))
+        else if (event === "meta") cb.onMeta?.(parsed as MetaT)
+        else if (event === "error") cb.onError?.(parsed?.error ?? "unknown error")
+      } catch {
+        // Treat unparseable text events as raw strings.
+        if (event === "text") cb.onText(data)
+      }
+    }
+  }
+}
+
+export interface AioSearchStreamMeta {
+  model_ref: string
+  context_records: number
+  matched_hsls: number
+  matched_aios: number
+  matched_hsl_ids: string[]
+  search_terms: Record<string, unknown>
+  input_tokens: number
+  output_tokens: number
+}
+
+export async function aioSearchChatStream(
+  messages: ChatMessage[],
+  cb: SSECallbacks<AioSearchStreamMeta>,
+): Promise<void> {
+  await consumeSSE<AioSearchStreamMeta>("/api/op/aio-search/stream", { messages }, cb)
+}
+
+interface SubstrateStreamMeta {
+  model_ref: string
+  context_records: number
+  input_tokens: number
+  output_tokens: number
+}
+
+export async function substrateChatWithAIOStream(
+  messages: ChatMessage[],
+  contextBundle: string,
+  cb: SSECallbacks<SubstrateStreamMeta>,
+): Promise<void> {
+  await consumeSSE<SubstrateStreamMeta>(
+    "/api/op/substrate-chat/stream",
+    { messages, context_bundle: contextBundle },
+    cb,
+  )
+}
+
 // Substrate Chat — focused LLM call using client-assembled context bundle only
 export async function substrateChatWithAIO(
   messages: ChatMessage[],
@@ -553,9 +655,18 @@ export interface MroObject {
   updated_at: string
 }
 
-export async function listMroObjects(limit: number = 5000): Promise<MroObject[]> {
-  const result = await safeFetch<MroObject[]>(`/api/mro-objects?limit=${limit}`)
+export async function listMroObjects(
+  limit: number = 5000,
+  opts: { summary?: boolean } = {},
+): Promise<MroObject[]> {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (opts.summary) qs.set("summary", "true")
+  const result = await safeFetch<MroObject[]>(`/api/mro-objects?${qs.toString()}`)
   return result ?? []
+}
+
+export async function getMroObject(mroId: string): Promise<MroObject | null> {
+  return safeFetch<MroObject>(`/api/mro-objects/${mroId}`)
 }
 
 export async function createMroObject(data: {

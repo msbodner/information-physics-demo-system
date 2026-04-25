@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import unquote
 
 from fastapi import APIRouter, File, Header, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.db import db, set_tenant
@@ -355,9 +356,14 @@ def pure_llm(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, ali
     )
 
 
-@router.post("/v1/op/aio-search", response_model=AioSearchResponse)
-def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id")):
-    """Four-phase search algebra: parse → match HSLs → gather AIOs → answer."""
+def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dict[str, Any]:
+    """Phases 1–3 of AIO Search: parse → match HSLs → gather AIOs.
+
+    Shared by the JSON and SSE endpoints so the streaming path doesn't
+    duplicate ~350 lines of retrieval logic. Returns a dict containing
+    the assembled `answer_system` prompt plus all metadata that the
+    response (or final SSE meta event) needs.
+    """
     api_key = get_effective_api_key()
     if not api_key:
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
@@ -742,16 +748,45 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     else:
         answer_system += "\n\nNo matching AIO records were found for this query."
 
+    return {
+        "api_key": api_key,
+        "answer_system": answer_system,
+        "search_terms": search_terms,
+        "matched_hsl_ids": matched_hsl_ids,
+        "matched_hsl_count": len(matched_hsl_rows),
+        "matched_aio_count": len(matched_aio_lines),
+        "parse_in_tok": parse_in_tok,
+        "parse_out_tok": parse_out_tok,
+    }
+
+
+@router.post("/v1/op/aio-search", response_model=AioSearchResponse)
+def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id")):
+    """Four-phase search algebra: parse → match HSLs → gather AIOs → answer."""
+    prep = _aio_search_prepare(payload, x_tenant_id)
+
+    # Prompt caching: marking the assembled system prompt as ephemeral
+    # gives a 90% input-token discount on cache hits within ~5 min.
     try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=prep["api_key"])
         answer_response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=2048,
-            system=answer_system,
+            system=[{
+                "type": "text",
+                "text": prep["answer_system"],
+                "cache_control": {"type": "ephemeral"},
+            }],
             messages=[{"role": m.role, "content": m.content} for m in payload.messages],
         )
         reply_text = answer_response.content[0].text
         ans_in_tok = getattr(answer_response.usage, "input_tokens", 0) or 0
         ans_out_tok = getattr(answer_response.usage, "output_tokens", 0) or 0
+        cache_read = getattr(answer_response.usage, "cache_read_input_tokens", 0) or 0
+        cache_create = getattr(answer_response.usage, "cache_creation_input_tokens", 0) or 0
+        if cache_read or cache_create:
+            logger.info("aio-search cache: read=%d create=%d", cache_read, cache_create)
     except Exception as exc:
         logger.exception("Anthropic API error during AIO search answer")
         raise HTTPException(status_code=502, detail=f"LLM error: {str(exc)}")
@@ -759,13 +794,13 @@ def aio_search(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, a
     return AioSearchResponse(
         reply=reply_text,
         model_ref="claude-sonnet-4-6",
-        context_records=len(matched_aio_lines),
-        matched_hsls=len(matched_hsl_rows),
-        matched_aios=len(matched_aio_lines),
-        matched_hsl_ids=matched_hsl_ids,
-        search_terms=search_terms,
-        input_tokens=parse_in_tok + ans_in_tok,
-        output_tokens=parse_out_tok + ans_out_tok,
+        context_records=prep["matched_aio_count"],
+        matched_hsls=prep["matched_hsl_count"],
+        matched_aios=prep["matched_aio_count"],
+        matched_hsl_ids=prep["matched_hsl_ids"],
+        search_terms=prep["search_terms"],
+        input_tokens=prep["parse_in_tok"] + ans_in_tok,
+        output_tokens=prep["parse_out_tok"] + ans_out_tok,
     )
 
 
@@ -885,12 +920,20 @@ def substrate_chat(
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=2048,
-            system=system,
+            system=[{
+                "type": "text",
+                "text": system,
+                "cache_control": {"type": "ephemeral"},
+            }],
             messages=[{"role": m.role, "content": m.content} for m in payload.messages],
         )
         reply_text = response.content[0].text
         in_tok = getattr(response.usage, "input_tokens", 0) or 0
         out_tok = getattr(response.usage, "output_tokens", 0) or 0
+        cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+        cache_create = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+        if cache_read or cache_create:
+            logger.info("substrate-chat cache: read=%d create=%d", cache_read, cache_create)
     except Exception as exc:
         logger.exception("Anthropic API error during substrate chat")
         raise HTTPException(status_code=502, detail=f"LLM error: {str(exc)}")
@@ -902,3 +945,148 @@ def substrate_chat(
         input_tokens=in_tok,
         output_tokens=out_tok,
     )
+
+
+# ---------------------------------------------------------------------------
+# Streaming variants — Server-Sent Events
+# ---------------------------------------------------------------------------
+# Wire format (one event per line, each terminated by `\n\n`):
+#   event: text\n  data: <json string of chunk>\n\n
+#   event: meta\n  data: <json with usage/metadata>\n\n
+#   event: error\n data: <json {"error": "..."}>\n\n
+#
+# The two consumers (aio-search/stream, substrate-chat/stream) emit text
+# events while the model streams, then a single meta event when usage is
+# finalized. AIO Search's meta event also carries matched_hsl_ids /
+# search_terms / record counts so the dialog can populate the same UI it
+# does for the non-streaming response.
+
+def _sse(event: str, data: dict | str) -> bytes:
+    payload = json.dumps(data) if not isinstance(data, str) else json.dumps(data)
+    return f"event: {event}\ndata: {payload}\n\n".encode("utf-8")
+
+
+@router.post("/v1/op/substrate-chat/stream")
+def substrate_chat_stream(
+    payload: SubstrateChatRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Streaming variant of substrate-chat. Same prompt, SSE wire format."""
+    api_key = get_effective_api_key()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
+    if not payload.messages:
+        raise HTTPException(status_code=400, detail="messages must not be empty")
+
+    system = (
+        "You are ChatAIO, an intelligent analyst for Information Physics data. "
+        "You have been given a PRECOMPUTED SEMANTIC SUBSTRATE assembled by the "
+        "Paper III pipeline: deterministic cue extraction, bounded HSL neighborhood "
+        "traversal, and Jaccard-ranked MRO pre-fetch. "
+        "The substrate contains three evidence tiers:\n"
+        "  TIER 1 — Prior retrieval episodes (MRO priors): use as framing only\n"
+        "  TIER 2 — HSL neighborhoods traversed\n"
+        "  TIER 3 — Direct AIO evidence: use this to ground every claim\n\n"
+        "Rules: Re-ground every claim in Tier 3 AIO evidence. "
+        "Cite AIO filenames when referencing a record. "
+        "If the evidence is insufficient, say so clearly.\n\n"
+        + payload.context_bundle
+    )
+
+    def gen():
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=api_key)
+            with client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=2048,
+                system=[{
+                    "type": "text",
+                    "text": system,
+                    "cache_control": {"type": "ephemeral"},
+                }],
+                messages=[{"role": m.role, "content": m.content} for m in payload.messages],
+            ) as stream:
+                for text in stream.text_stream:
+                    if text:
+                        yield _sse("text", text)
+                final = stream.get_final_message()
+                in_tok = getattr(final.usage, "input_tokens", 0) or 0
+                out_tok = getattr(final.usage, "output_tokens", 0) or 0
+                cache_read = getattr(final.usage, "cache_read_input_tokens", 0) or 0
+                cache_create = getattr(final.usage, "cache_creation_input_tokens", 0) or 0
+                if cache_read or cache_create:
+                    logger.info("substrate-chat-stream cache: read=%d create=%d", cache_read, cache_create)
+                yield _sse("meta", {
+                    "model_ref": "claude-sonnet-4-6",
+                    "context_records": 0,
+                    "input_tokens": in_tok,
+                    "output_tokens": out_tok,
+                })
+        except Exception as exc:
+            logger.exception("Anthropic streaming error during substrate-chat")
+            yield _sse("error", {"error": f"LLM error: {str(exc)}"})
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
+@router.post("/v1/op/aio-search/stream")
+def aio_search_stream(
+    payload: ChatRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Streaming variant of AIO Search. Phases 1–3 run synchronously
+    (they're DB-bound, no user-visible delay benefit from streaming).
+    Phase 4 (synthesis) is streamed token-by-token as SSE `text` events;
+    the final `meta` event carries token counts and search metadata.
+    """
+    # Phases 1–3: prep is fully synchronous. Doing it before we open the
+    # SSE stream lets us 502 cleanly on prep failure instead of having to
+    # surface errors mid-stream.
+    prep = _aio_search_prepare(payload, x_tenant_id)
+
+    def gen():
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=prep["api_key"])
+            with client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=2048,
+                system=[{
+                    "type": "text",
+                    "text": prep["answer_system"],
+                    "cache_control": {"type": "ephemeral"},
+                }],
+                messages=[{"role": m.role, "content": m.content} for m in payload.messages],
+            ) as stream:
+                for text in stream.text_stream:
+                    if text:
+                        yield _sse("text", text)
+                final = stream.get_final_message()
+                ans_in_tok = getattr(final.usage, "input_tokens", 0) or 0
+                ans_out_tok = getattr(final.usage, "output_tokens", 0) or 0
+                cache_read = getattr(final.usage, "cache_read_input_tokens", 0) or 0
+                cache_create = getattr(final.usage, "cache_creation_input_tokens", 0) or 0
+                if cache_read or cache_create:
+                    logger.info("aio-search-stream cache: read=%d create=%d", cache_read, cache_create)
+                yield _sse("meta", {
+                    "model_ref": "claude-sonnet-4-6",
+                    "context_records": prep["matched_aio_count"],
+                    "matched_hsls": prep["matched_hsl_count"],
+                    "matched_aios": prep["matched_aio_count"],
+                    "matched_hsl_ids": prep["matched_hsl_ids"],
+                    "search_terms": prep["search_terms"],
+                    "input_tokens": prep["parse_in_tok"] + ans_in_tok,
+                    "output_tokens": prep["parse_out_tok"] + ans_out_tok,
+                })
+        except Exception as exc:
+            logger.exception("Anthropic streaming error during aio-search")
+            yield _sse("error", {"error": f"LLM error: {str(exc)}"})
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })

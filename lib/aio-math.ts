@@ -75,6 +75,40 @@ export interface ContextBundle {
 export interface HslLite {
   hsl_name: string
   elements: (string | null | undefined)[]  // AIO-name refs + optional [MRO.*]
+  /** Optional UUID — when present, getMatchedHslIds() can return ids
+   *  for back-linking newly-saved MROs into the same HSLs that fed
+   *  the substrate retrieval. */
+  hsl_id?: string
+}
+
+/**
+ * Return the HSL ids whose names contain at least one cue value.
+ *
+ * Mirrors the substring-match logic of computeHslBoost so callers can
+ * back-link a newly-saved MRO into exactly the HSLs that contributed to
+ * the bundle — without round-tripping the server for a duplicate
+ * needle scan (avoids the 100-column ILIKE re-hit that
+ * /v1/hsl-data/find-by-needles otherwise performs).
+ *
+ * Only HSLs that supply an `hsl_id` are considered.
+ */
+export function getMatchedHslIds(
+  cueSet: ElementCue[],
+  hsls: HslLite[],
+): string[] {
+  if (cueSet.length === 0 || hsls.length === 0) return []
+  const cueValues = cueSet
+    .map((c) => c.value?.toLowerCase())
+    .filter((v): v is string => !!v && v.length >= 2)
+  if (cueValues.length === 0) return []
+  const out: string[] = []
+  for (const hsl of hsls) {
+    if (!hsl.hsl_id) continue
+    const name = (hsl.hsl_name || "").toLowerCase()
+    if (!name) continue
+    if (cueValues.some((v) => name.includes(v))) out.push(hsl.hsl_id)
+  }
+  return out
 }
 
 /**
