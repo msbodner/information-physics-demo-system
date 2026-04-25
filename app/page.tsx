@@ -21,7 +21,7 @@ import { createIO, listIOs, createAioData, loginUser, type IORecord, type LoginR
 import {
   Database, ArrowRight, Layers, Cpu, Globe, BookOpen, FileText, Zap,
   Settings, FileSpreadsheet, LogOut, Lock, Eye, EyeOff, MessageSquare,
-  Upload, Brain, Loader2, Atom, BarChart2, ArrowLeft,
+  Upload, Brain, Loader2, BarChart2, ArrowLeft,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -299,7 +299,7 @@ export default function HomePage() {
                 <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
                   <Database className="w-5 h-5 text-primary-foreground" />
                 </div>
-                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.1</h1>
+                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.2</h1>
               </div>
               <div className="flex items-center gap-3">
                 <BackendStatusBadge />
@@ -323,7 +323,7 @@ export default function HomePage() {
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-900 text-white text-sm font-medium mb-6">
               <Globe className="w-4 h-4" />Information Physics Standard Model
             </div>
-            <h2 className="text-4xl font-bold text-foreground mb-2">AIO/HSL/MRO Demo System V4.1</h2>
+            <h2 className="text-4xl font-bold text-foreground mb-2">AIO/HSL/MRO Demo System V4.2</h2>
             <p className="text-lg text-muted-foreground mb-2">by InformationPhysics.ai</p>
             <p className="text-lg text-muted-foreground mb-10">
               Transform your CSV data into Associated Information Objects (AIOs) — the fundamental unit of information in the new Information Physics Standard Model.
@@ -346,11 +346,6 @@ export default function HomePage() {
             {backendIsOnline && (
               <Button size="lg" variant="outline" onClick={() => setShowHomeChatAIO(true)} className="gap-2 px-8">
                 <MessageSquare className="w-4 h-4" />ChatAIO
-              </Button>
-            )}
-            {backendIsOnline && (
-              <Button size="lg" variant="outline" onClick={() => setCurrentView("rnd")} className="gap-2 px-8">
-                <Atom className="w-4 h-4" />R &amp; D
               </Button>
             )}
             {backendIsOnline && (
@@ -471,7 +466,7 @@ export default function HomePage() {
             <button onClick={() => { setCurrentView("home"); handleClear() }} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
               <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center"><Database className="w-5 h-5 text-primary-foreground" /></div>
               <div className="text-left">
-                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.1</h1>
+                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.2</h1>
                 <p className="text-xs text-muted-foreground">by InformationPhysics.ai</p>
               </div>
             </button>

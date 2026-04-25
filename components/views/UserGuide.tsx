@@ -13,7 +13,7 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
     { id: "csv-converter", label: "CSV Converter", icon: FileText },
     { id: "hsp", label: "Hyper-Semantic Processor", icon: Cpu },
     { id: "hsl", label: "HSL — Creating & Viewing", icon: Layers },
-    { id: "substrate", label: "Substrate Mode (V4.1)", icon: Brain },
+    { id: "substrate", label: "Substrate Mode (V4.2)", icon: Brain },
     { id: "aio-hsl-structure", label: "AIO Body & HSL String", icon: GitMerge },
     { id: "mro-topology", label: "MRO Topology Diagram", icon: Network },
     { id: "system-admin", label: "System Admin", icon: Settings },
@@ -51,10 +51,10 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
 
             {/* ── OVERVIEW ── */}
             {activeSection === "overview" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />Overview — AIO/HSL/MRO Demo System V4.1</CardTitle></CardHeader>
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />Overview — AIO/HSL/MRO Demo System V4.2</CardTitle></CardHeader>
               <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p>AIO/HSL/MRO Demo System V4.1 converts CSV files into <strong>Associated Information Objects (AIOs)</strong> — the fundamental unit of the Information Physics Standard Model. Each CSV row becomes a single self-describing AIO string, stored in a PostgreSQL database and searchable through the Hyper-Semantic Processor.</p>
-                <p><strong>New in V4.1: Substrate Mode.</strong> ChatAIO now implements the full Paper III pipeline — deterministic cue extraction, bounded HSL neighborhood traversal, Jaccard-ranked MRO pre-fetch, and automatic MRO capture. The AIO/HSL/MRO substrate replaces traditional RAG + Medallion Gold curation as Claude&apos;s retrieval layer. See the <strong>Substrate Mode</strong> section in this guide.</p>
+                <p>AIO/HSL/MRO Demo System V4.2 converts CSV files into <strong>Associated Information Objects (AIOs)</strong> — the fundamental unit of the Information Physics Standard Model. Each CSV row becomes a single self-describing AIO string, stored in a PostgreSQL database and searchable through the Hyper-Semantic Processor.</p>
+                <p><strong>New in V4.2: Substrate Mode.</strong> ChatAIO now implements the full Paper III pipeline — deterministic cue extraction, bounded HSL neighborhood traversal, Jaccard-ranked MRO pre-fetch, and automatic MRO capture. The AIO/HSL/MRO substrate replaces traditional RAG + Medallion Gold curation as Claude&apos;s retrieval layer. See the <strong>Substrate Mode</strong> section in this guide.</p>
                 <h4 className="text-foreground font-medium mt-4">What the app does</h4>
                 <ol className="list-decimal list-inside space-y-2">
                   <li><strong>Convert</strong> — Upload CSVs; every row becomes an AIO bracketstring.</li>
@@ -221,11 +221,11 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
               </CardContent></Card>
             )}
 
-            {/* ── SUBSTRATE MODE (V4.1) ── */}
+            {/* ── SUBSTRATE MODE (V4.2) ── */}
             {activeSection === "substrate" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Brain className="w-5 h-5 text-purple-600" />Substrate Mode — Claude Answers Grounded in the AIO/HSL/MRO Substrate</CardTitle></CardHeader>
               <CardContent className="space-y-5 text-sm text-muted-foreground leading-relaxed">
-                <p>V4.1 introduces <strong>Substrate Mode</strong> in the ChatAIO dialog — one of four retrieval modes alongside <strong>CSV→LLM Raw</strong> (raw CSVs, no IP machinery), <strong>Blind Dump AIO/HSL</strong> (broad AIO/HSL dump), and <strong>AIO Search</strong> (HSL-guided four-phase). It implements the full five-step pipeline from <em>Paper III: Precomputed Semantic Substrates for Large Language Models</em>, using your stored AIOs, HSL neighborhoods, and prior Memory Result Objects (MROs) as a direct replacement for traditional Retrieval-Augmented Generation.</p>
+                <p>V4.2 introduces <strong>Substrate Mode</strong> in the ChatAIO dialog — one of four retrieval modes alongside <strong>CSV→LLM Raw</strong> (raw CSVs, no IP machinery), <strong>Blind Dump AIO/HSL</strong> (broad AIO/HSL dump), and <strong>AIO Search</strong> (HSL-guided four-phase). It implements the full five-step pipeline from <em>Paper III: Precomputed Semantic Substrates for Large Language Models</em>, using your stored AIOs, HSL neighborhoods, and prior Memory Result Objects (MROs) as a direct replacement for traditional Retrieval-Augmented Generation.</p>
 
                 <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
                   <p className="text-purple-800 dark:text-purple-200 text-xs leading-relaxed">

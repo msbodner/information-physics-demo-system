@@ -49,7 +49,7 @@ export function PaperIII({ onBack, onSysAdmin }: { onBack: () => void; onSysAdmi
             <CardContent className="text-sm leading-relaxed text-muted-foreground space-y-3">
               <p>This paper proposes that the AIO → HSL → MRO pipeline introduced in the prior two Information Physics papers can serve as a direct structural replacement for traditional Retrieval-Augmented Generation (RAG) pipelines and Medallion-style Bronze/Silver/Gold data curation layers when preparing context for Large Language Models such as Claude.</p>
               <p>Where RAG retrieves semantically similar chunks by approximate vector search over a flat corpus, the Information Physics architecture traverses a precomputed topology of shared semantic elements. Where Medallion Gold presents a statically curated, batch-refreshed set of analytic tables, the MRO layer enables recursive, self-enriching episodic memory that is updated by every successful query.</p>
-              <p>We describe the layer-by-layer mapping, the mathematical differences between traversal-based retrieval and similarity-based retrieval, and a concrete five-step procedure for assembling Claude-ready context bundles. This procedure is now implemented in the AIO/HSL/MRO Demo System V4.1 ChatAIO &quot;Substrate&quot; mode.</p>
+              <p>We describe the layer-by-layer mapping, the mathematical differences between traversal-based retrieval and similarity-based retrieval, and a concrete five-step procedure for assembling Claude-ready context bundles. This procedure is now implemented in the AIO/HSL/MRO Demo System V4.2 ChatAIO &quot;Substrate&quot; mode.</p>
             </CardContent>
           </Card>
 
@@ -107,7 +107,7 @@ HSL traversal:
             <Sub title="Step 5 — MRO capture">Persist the query, cues, traversal path, and response as a new MRO linked back to contributing HSLs.</Sub>
           </Section>
 
-          <Section num={7} title="Implementation in V4.1">
+          <Section num={7} title="Implementation in V4.2">
             <p>The Substrate mode is implemented in three new modules:</p>
             <Sub title="lib/aio-math.ts">Core mathematics: cue extraction, HSL traversal (set intersection), Jaccard similarity, exponential freshness decay, MRO ranking, and tiered bundle assembly.</Sub>
             <Sub title="lib/aio-chat-pipeline.ts">Orchestration layer: runs the five-step pipeline end-to-end, calls Claude with the assembled bundle, and persists the captured MRO.</Sub>
@@ -117,7 +117,7 @@ HSL traversal:
 
           <Section num={8} title="Conclusion">
             <p>Traditional RAG fed by Medallion curation is workable but lossy. The AIO/HSL/MRO architecture implements the same function on different structural principles: encoding-specific capture, precomputed topology, recursive episodic enrichment. The substrate is exact on the dimensions that matter, bounded in per-query cost, fully provenant, and self-improving through use.</p>
-            <p>With V4.1 and Substrate Mode, the substrate is now live. Claude reads from it natively.</p>
+            <p>With V4.2 and Substrate Mode, the substrate is now live. Claude reads from it natively.</p>
           </Section>
 
           <section className="mb-8">

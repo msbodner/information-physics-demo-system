@@ -6,7 +6,7 @@ import {
   ArrowLeft, Plus, Pencil, Trash2, Eye, EyeOff, Save,
   Users, Key, Loader2, ShieldCheck, User, Lock, FileSpreadsheet, FileText,
   Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network, BarChart2, LayoutGrid,
-  BookOpen, Cpu, Brain, Library,
+  BookOpen, Cpu, Brain, Library, Printer, AlertTriangle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -409,9 +409,195 @@ function RolesPane() {
   )
 }
 
-// ── AIO Data Pane ──────────────────────────────────────────────────
+// ── AIO Edit Dialog ────────────────────────────────────────────────
+//
+// Edit mode shows ONLY the non-empty element rows (one per line, full width)
+// with a click-to-edit unlock pattern. The first time the user tries to
+// edit an element, a confirm dialog warns about provenance/preservation;
+// subsequent edits in the same session don't re-prompt.
+//
+// Add mode keeps the original 50-field form so a new record can be filled
+// from scratch.
 
 const AIO_COUNT = 50
+
+interface AioEditDialogProps {
+  open: boolean
+  mode: "add" | "edit"
+  formName: string
+  formElements: (string | null)[]
+  filledCount: number
+  isSaving: boolean
+  onClose: () => void
+  onChangeName: (v: string) => void
+  onChangeElement: (i: number, v: string) => void
+  onSave: () => void
+}
+
+function AioEditDialog({
+  open, mode, formName, formElements, filledCount, isSaving,
+  onClose, onChangeName, onChangeElement, onSave,
+}: AioEditDialogProps) {
+  // Indices of non-empty elements when the dialog opened — we keep this
+  // stable so a row doesn't disappear from view as soon as the user
+  // starts editing it (and types into an empty intermediate state).
+  const [visibleIdx, setVisibleIdx] = useState<number[]>([])
+  // Set of element indices the user has unlocked for editing.
+  const [unlocked, setUnlocked] = useState<Set<number>>(new Set())
+  // Pending unlock: which element to enable once the warning is acknowledged.
+  const [pendingUnlock, setPendingUnlock] = useState<number | null>(null)
+
+  // Recompute visible indices each time the dialog opens (or switches modes).
+  useEffect(() => {
+    if (!open) return
+    if (mode === "edit") {
+      const idx: number[] = []
+      for (let i = 0; i < formElements.length; i++) {
+        const v = formElements[i]
+        if (v !== null && v !== undefined && String(v).trim() !== "") idx.push(i)
+      }
+      setVisibleIdx(idx)
+      setUnlocked(new Set())
+    } else {
+      setVisibleIdx([])
+      setUnlocked(new Set())
+    }
+    setPendingUnlock(null)
+  }, [open, mode]) // intentionally not depending on formElements — view stable while editing
+
+  const confirmUnlock = useCallback(() => {
+    if (pendingUnlock !== null) {
+      setUnlocked((prev) => { const next = new Set(prev); next.add(pendingUnlock); return next })
+    }
+    setPendingUnlock(null)
+  }, [pendingUnlock])
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{mode === "add" ? "Add AIO Record" : "Edit AIO Record"}</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+            <div className="space-y-1">
+              <Label>AIO Name</Label>
+              <Input
+                value={formName}
+                onChange={(e) => onChangeName(e.target.value)}
+                placeholder="Record name..."
+              />
+            </div>
+
+            {mode === "edit" ? (
+              <div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  {visibleIdx.length} non-empty element{visibleIdx.length === 1 ? "" : "s"}
+                  {" "}({filledCount} of {AIO_COUNT} filled total). Click any row to edit.
+                </p>
+                {visibleIdx.length === 0 ? (
+                  <div className="text-sm text-muted-foreground italic py-6 text-center">
+                    This record has no filled elements.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {visibleIdx.map((i) => {
+                      const isUnlocked = unlocked.has(i)
+                      const value = formElements[i] ?? ""
+                      return (
+                        <div
+                          key={i}
+                          className={`group flex items-start gap-3 rounded-md border px-3 py-2 transition-colors ${
+                            isUnlocked
+                              ? "border-amber-400 bg-amber-50/40 dark:bg-amber-950/20"
+                              : "border-border bg-muted/20 hover:bg-muted/40 cursor-pointer"
+                          }`}
+                          onClick={() => { if (!isUnlocked) setPendingUnlock(i) }}
+                        >
+                          <span className="text-[10px] font-mono text-muted-foreground shrink-0 w-12 pt-1.5">
+                            #{i + 1}
+                          </span>
+                          {isUnlocked ? (
+                            <Input
+                              autoFocus
+                              value={value}
+                              onChange={(e) => onChangeElement(i, e.target.value)}
+                              className="h-8 text-sm flex-1 font-mono"
+                            />
+                          ) : (
+                            <span className="text-sm flex-1 break-all font-mono leading-6">
+                              {value}
+                            </span>
+                          )}
+                          {!isUnlocked && (
+                            <Pencil className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 mt-1 transition-opacity" />
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              // Add mode — original 50-field grid
+              <div>
+                <p className="text-xs text-muted-foreground mb-3">{filledCount} of {AIO_COUNT} elements filled</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {Array.from({ length: AIO_COUNT }, (_, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground w-24 shrink-0">Element {i + 1}</span>
+                      <Input
+                        value={formElements[i] ?? ""}
+                        onChange={(e) => onChangeElement(i, e.target.value)}
+                        placeholder={`Element ${i + 1}`}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="pt-4 border-t border-border">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button onClick={onSave} disabled={isSaving} className="gap-2">
+              {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+              {mode === "add" ? "Create" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Provenance warning — shown the first time the user tries to edit
+          an element in this session. Acknowledging unlocks just that row. */}
+      <Dialog open={pendingUnlock !== null} onOpenChange={(o) => { if (!o) setPendingUnlock(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="w-5 h-5" />
+              Edit element?
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-foreground py-2 leading-relaxed">
+            Use this only to fix errors. If you make changes here you are violating
+            preservation of truth and provenance.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingUnlock(null)}>Cancel</Button>
+            <Button
+              onClick={confirmUnlock}
+              className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              <Pencil className="w-4 h-4" />I understand — edit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+// ── AIO Data Pane ──────────────────────────────────────────────────
 
 function AioDataPane() {
   const [records, setRecords] = useState<AioDataRecord[]>([])
@@ -523,42 +709,18 @@ function AioDataPane() {
       )}
 
       {/* Add/Edit Dialog */}
-      <Dialog open={dialog.open} onOpenChange={(o) => setDialog((d) => ({ ...d, open: o }))}>
-        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>{dialog.mode === "add" ? "Add AIO Record" : "Edit AIO Record"}</DialogTitle>
-          </DialogHeader>
-          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
-            <div className="space-y-1">
-              <Label>AIO Name</Label>
-              <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Record name..." />
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-3">{filledCount} of {AIO_COUNT} elements filled</p>
-              <div className="grid grid-cols-2 gap-2">
-                {Array.from({ length: AIO_COUNT }, (_, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground w-24 shrink-0">Element {i + 1}</span>
-                    <Input
-                      value={formElements[i] ?? ""}
-                      onChange={(e) => setElem(i, e.target.value)}
-                      placeholder={`Element ${i + 1}`}
-                      className="h-7 text-xs"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="pt-4 border-t border-border">
-            <Button variant="outline" onClick={() => setDialog((d) => ({ ...d, open: false }))}>Cancel</Button>
-            <Button onClick={handleSave} disabled={isSaving} className="gap-2">
-              {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {dialog.mode === "add" ? "Create" : "Save Changes"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AioEditDialog
+        open={dialog.open}
+        mode={dialog.mode}
+        formName={formName}
+        formElements={formElements}
+        filledCount={filledCount}
+        isSaving={isSaving}
+        onClose={() => setDialog((d) => ({ ...d, open: false }))}
+        onChangeName={setFormName}
+        onChangeElement={setElem}
+        onSave={handleSave}
+      />
 
       {/* Delete Confirm */}
       <Dialog open={!!deleteConfirm} onOpenChange={(o) => !o && setDeleteConfirm(null)}>
@@ -1538,6 +1700,110 @@ export function SearchStatsPane() {
   }
   avgElapsed = totalSearches > 0 ? Math.round(avgElapsed / totalSearches) : 0
 
+  // ── Build a printable HTML document of the current view ──────────────
+  const buildPrintableHtml = useCallback((): string => {
+    const esc = (s: string) =>
+      String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    const modeLabel = (m: string) =>
+      m === "Send" ? "Blind Dump AIO/HSL"
+      : m === "PureLLM" ? "CSV→LLM Raw"
+      : m === "AIOSearch" ? "AIO Search"
+      : m === "Substrate" ? "Substrate"
+      : m
+    const rowsHtml = visible.map((s) => `
+      <tr>
+        <td>${esc(new Date(s.created_at).toLocaleString())}</td>
+        <td>${esc(modeLabel(s.search_mode))}</td>
+        <td class="query">${esc(s.query_text)}</td>
+        <td class="num">${(s.elapsed_ms ?? 0).toLocaleString()}</td>
+        <td class="num">${(s.input_tokens ?? 0).toLocaleString()}</td>
+        <td class="num">${(s.output_tokens ?? 0).toLocaleString()}</td>
+        <td class="num bold">${(s.total_tokens ?? 0).toLocaleString()}</td>
+        <td class="num">${s.matched_hsls || "—"}</td>
+        <td class="num">${s.matched_aios || s.neighborhood_size || "—"}</td>
+        <td class="num">${s.cue_count || "—"}</td>
+        <td class="center">${s.mro_saved ? "✓" : "—"}</td>
+      </tr>`).join("")
+
+    const filterLabel = filter === "All" ? "All modes" : modeLabel(filter)
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Search Stats — ${new Date().toLocaleDateString()}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 11px; color: #1a1a2e; padding: 32px; }
+    h1 { color: #0f3460; font-size: 20px; margin-bottom: 4px; }
+    .subtitle { color: #64748b; font-size: 11px; margin-bottom: 16px; }
+    .summary { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-bottom: 18px; }
+    .summary .card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; text-align: center; }
+    .summary .num { font-size: 16px; font-weight: 700; color: #0f3460; }
+    .summary .lbl { font-size: 9px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+    table { width: 100%; border-collapse: collapse; font-size: 10px; }
+    thead tr { background: #0f3460; color: white; }
+    thead th { padding: 6px 8px; text-align: left; font-weight: 600; border-right: 1px solid #1a4a7a; }
+    thead th.num, thead th.center { text-align: right; }
+    thead th.center { text-align: center; }
+    tbody tr { border-bottom: 1px solid #e2e8f0; }
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    tbody td { padding: 5px 8px; border-right: 1px solid #f1f5f9; vertical-align: top; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.bold { font-weight: 600; }
+    td.center { text-align: center; }
+    td.query { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+    @media print { body { padding: 16px; } }
+  </style>
+</head>
+<body>
+  <h1>ChatAIO Search Stats</h1>
+  <div class="subtitle">${esc(new Date().toLocaleString())} · ${visible.length} of ${stats.length} record${stats.length === 1 ? "" : "s"} (filter: ${esc(filterLabel)})</div>
+  <div class="summary">
+    <div class="card"><div class="num">${totalSearches}</div><div class="lbl">Total</div></div>
+    <div class="card"><div class="num">${byMode.Send ?? 0}</div><div class="lbl">Blind Dump</div></div>
+    <div class="card"><div class="num">${byMode.PureLLM ?? 0}</div><div class="lbl">CSV→LLM</div></div>
+    <div class="card"><div class="num">${byMode.AIOSearch ?? 0}</div><div class="lbl">AIO Search</div></div>
+    <div class="card"><div class="num">${byMode.Substrate ?? 0}</div><div class="lbl">Substrate</div></div>
+    <div class="card"><div class="num">${totalTokens.toLocaleString()}</div><div class="lbl">Tokens</div></div>
+    <div class="card"><div class="num">${(avgElapsed / 1000).toFixed(1)}s</div><div class="lbl">Avg Time</div></div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th><th>Mode</th><th>Query</th>
+        <th class="num">⏱ ms</th><th class="num">In</th><th class="num">Out</th><th class="num">Σ Tok</th>
+        <th class="num">HSLs</th><th class="num">AIOs</th><th class="num">Cues</th><th class="center">MRO</th>
+      </tr>
+    </thead>
+    <tbody>${rowsHtml || `<tr><td colspan="11" style="padding:16px;text-align:center;color:#94a3b8;">No records</td></tr>`}</tbody>
+  </table>
+</body>
+</html>`
+  }, [visible, stats.length, filter, totalSearches, byMode, totalTokens, avgElapsed])
+
+  const handlePrint = useCallback(() => {
+    const w = window.open("", "_blank", "noopener,noreferrer")
+    if (!w) { toast.error("Pop-up blocked — allow pop-ups to print."); return }
+    w.document.open()
+    w.document.write(buildPrintableHtml())
+    w.document.close()
+    // Give the new window a tick to lay out, then trigger print.
+    setTimeout(() => { try { w.focus(); w.print() } catch {} }, 200)
+  }, [buildPrintableHtml])
+
+  const handleSavePdf = useCallback(() => {
+    // Same printable view, but opened so the user can use the browser's
+    // "Save as PDF" destination. Tells them what to do via a toast.
+    const w = window.open("", "_blank", "noopener,noreferrer")
+    if (!w) { toast.error("Pop-up blocked — allow pop-ups to save as PDF."); return }
+    w.document.open()
+    w.document.write(buildPrintableHtml())
+    w.document.close()
+    toast.success("In the print dialog, choose 'Save as PDF' as the destination.")
+    setTimeout(() => { try { w.focus(); w.print() } catch {} }, 200)
+  }, [buildPrintableHtml])
+
   return (
     <div className="space-y-4">
       {/* Summary cards */}
@@ -1575,6 +1841,12 @@ export function SearchStatsPane() {
           </button>
         ))}
         <div className="flex-1" />
+        <Button size="sm" variant="outline" onClick={handleSavePdf} disabled={loading || visible.length === 0} className="gap-1.5">
+          <FileText className="w-3.5 h-3.5" />PDF
+        </Button>
+        <Button size="sm" variant="outline" onClick={handlePrint} disabled={loading || visible.length === 0} className="gap-1.5">
+          <Printer className="w-3.5 h-3.5" />Print
+        </Button>
         <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1.5">
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />Refresh
         </Button>
@@ -1912,7 +2184,7 @@ function ArchitecturePane() {
           <rect x="920" y="693" width="14" height="14" rx="2" fill="#FEF9C3" stroke="#CA8A04" strokeWidth="1.5" strokeDasharray="3,2"/><text x="940" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#854D0E" fontWeight="bold">SKOs</text><text x="970" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">Future abstractions</text>
           <line x1="1100" y1="700" x2="1130" y2="700" stroke="#DC2626" strokeWidth="2.5" strokeDasharray="5,3"/><text x="1140" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#DC2626" fontWeight="bold">Recursive Loop</text><text x="1240" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">MROs feed back</text>
 
-          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO/HSL/MRO Demo System V4.1</text>
+          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO/HSL/MRO Demo System V4.2</text>
         </svg>
       </div>
     </div>
@@ -2014,6 +2286,21 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                 {icon}{label}
               </TabsTrigger>
             ))}
+
+            {/* R & D — opens the Compound HSL Builder view (lives outside Tabs;
+                clicking it navigates the parent shell to the rnd view). */}
+            {onNavigate && (
+              <button
+                type="button"
+                onClick={() => onNavigate("rnd")}
+                className="w-full flex items-center justify-start gap-3 px-3 py-2.5 rounded-md text-sm font-medium
+                  text-slate-300 bg-transparent border-0
+                  hover:bg-slate-800 hover:text-white
+                  transition-colors duration-150"
+              >
+                <Atom className="w-4 h-4" />R &amp; D
+              </button>
+            )}
           </TabsList>
 
           {/* ── Content area ── */}
