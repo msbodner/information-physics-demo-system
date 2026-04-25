@@ -698,6 +698,28 @@ export async function createMroObject(data: {
   })
 }
 
+export async function updateMroObject(
+  id: string,
+  patch: {
+    mro_key?: string
+    query_text?: string
+    intent?: string | null
+    seed_hsls?: string | null
+    matched_aios_count?: number
+    search_terms?: Record<string, unknown> | null
+    result_text?: string
+    context_bundle?: string | null
+    confidence?: string
+    policy_scope?: string
+  },
+): Promise<MroObject | null> {
+  return safeFetch<MroObject>(`/api/mro-objects/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  })
+}
+
 export async function deleteMroObject(id: string): Promise<boolean> {
   const result = await safeFetch<{ deleted: string }>(`/api/mro-objects/${id}`, { method: "DELETE" })
   return result !== null

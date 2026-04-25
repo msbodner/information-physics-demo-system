@@ -3,7 +3,7 @@
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ArrowLeft, BookOpen, FileText, Upload, Download, Cpu, Layers, Database, Zap, ChevronRight, Brain, GitMerge, Network } from "lucide-react"
+import { ArrowLeft, BookOpen, FileText, Upload, Download, Cpu, Layers, Database, Zap, ChevronRight, Brain, GitMerge, Network, RefreshCw, Filter, Gauge, Columns, Combine, Scale } from "lucide-react"
 
 interface UserGuideProps {
   onBack: () => void
@@ -136,6 +136,54 @@ export function UserGuide({ onBack }: UserGuideProps) {
                   </p>
                 </div>
               </div>
+
+              <h3 className="font-semibold text-lg mt-4 flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-amber-600" />
+                Rebuild HSLs from All AIOs
+              </h3>
+              <p className="leading-relaxed">
+                The <span className="font-semibold text-foreground">R &amp; D</span> view (System Admin sidebar → R &amp; D) includes a
+                <span className="font-semibold text-foreground"> &quot;Rebuild HSLs from All AIOs&quot;</span> button that regenerates the entire HSL
+                library in one pass. Use this after a large bulk-import of AIOs, after manual edits to AIO records, or to recover from a
+                pruned HSL table. The operation is idempotent — running it twice produces the same result.
+              </p>
+              <ol className="list-decimal list-inside space-y-2 text-muted-foreground ml-1">
+                <li>
+                  <span className="font-semibold text-foreground">Scan:</span> the backend reads every row of the <span className="font-mono text-xs bg-muted px-1 rounded">aio_data</span>
+                  table for the current tenant (all 50 element columns), extracting each <span className="font-mono text-xs bg-muted px-1 rounded">[Key.Value]</span> bracket pair.
+                </li>
+                <li>
+                  <span className="font-semibold text-foreground">Group:</span> elements are grouped by <span className="font-mono text-xs bg-muted px-1 rounded">(Key, Value)</span>.
+                  Any group with only a single AIO is dropped (a single-AIO group has no &quot;string&quot; to record), and empty / null / skip-listed values are filtered out.
+                </li>
+                <li>
+                  <span className="font-semibold text-foreground">Write:</span> for each surviving group, one HSL record is written to the
+                  <span className="font-mono text-xs bg-muted px-1 rounded">hsl_data</span> table. The HSL name is the element key
+                  (e.g. <span className="font-mono text-xs bg-muted px-1 rounded">Department.hsl</span>) and its 100 element slots list the AIO names that share the value (capped at 100 per HSL).
+                </li>
+                <li>
+                  <span className="font-semibold text-foreground">Skip duplicates:</span> if an HSL with the same name already exists for the tenant, the rebuild
+                  leaves it untouched and counts it under <span className="font-mono text-xs bg-muted px-1 rounded">already_existed</span>. To force a clean rebuild, delete the existing HSLs first via System Admin → HSL Data.
+                </li>
+                <li>
+                  <span className="font-semibold text-foreground">Report:</span> the toast displays four counts —
+                  <span className="font-mono text-xs bg-muted px-1 rounded">created</span>,
+                  <span className="font-mono text-xs bg-muted px-1 rounded">already_existed</span>,
+                  <span className="font-mono text-xs bg-muted px-1 rounded">skipped_single_aio</span>, and
+                  <span className="font-mono text-xs bg-muted px-1 rounded">total_aios_scanned</span>.
+                </li>
+              </ol>
+              <div className="flex items-start gap-2 p-3 bg-blue-500/10 rounded-lg border border-blue-500/20">
+                <RefreshCw className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-sm">Safety: read-only on AIOs, additive on HSLs</p>
+                  <p className="text-sm text-muted-foreground">
+                    The rebuild only reads from <span className="font-mono text-xs bg-muted px-1 rounded">aio_data</span> and only inserts into
+                    <span className="font-mono text-xs bg-muted px-1 rounded">hsl_data</span>. Existing HSL rows are never modified or deleted. AIO data is untouched. The Information Elements
+                    table is also refreshed automatically on the next AIO write — you can also click <span className="font-semibold text-foreground">&quot;Rebuild from AIOs&quot;</span> in System Admin → Info Elements to refresh it directly.
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </section>
@@ -208,7 +256,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
                 <li>Type your question in the input field at the bottom</li>
               </ul>
 
-              <h3 className="font-semibold text-lg mt-4">Two Search Modes</h3>
+              <h3 className="font-semibold text-lg mt-4">Four Search Modes</h3>
               <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Send (broad search):</span> Sends your question to Claude along with ALL stored AIO and HSL records as context (up to 500 records). Best for general questions like &quot;What vendors are in this data?&quot; or &quot;Total invoice amount by vendor.&quot;</p>
               <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">AIO Search (targeted algebra):</span> Uses a four-phase search algebra for focused answers:</p>
               <ol className="list-decimal list-inside space-y-1 text-muted-foreground ml-4">
@@ -218,6 +266,35 @@ export function UserGuide({ onBack }: UserGuideProps) {
                 <li><span className="font-semibold text-foreground">Answer:</span> Responds using ONLY the focused AIO subset</li>
               </ol>
               <p className="leading-relaxed text-muted-foreground">If no HSLs match, AIO Search falls back to direct element-level search across all AIOs. The response footer shows how many HSLs and AIOs were matched.</p>
+              <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Substrate Chat (precomputed substrate):</span> Runs the full Paper-III pipeline — cue extraction → HSL neighborhood traversal → MRO prior ranking → tiered context bundle. Uses ONLY the assembled substrate as context, no raw DB dump. Best for tightly-grounded analytical questions.</p>
+              <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Pure LLM:</span> Sends raw saved CSVs to Claude with no AIO/HSL/MRO machinery — useful as a baseline to see what Information Physics adds.</p>
+
+              <h3 className="font-semibold text-lg mt-6 flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-500" />
+                What AIO Search does under the hood (V4.2 upgrades)
+              </h3>
+              <p className="leading-relaxed text-muted-foreground">
+                AIO Search now applies a stack of cross-cutting layers in addition to the four-phase algebra. These layers run automatically — there is no UI to enable them — but the response metadata exposes what each one did so you can audit the answer.
+              </p>
+              <ul className="list-disc list-inside space-y-2 text-muted-foreground ml-1">
+                <li><span className="font-semibold text-foreground">Field-aware re-rank:</span> when your prompt mentions a field name (e.g. &quot;by Department&quot;), HSLs that index that field are scored higher than untyped lexical matches.</li>
+                <li><span className="font-semibold text-foreground">Numeric &amp; date predicate pushdown:</span> phrases like &quot;over $10M&quot;, &quot;after 2020&quot;, &quot;between Jan and June&quot; are extracted as filters and applied at retrieval time, not just in the LLM prompt. The response footer shows the parsed <span className="font-mono text-xs bg-muted px-1 rounded">applied_filters</span>.</li>
+                <li><span className="font-semibold text-foreground">Negative cues / exclusions:</span> &quot;all vendors except Acme&quot; or &quot;not in 2023&quot; cause matching AIOs to be dropped from the bundle. Excluded terms are listed under <span className="font-mono text-xs bg-muted px-1 rounded">exclusions</span>.</li>
+                <li><span className="font-semibold text-foreground">Synonym / alias expansion:</span> static <span className="font-mono text-xs bg-muted px-1 rounded">acronyms.json</span> + the per-tenant <span className="font-mono text-xs bg-muted px-1 rounded">entity_aliases</span> table expand cues field-aware: &quot;Dr.&quot; → &quot;Drive&quot; in <span className="font-mono text-xs bg-muted px-1 rounded">[Address.*]</span> but &quot;Doctor&quot; in <span className="font-mono text-xs bg-muted px-1 rounded">[Employee.*]</span>; &quot;10M&quot; → &quot;10000000&quot;.</li>
+                <li><span className="font-semibold text-foreground">MRO ranker upgrade:</span> priors are scored by tsvector text similarity × (1 + log trust_score), so paraphrases of past queries (&quot;show revenue&quot; vs &quot;what was income&quot;) reuse the right priors and frequently-useful priors drift up the ranking.</li>
+                <li><span className="font-semibold text-foreground">Adaptive bundle sizing:</span> the AIO cap scales with how many HSLs matched — 1 HSL match → 100 AIOs, ≥5 HSLs → 300 AIOs. Avoids both starvation on focused queries and bloat on broad queries.</li>
+                <li><span className="font-semibold text-foreground">Embeddings re-rank (Voyage AI):</span> after lexical retrieval, the candidate AIOs are re-ranked by embedding similarity to the query so the highest-relevance evidence lands at the top of the bundle.</li>
+              </ul>
+
+              <h3 className="font-semibold text-lg mt-6 flex items-center gap-2">
+                <Gauge className="w-4 h-4 text-emerald-600" />
+                Cache, citations, and the &quot;served from memory&quot; badge
+              </h3>
+              <ul className="list-disc list-inside space-y-2 text-muted-foreground ml-1">
+                <li><span className="font-semibold text-foreground">Query micro-cache:</span> exact-match (mode, normalized query, tenant) hits short-circuit the LLM round-trip. The response footer shows a <span className="font-semibold text-foreground">&quot;served from memory&quot;</span> badge with hit count and the cached MRO id. Cache TTL is 24 hours by default.</li>
+                <li><span className="font-semibold text-foreground">Re-run anyway:</span> append <span className="font-mono text-xs bg-muted px-1 rounded">?bypass_cache=true</span> (or use the &quot;Re-run&quot; button) to force a fresh LLM call when you want to invalidate a stale cache entry.</li>
+                <li><span className="font-semibold text-foreground">Citation post-pass:</span> after Claude answers, the system scans the answer text for distinctive tokens from each shipped AIO and reports <span className="font-mono text-xs bg-muted px-1 rounded">sources used: N of M</span> with click-through to the cited records. This measures what the model <em>actually</em> quoted, not what it claims to have quoted.</li>
+              </ul>
 
               <h3 className="font-semibold text-lg mt-4">Saved Prompts (Remember Prompts)</h3>
               <ul className="list-disc list-inside space-y-2 text-muted-foreground">
@@ -333,14 +410,32 @@ export function UserGuide({ onBack }: UserGuideProps) {
           </h2>
           <Card>
             <CardContent className="pt-6 space-y-3">
-              <p className="leading-relaxed">The System Admin panel provides full CRUD management of users, roles, AIO data, and HSL data stored in the backend database.</p>
+              <p className="leading-relaxed">The System Admin panel provides full CRUD management of every persisted artifact in the platform. Tabs are arranged from highest-level (people) down to lowest-level (raw configuration):</p>
               <ul className="list-disc list-inside space-y-2 text-muted-foreground">
-                <li>Manage user accounts and role assignments</li>
-                <li>Browse, search, and view all stored AIO records</li>
-                <li>View and manage HSL relationship data</li>
-                <li>Configure API keys for ChatAIO integration</li>
-                <li>View raw CSV data stored in the database</li>
+                <li><span className="font-semibold text-foreground">Users / Roles:</span> account management and role assignments.</li>
+                <li><span className="font-semibold text-foreground">AIO Data:</span> browse, search, add, edit, or delete AIO records (50 element columns each).</li>
+                <li><span className="font-semibold text-foreground">HSL Data:</span> browse, edit, or delete HSL files (100 element slots each); view structure and provenance.</li>
+                <li>
+                  <span className="font-semibold text-foreground">MRO Data <span className="ml-1 text-[10px] uppercase bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded">New</span>:</span> browse every persisted retrieval episode for the current tenant. Click <span className="font-semibold text-foreground">Edit</span> to fix
+                  the query text, intent, seed HSL list, result text, context bundle, confidence tier, or policy scope on any MRO. The <span className="font-mono text-xs bg-muted px-1 rounded">trust_score</span> column shows
+                  how often each MRO has been reused as a prior — high-trust MROs are the ones genuinely improving retrieval. Use the filter box to narrow by key, query, or intent. Edits regenerate the query
+                  tsvector automatically so ranker behaviour updates immediately.
+                </li>
+                <li><span className="font-semibold text-foreground">API Key:</span> configure the Anthropic API key used by ChatAIO and the parse step.</li>
+                <li><span className="font-semibold text-foreground">Saved CSVs / AIOs:</span> view raw uploaded artifacts retained for re-processing.</li>
+                <li><span className="font-semibold text-foreground">Saved Prompts:</span> manage cross-session prompt library used by ChatAIO history.</li>
+                <li><span className="font-semibold text-foreground">Info Elements:</span> directory of unique field names with AIO occurrence counts; click <span className="font-semibold text-foreground">&quot;Rebuild from AIOs&quot;</span> to refresh.</li>
+                <li><span className="font-semibold text-foreground">Architecture / References:</span> in-app links to system architecture diagrams and the foundational research papers.</li>
               </ul>
+              <div className="flex items-start gap-2 p-3 bg-violet-500/10 rounded-lg border border-violet-500/20">
+                <Brain className="w-5 h-5 text-violet-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-sm">When to edit MROs by hand</p>
+                  <p className="text-sm text-muted-foreground">
+                    MROs are normally created automatically by ChatAIO. Manual editing is for two cases: (a) <em>promoting</em> a high-quality answer from <span className="font-mono text-xs bg-muted px-1 rounded">derived</span> to <span className="font-mono text-xs bg-muted px-1 rounded">verified</span> so the ranker prefers it, or (b) <em>correcting</em> a bad prior so it stops poisoning future retrievals. To purge a stale MRO entirely, use Delete — any cache entries pointing to it are NULL-ed via the foreign key.
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </section>
@@ -385,6 +480,56 @@ export function UserGuide({ onBack }: UserGuideProps) {
         </section>
 
         <section className="space-y-4">
+          <h2 className="text-2xl font-bold flex items-center gap-2">
+            <Scale className="w-5 h-5 text-emerald-600" />
+            Step 11: Operator Tools — Compare Modes, MRO Compaction, Budget
+          </h2>
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <p className="leading-relaxed">
+                V4.2 adds three operator-facing endpoints that are exposed via API and surfaced where it makes sense in the UI. They are not required for everyday use, but they are essential when you are tuning the system, demoing the value of Information Physics, or running a tenant against a tight cost budget.
+              </p>
+
+              <h3 className="font-semibold text-lg flex items-center gap-2">
+                <Columns className="w-4 h-4 text-emerald-600" />
+                Side-by-side Mode Comparison
+              </h3>
+              <p className="leading-relaxed text-muted-foreground">
+                <span className="font-mono text-xs bg-muted px-1 rounded">POST /v1/op/compare-modes</span> runs the same prompt through several modes in parallel — typically <span className="font-mono text-xs bg-muted px-1 rounded">chat</span>, <span className="font-mono text-xs bg-muted px-1 rounded">aio-search</span>, and <span className="font-mono text-xs bg-muted px-1 rounded">pure-llm</span>. The response is an array of per-mode results with reply text, latency, input/output token counts, matched-AIO counts, and (for AIO Search) the citation summary and cache flag. Use it as an A/B demo to show what AIO Search adds on top of broad chat or a pure LLM call. The endpoint enforces the budget guardrail per mode, so a single 429 from one mode does not kill the others.
+              </p>
+
+              <h3 className="font-semibold text-lg flex items-center gap-2">
+                <Combine className="w-4 h-4 text-emerald-600" />
+                MRO Compaction
+              </h3>
+              <p className="leading-relaxed text-muted-foreground">
+                <span className="font-mono text-xs bg-muted px-1 rounded">POST /v1/op/mro-compact?dry_run=true</span> clusters near-duplicate MROs and (optionally) merges them into one canonical row. Two MROs cluster together when their seed-HSL set Jaccard ≥ 0.85 <em>and</em> their query-token Jaccard ≥ 0.60 (both thresholds are tunable via query parameters). Clustering is single-link, so a chain A↔B↔C collapses into one cluster.
+              </p>
+              <ul className="list-disc list-inside space-y-2 text-muted-foreground ml-1">
+                <li><span className="font-semibold text-foreground">Canonical pick:</span> the cluster member with the highest <span className="font-mono text-xs bg-muted px-1 rounded">(confidence_tier, trust_score, created_at)</span> wins.</li>
+                <li><span className="font-semibold text-foreground">Merge semantics:</span> result_text becomes the canonical row&apos;s text, trust_score is summed across the cluster, matched_aios_count takes the max, confidence is upgraded to the best tier seen, and seed_hsls + search_terms become the union.</li>
+                <li><span className="font-semibold text-foreground">Dry-run by default:</span> the response shows the planned clusters and absorbed counts but does not mutate. Operators review the plan, then re-run with <span className="font-mono text-xs bg-muted px-1 rounded">?dry_run=false</span> to commit.</li>
+                <li><span className="font-semibold text-foreground">Why:</span> repeated similar queries scatter weak priors. Compaction concentrates the trust signal so the ranker sees one strong prior per topic instead of N noisy ones.</li>
+              </ul>
+
+              <h3 className="font-semibold text-lg flex items-center gap-2">
+                <Gauge className="w-4 h-4 text-emerald-600" />
+                Per-Tenant Daily Token Budget
+              </h3>
+              <p className="leading-relaxed text-muted-foreground">
+                Every LLM call site (broad chat, AIO Search, Substrate Chat, Pure LLM) checks the tenant&apos;s daily budget <em>before</em> the round-trip and records actual usage afterwards. Spend at 80% of the limit logs a warning; at 100% the call short-circuits with HTTP 429 — the response body includes <span className="font-mono text-xs bg-muted px-1 rounded">used_today</span>, <span className="font-mono text-xs bg-muted px-1 rounded">limit</span>, and a human-readable message so the frontend can render &quot;daily token budget exhausted — used 502,431 of 500,000&quot;.
+              </p>
+              <ul className="list-disc list-inside space-y-2 text-muted-foreground ml-1">
+                <li>Default: <span className="font-mono text-xs bg-muted px-1 rounded">daily_token_budget_per_tenant = 500000</span> in <span className="font-mono text-xs bg-muted px-1 rounded">system_settings</span>.</li>
+                <li>Override per tenant by inserting a row keyed <span className="font-mono text-xs bg-muted px-1 rounded">daily_token_budget:&lt;tenant_id&gt;</span>.</li>
+                <li>Counters reset at UTC midnight via the <span className="font-mono text-xs bg-muted px-1 rounded">tenant_token_usage</span> table&apos;s <span className="font-mono text-xs bg-muted px-1 rounded">usage_day</span> primary key — there is no nightly job to run.</li>
+                <li>The guardrail is silently disabled if migration 021 has not been applied, so the system degrades gracefully on stale deployments.</li>
+              </ul>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section className="space-y-4">
           <h2 className="text-2xl font-bold">Glossary</h2>
           <div className="grid gap-3">
             {[
@@ -401,6 +546,14 @@ export function UserGuide({ onBack }: UserGuideProps) {
               { term: "Substrate Mode", definition: "Precomputed Substrate — ChatAIO mode that runs the full Paper-III pipeline: cue extraction → HSL traversal → MRO prior ranking → bundle assembly. Produces the most focused, evidence-grounded answers." },
               { term: "MRO Priors", definition: "Previously saved MROs that are surfaced during retrieval by Jaccard similarity × freshness × confidence scoring, then injected as highest-priority context above raw AIO evidence." },
               { term: "Cue Set", definition: "The set of [Key.Value] pairs extracted from a natural-language query and used to traverse the HSL neighborhood N(K) for relevant AIOs." },
+              { term: "Rebuild HSLs from All AIOs", definition: "R&D-pane operation that scans aio_data, groups elements by [Key.Value], and writes one HSL per group with ≥2 AIOs. Idempotent — existing HSLs are preserved, not overwritten." },
+              { term: "Query Micro-cache", definition: "Exact-match (mode, normalized query, tenant) → MRO/answer cache that short-circuits the LLM round-trip. 24-hour TTL by default. Bypass with ?bypass_cache=true." },
+              { term: "Citation Post-pass", definition: "After-the-fact scan of the answer text for distinctive tokens drawn from each shipped AIO. Reports 'sources used: N of M' so operators see what the model actually quoted." },
+              { term: "Compare Modes", definition: "POST /v1/op/compare-modes — runs the same prompt through chat, aio-search, and pure-llm in parallel for A/B demo and tuning." },
+              { term: "MRO Compaction", definition: "POST /v1/op/mro-compact — clusters MROs by seed-HSL Jaccard ≥ 0.85 AND query-token Jaccard ≥ 0.60, then merges absorbed members into one canonical row. Dry-run by default." },
+              { term: "Token Budget Guardrail", definition: "Per-tenant daily token-spend limit checked before every LLM call. 80% warns, 100% returns HTTP 429. Configurable via system_settings." },
+              { term: "Field-aware Alias Expansion", definition: "Static acronyms.json + tenant entity_aliases table expand cues differently per field — e.g. 'Dr.' resolves to 'Drive' inside [Address.*] but to 'Doctor' inside [Employee.*]." },
+              { term: "Trust Score", definition: "Numeric counter on each MRO that increments whenever the MRO is reused as a prior. Multiplied into the ranker so frequently-useful priors drift up over time." },
             ].map((item) => (
               <Card key={item.term}>
                 <CardContent className="py-3 px-4 flex items-start gap-3">

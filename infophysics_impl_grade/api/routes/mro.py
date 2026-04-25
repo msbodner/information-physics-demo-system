@@ -260,6 +260,71 @@ def create_mro_object(
     )
 
 
+class UpdateMroObjectRequest(BaseModel):
+    """Partial-update payload. Only fields explicitly set are written.
+
+    Most fields are user-editable from the System Admin MRO browser.
+    Provenance fields (``trust_score``, ``tenant_id``, ``created_at``)
+    are intentionally NOT in the update surface — they're owned by the
+    pipeline (trust bumps from chat) or by the row's identity.
+    """
+    mro_key: Optional[str] = None
+    query_text: Optional[str] = None
+    intent: Optional[str] = None
+    seed_hsls: Optional[str] = None
+    matched_aios_count: Optional[int] = None
+    search_terms: Optional[Any] = None
+    result_text: Optional[str] = None
+    context_bundle: Optional[str] = None
+    confidence: Optional[str] = None
+    policy_scope: Optional[str] = None
+
+
+@router.put("/v1/mro-objects/{mro_id}", response_model=MroObjectOut)
+def update_mro_object(
+    mro_id: str,
+    payload: UpdateMroObjectRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Partial update of an MRO. Returns the full updated row.
+
+    Builds the SET clause dynamically from the fields the caller passed
+    in — omitted fields are left untouched. ``updated_at`` is always
+    refreshed; ``query_tsv`` regenerates automatically because it's a
+    GENERATED STORED column off ``query_text``.
+    """
+    tenant = x_tenant_id or "tenantA"
+    fields = payload.dict(exclude_unset=True)
+    if not fields:
+        # No-op update — just return the current row.
+        return get_mro_object(mro_id, x_tenant_id=x_tenant_id)
+    if "search_terms" in fields and fields["search_terms"] is not None:
+        fields["search_terms"] = json.dumps(fields["search_terms"])
+    set_clauses = []
+    values: List[Any] = []
+    for k, v in fields.items():
+        if k == "search_terms":
+            set_clauses.append(f"{k} = %s::jsonb")
+        else:
+            set_clauses.append(f"{k} = %s")
+        values.append(v)
+    set_clauses.append("updated_at = now()")
+    values.append(mro_id)
+    with db() as conn:
+        set_tenant(conn, tenant)
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE mro_objects SET {', '.join(set_clauses)} "
+                f"WHERE mro_id = %s RETURNING {_MRO_SELECT}",
+                values,
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="MRO object not found")
+        conn.commit()
+    return _mro_from_row(row)
+
+
 @router.delete("/v1/mro-objects/{mro_id}")
 def delete_mro_object(
     mro_id: str,

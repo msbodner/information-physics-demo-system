@@ -25,9 +25,10 @@ import {
   listInformationElements, createInformationElement, updateInformationElement, deleteInformationElement, rebuildInformationElements,
   getApiKeySetting, updateApiKeySetting, loginUser, listIOs,
   listChatStats, deleteChatStat,
+  listMroObjects, getMroObject, updateMroObject, deleteMroObject,
   type User as SystemUser, type Role, type AioDataRecord, type HslDataRecord,
   type LoginResult, type IORecord, type SavedPrompt, type InformationElement,
-  type ChatStatRecord,
+  type ChatStatRecord, type MroObject,
 } from "@/lib/api-client"
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -727,6 +728,281 @@ function AioDataPane() {
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Delete AIO Record</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground py-2">Delete <strong>{deleteConfirm?.aio_name}</strong>? This cannot be undone.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)} className="gap-2"><Trash2 className="w-4 h-4" />Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+// ── MRO Data Pane ──────────────────────────────────────────────────
+// Browses persisted Memory Result Objects: list, view, edit, and delete.
+// Heavy fields (result_text, context_bundle) are lazy-loaded via
+// getMroObject() only when the operator opens the edit dialog — keeps
+// the table fast on tenants with thousands of MROs.
+
+const MRO_CONFIDENCE_OPTIONS = ["draft", "derived", "reviewed", "verified"] as const
+
+function MroDataPane() {
+  const [records, setRecords] = useState<MroObject[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [filter, setFilter] = useState("")
+  const [dialog, setDialog] = useState<{ open: boolean; record?: MroObject; loading: boolean }>({ open: false, loading: false })
+  const [deleteConfirm, setDeleteConfirm] = useState<MroObject | null>(null)
+  const [form, setForm] = useState<{
+    mro_key: string
+    query_text: string
+    intent: string
+    seed_hsls: string
+    matched_aios_count: number
+    result_text: string
+    context_bundle: string
+    confidence: string
+    policy_scope: string
+  }>({
+    mro_key: "", query_text: "", intent: "", seed_hsls: "",
+    matched_aios_count: 0, result_text: "", context_bundle: "",
+    confidence: "derived", policy_scope: "tenantA",
+  })
+  const [isSaving, setIsSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    setIsLoading(true)
+    // Summary projection — heavy fields hydrated on edit-open.
+    const rows = await listMroObjects(500, { summary: true })
+    setRecords(rows)
+    setIsLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const openEdit = async (rec: MroObject) => {
+    setDialog({ open: true, record: rec, loading: true })
+    // Hydrate the full record so the editor has result_text / context_bundle.
+    const full = await getMroObject(rec.mro_id)
+    if (!full) {
+      toast.error("Failed to load MRO.")
+      setDialog({ open: false, loading: false })
+      return
+    }
+    setForm({
+      mro_key: full.mro_key ?? "",
+      query_text: full.query_text ?? "",
+      intent: full.intent ?? "",
+      seed_hsls: full.seed_hsls ?? "",
+      matched_aios_count: full.matched_aios_count ?? 0,
+      result_text: full.result_text ?? "",
+      context_bundle: full.context_bundle ?? "",
+      confidence: full.confidence ?? "derived",
+      policy_scope: full.policy_scope ?? "tenantA",
+    })
+    setDialog({ open: true, record: full, loading: false })
+  }
+
+  const handleSave = async () => {
+    if (!dialog.record) return
+    if (!form.mro_key.trim()) { toast.error("MRO Key is required."); return }
+    if (!form.query_text.trim()) { toast.error("Query Text is required."); return }
+    if (!form.result_text.trim()) { toast.error("Result Text is required."); return }
+    setIsSaving(true)
+    try {
+      const updated = await updateMroObject(dialog.record.mro_id, {
+        mro_key: form.mro_key.trim(),
+        query_text: form.query_text.trim(),
+        intent: form.intent.trim() || null,
+        seed_hsls: form.seed_hsls.trim() || null,
+        matched_aios_count: form.matched_aios_count,
+        result_text: form.result_text,
+        context_bundle: form.context_bundle.trim() || null,
+        confidence: form.confidence,
+        policy_scope: form.policy_scope,
+      })
+      if (!updated) { toast.error("Failed to update MRO."); return }
+      toast.success("MRO updated.")
+      setDialog({ open: false, loading: false })
+      await load()
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDelete = async (rec: MroObject) => {
+    const ok = await deleteMroObject(rec.mro_id)
+    if (ok) { toast.success("MRO deleted."); await load() }
+    else toast.error("Failed to delete MRO.")
+    setDeleteConfirm(null)
+  }
+
+  const filtered = filter.trim()
+    ? records.filter((r) => {
+        const f = filter.toLowerCase()
+        return (
+          (r.mro_key ?? "").toLowerCase().includes(f) ||
+          (r.query_text ?? "").toLowerCase().includes(f) ||
+          (r.intent ?? "").toLowerCase().includes(f)
+        )
+      })
+    : records
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4 gap-4">
+        <p className="text-sm text-muted-foreground flex-1">
+          Persisted retrieval episodes — query, result, search terms, and lineage. Trust score reflects how often this MRO has been reused as a prior.
+        </p>
+        <Input
+          placeholder="Filter by key, query, intent…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="max-w-xs h-9 text-sm"
+        />
+        <Button variant="outline" onClick={load} className="gap-2"><RefreshCw className="w-4 h-4" />Refresh</Button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-12">
+          <Brain className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">
+            {records.length === 0 ? "No MROs found yet — they're saved automatically when ChatAIO answers a question." : "No MROs match the current filter."}
+          </p>
+        </div>
+      ) : (
+        <div className="border border-border rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">MRO Key</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Query</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">AIOs</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Confidence</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Trust</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Updated</th>
+                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((rec) => (
+                <tr key={rec.mro_id} className="border-t border-border hover:bg-accent/30 transition-colors">
+                  <td className="px-4 py-3 font-medium font-mono text-xs">{rec.mro_key}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs max-w-xs truncate" title={rec.query_text}>{rec.query_text}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{rec.matched_aios_count}</td>
+                  <td className="px-4 py-3"><Badge variant="outline" className="text-xs">{rec.confidence}</Badge></td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{(rec.trust_score ?? 0).toFixed(1)}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(rec.updated_at).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(rec)} className="gap-1 h-7 px-2"><Pencil className="w-3 h-3" />Edit</Button>
+                      <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(rec)} className="gap-1 h-7 px-2 text-destructive hover:text-destructive"><Trash2 className="w-3 h-3" />Delete</Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Edit dialog */}
+      <Dialog open={dialog.open} onOpenChange={(o) => !o && setDialog({ open: false, loading: false })}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Brain className="w-5 h-5" />Edit MRO</DialogTitle>
+          </DialogHeader>
+          {dialog.loading ? (
+            <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs">MRO Key</Label>
+                  <Input value={form.mro_key} onChange={(e) => setForm((f) => ({ ...f, mro_key: e.target.value }))} className="font-mono text-xs" />
+                </div>
+                <div>
+                  <Label className="text-xs">Confidence</Label>
+                  <Select value={form.confidence} onValueChange={(v) => setForm((f) => ({ ...f, confidence: v }))}>
+                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MRO_CONFIDENCE_OPTIONS.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Query Text</Label>
+                <textarea
+                  className="w-full min-h-[60px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                  value={form.query_text}
+                  onChange={(e) => setForm((f) => ({ ...f, query_text: e.target.value }))}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-xs">Intent</Label>
+                  <Input value={form.intent} onChange={(e) => setForm((f) => ({ ...f, intent: e.target.value }))} />
+                </div>
+                <div>
+                  <Label className="text-xs">Matched AIOs</Label>
+                  <Input
+                    type="number"
+                    value={form.matched_aios_count}
+                    onChange={(e) => setForm((f) => ({ ...f, matched_aios_count: parseInt(e.target.value) || 0 }))}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Seed HSLs (comma-separated)</Label>
+                <Input
+                  value={form.seed_hsls}
+                  onChange={(e) => setForm((f) => ({ ...f, seed_hsls: e.target.value }))}
+                  className="font-mono text-xs"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Result Text</Label>
+                <textarea
+                  className="w-full min-h-[180px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.result_text}
+                  onChange={(e) => setForm((f) => ({ ...f, result_text: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Context Bundle (optional)</Label>
+                <textarea
+                  className="w-full min-h-[120px] rounded-md border border-input bg-background px-3 py-2 text-xs font-mono"
+                  value={form.context_bundle}
+                  onChange={(e) => setForm((f) => ({ ...f, context_bundle: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Policy Scope</Label>
+                <Input
+                  value={form.policy_scope}
+                  onChange={(e) => setForm((f) => ({ ...f, policy_scope: e.target.value }))}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialog({ open: false, loading: false })}>Cancel</Button>
+            <Button onClick={handleSave} disabled={isSaving || dialog.loading} className="gap-2">
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirm */}
+      <Dialog open={!!deleteConfirm} onOpenChange={(o) => !o && setDeleteConfirm(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Delete MRO</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground py-2">
+            Delete <strong className="font-mono text-xs">{deleteConfirm?.mro_key}</strong>? This cannot be undone, and any cache entries pointing to this MRO will be cleared.
+          </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)} className="gap-2"><Trash2 className="w-4 h-4" />Delete</Button>
@@ -2440,6 +2716,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
               { value: "roles",         icon: <Shield className="w-4 h-4" />,          label: "Roles" },
               { value: "aio-data",      icon: <Database className="w-4 h-4" />,        label: "AIO Data" },
               { value: "hsl-data",      icon: <LayoutList className="w-4 h-4" />,      label: "HSL Data" },
+              { value: "mro-data",      icon: <Brain className="w-4 h-4" />,           label: "MRO Data" },
               { value: "apikey",        icon: <Key className="w-4 h-4" />,             label: "API Key" },
               { value: "csvs",          icon: <FileSpreadsheet className="w-4 h-4" />, label: "Saved CSVs" },
               { value: "aios",          icon: <FileText className="w-4 h-4" />,        label: "Saved AIOs" },
@@ -2498,6 +2775,11 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
             <TabsContent value="hsl-data" className="mt-0">
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><LayoutList className="w-5 h-5" />HSL Data</CardTitle></CardHeader>
                 <CardContent><HslDataPane /></CardContent></Card>
+            </TabsContent>
+
+            <TabsContent value="mro-data" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Brain className="w-5 h-5" />MRO Data</CardTitle></CardHeader>
+                <CardContent><MroDataPane /></CardContent></Card>
             </TabsContent>
 
             <TabsContent value="apikey" className="mt-0">
