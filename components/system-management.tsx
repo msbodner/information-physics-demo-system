@@ -1782,27 +1782,51 @@ export function SearchStatsPane() {
 </html>`
   }, [visible, stats.length, filter, totalSearches, byMode, totalTokens, avgElapsed])
 
+  // Print via a hidden, same-origin iframe — no pop-up window required.
+  // Browsers block window.open without a hardened user gesture; an iframe
+  // mounted into the current document avoids that path entirely.
+  const printViaHiddenIframe = useCallback((html: string) => {
+    const iframe = document.createElement("iframe")
+    iframe.setAttribute("aria-hidden", "true")
+    // Off-screen but rendered (display:none can suppress print in some browsers).
+    iframe.style.cssText =
+      "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;"
+    document.body.appendChild(iframe)
+
+    const cleanup = () => {
+      // Defer removal so Chrome/Edge finish flushing the print job before
+      // the iframe disappears. afterprint can fire before the dialog closes.
+      setTimeout(() => { try { iframe.remove() } catch {} }, 1000)
+    }
+
+    const triggerPrint = () => {
+      try {
+        const win = iframe.contentWindow
+        if (!win) { cleanup(); toast.error("Print failed: iframe unavailable."); return }
+        // Listen for the user closing the print dialog so we can clean up.
+        win.addEventListener("afterprint", cleanup, { once: true })
+        win.focus()
+        win.print()
+      } catch (e) {
+        cleanup()
+        toast.error("Print failed: " + String(e))
+      }
+    }
+
+    // Write the HTML and wait until layout is done before printing.
+    // Using srcdoc + onload is the most reliable cross-browser path.
+    iframe.onload = () => triggerPrint()
+    iframe.srcdoc = html
+  }, [])
+
   const handlePrint = useCallback(() => {
-    const w = window.open("", "_blank", "noopener,noreferrer")
-    if (!w) { toast.error("Pop-up blocked — allow pop-ups to print."); return }
-    w.document.open()
-    w.document.write(buildPrintableHtml())
-    w.document.close()
-    // Give the new window a tick to lay out, then trigger print.
-    setTimeout(() => { try { w.focus(); w.print() } catch {} }, 200)
-  }, [buildPrintableHtml])
+    printViaHiddenIframe(buildPrintableHtml())
+  }, [buildPrintableHtml, printViaHiddenIframe])
 
   const handleSavePdf = useCallback(() => {
-    // Same printable view, but opened so the user can use the browser's
-    // "Save as PDF" destination. Tells them what to do via a toast.
-    const w = window.open("", "_blank", "noopener,noreferrer")
-    if (!w) { toast.error("Pop-up blocked — allow pop-ups to save as PDF."); return }
-    w.document.open()
-    w.document.write(buildPrintableHtml())
-    w.document.close()
-    toast.success("In the print dialog, choose 'Save as PDF' as the destination.")
-    setTimeout(() => { try { w.focus(); w.print() } catch {} }, 200)
-  }, [buildPrintableHtml])
+    toast.info("In the print dialog, choose 'Save as PDF' as the destination.")
+    printViaHiddenIframe(buildPrintableHtml())
+  }, [buildPrintableHtml, printViaHiddenIframe])
 
   return (
     <div className="space-y-4">
