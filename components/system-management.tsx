@@ -1497,7 +1497,7 @@ function InformationElementsPane() {
 
 // ── Search Stats Pane ─────────────────────────────────────────────
 
-function SearchStatsPane() {
+export function SearchStatsPane() {
   const [stats, setStats] = useState<ChatStatRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<"All" | "Send" | "AIOSearch" | "Substrate">("All")
@@ -1857,7 +1857,7 @@ function ArchitecturePane() {
           <rect x="920" y="693" width="14" height="14" rx="2" fill="#FEF9C3" stroke="#CA8A04" strokeWidth="1.5" strokeDasharray="3,2"/><text x="940" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#854D0E" fontWeight="bold">SKOs</text><text x="970" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">Future abstractions</text>
           <line x1="1100" y1="700" x2="1130" y2="700" stroke="#DC2626" strokeWidth="2.5" strokeDasharray="5,3"/><text x="1140" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#DC2626" fontWeight="bold">Recursive Loop</text><text x="1240" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">MROs feed back</text>
 
-          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO/HSL/MRO Demo System V4.0</text>
+          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO/HSL/MRO Demo System V4.1</text>
         </svg>
       </div>
     </div>
@@ -1944,7 +1944,6 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
               { value: "saved-prompts", icon: <Bookmark className="w-4 h-4" />,        label: "Saved Prompts" },
               { value: "info-elements", icon: <Atom className="w-4 h-4" />,            label: "Info Elements" },
               { value: "architecture",  icon: <Network className="w-4 h-4" />,         label: "Architecture" },
-              { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Stats" },
               { value: "references",    icon: <Library className="w-4 h-4" />,          label: "References" },
             ] as const).map(({ value, icon, label }) => (
               <TabsTrigger
@@ -2012,11 +2011,6 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
             <TabsContent value="architecture" className="mt-0">
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Network className="w-5 h-5" />System Architecture</CardTitle></CardHeader>
                 <CardContent><ArchitecturePane /></CardContent></Card>
-            </TabsContent>
-
-            <TabsContent value="search-stats" className="mt-0">
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><BarChart2 className="w-5 h-5" />ChatAIO Search Statistics</CardTitle></CardHeader>
-                <CardContent><SearchStatsPane /></CardContent></Card>
             </TabsContent>
 
             <TabsContent value="references" className="mt-0">

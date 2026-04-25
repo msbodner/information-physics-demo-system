@@ -6,7 +6,7 @@ import "./globals.css"
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 
 export const metadata: Metadata = {
-  title: "AIO/HSL/MRO Demo System V4.0",
+  title: "AIO/HSL/MRO Demo System V4.1",
   description: "Convert CSV files to Associated Information Object (.aio) format",
 }
 

@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { FileUpload } from "@/components/file-upload"
 import { ConversionPreview } from "@/components/conversion-preview"
 import { BackendStatusBadge } from "@/components/backend-status-badge"
-import { SystemManagement } from "@/components/system-management"
+import { SystemManagement, SearchStatsPane } from "@/components/system-management"
 import { ChatAioDialog } from "@/components/chat-aio-dialog"
 import { useBackendStatus } from "@/hooks/use-backend-status"
 import { UserGuide } from "@/components/views/UserGuide"
@@ -21,7 +21,7 @@ import { createIO, listIOs, createAioData, loginUser, type IORecord, type LoginR
 import {
   Database, ArrowRight, Layers, Cpu, Globe, BookOpen, FileText, Zap,
   Settings, FileSpreadsheet, LogOut, Lock, Eye, EyeOff, MessageSquare,
-  Upload, Brain, Loader2, Atom,
+  Upload, Brain, Loader2, Atom, BarChart2, ArrowLeft,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -34,7 +34,7 @@ import { parseCSV, csvToAio, reconstructCsvFromAios, parseAioLine, type Converte
 
 type View =
   | "home" | "converter" | "guide" | "workflow" | "reference"
-  | "processor" | "paper" | "mro-paper" | "paper-iii" | "sysadmin" | "rnd" | "pdf-import"
+  | "processor" | "paper" | "mro-paper" | "paper-iii" | "sysadmin" | "rnd" | "pdf-import" | "search-stats"
 
 // ── Main Page ────────────────────────────────────────────────────────
 
@@ -269,6 +269,22 @@ export default function HomePage() {
   if (currentView === "sysadmin") return <SystemManagement onBack={() => setCurrentView("home")} onNavigate={setCurrentView} />
   if (currentView === "rnd") return <ResearchAndDevelopment onBack={() => setCurrentView("home")} backendIsOnline={backendIsOnline} onSysAdmin={handleSystemClick} />
   if (currentView === "pdf-import") return <PdfImportView onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} onImportCsv={(csvData) => { setConvertedFiles((prev) => [...prev, csvData]); setCurrentView("converter") }} />
+  if (currentView === "search-stats") return (
+    <div className="min-h-screen bg-background">
+      <header className="bg-[#1e3a5f] text-white px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <BarChart2 className="w-6 h-6" />
+          <h1 className="text-xl font-bold">Search Stats</h1>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => setCurrentView("home")} className="gap-2">
+          <ArrowLeft className="w-4 h-4" />Back to Home
+        </Button>
+      </header>
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        <Card><CardContent className="p-6"><SearchStatsPane /></CardContent></Card>
+      </main>
+    </div>
+  )
 
   // ── Home view ────────────────────────────────────────────────────
 
@@ -283,7 +299,7 @@ export default function HomePage() {
                 <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
                   <Database className="w-5 h-5 text-primary-foreground" />
                 </div>
-                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.0</h1>
+                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.1</h1>
               </div>
               <div className="flex items-center gap-3">
                 <BackendStatusBadge />
@@ -307,7 +323,7 @@ export default function HomePage() {
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-900 text-white text-sm font-medium mb-6">
               <Globe className="w-4 h-4" />Information Physics Standard Model
             </div>
-            <h2 className="text-4xl font-bold text-foreground mb-2">AIO/HSL/MRO Demo System V4.0</h2>
+            <h2 className="text-4xl font-bold text-foreground mb-2">AIO/HSL/MRO Demo System V4.1</h2>
             <p className="text-lg text-muted-foreground mb-2">by InformationPhysics.ai</p>
             <p className="text-lg text-muted-foreground mb-10">
               Transform your CSV data into Associated Information Objects (AIOs) — the fundamental unit of information in the new Information Physics Standard Model.
@@ -335,6 +351,11 @@ export default function HomePage() {
             {backendIsOnline && (
               <Button size="lg" variant="outline" onClick={() => setCurrentView("rnd")} className="gap-2 px-8">
                 <Atom className="w-4 h-4" />R &amp; D
+              </Button>
+            )}
+            {backendIsOnline && (
+              <Button size="lg" variant="outline" onClick={() => setCurrentView("search-stats")} className="gap-2 px-8">
+                <BarChart2 className="w-4 h-4" />Search Stats
               </Button>
             )}
             <Button size="lg" variant="outline" onClick={() => setCurrentView("guide")} className="gap-2 px-8">
@@ -450,7 +471,7 @@ export default function HomePage() {
             <button onClick={() => { setCurrentView("home"); handleClear() }} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
               <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center"><Database className="w-5 h-5 text-primary-foreground" /></div>
               <div className="text-left">
-                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.0</h1>
+                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.1</h1>
                 <p className="text-xs text-muted-foreground">by InformationPhysics.ai</p>
               </div>
             </button>
