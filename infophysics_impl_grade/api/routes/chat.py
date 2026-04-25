@@ -301,7 +301,7 @@ def pure_llm(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, ali
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT name, raw_uri
+                    SELECT source_object_id, raw_uri
                     FROM information_objects
                     WHERE type = 'CSV'
                     ORDER BY created_at DESC
@@ -313,8 +313,9 @@ def pure_llm(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, ali
                     raw_uri = row[1] or ""
                     if raw_uri.startswith("data:text/csv,"):
                         csv_blocks.append((name, unquote(raw_uri[len("data:text/csv,"):])))
+        logger.info("pure-llm: loaded %d CSV files for tenant=%s", len(csv_blocks), tenant)
     except Exception:
-        logger.warning("Could not fetch saved CSVs for pure-llm — proceeding without context")
+        logger.exception("Could not fetch saved CSVs for pure-llm — proceeding without context")
 
     # Build a no-frills system prompt: standard analyst persona, raw CSVs only.
     system = (
