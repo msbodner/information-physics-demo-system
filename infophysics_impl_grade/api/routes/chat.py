@@ -305,7 +305,7 @@ def pure_llm(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, ali
                     FROM information_objects
                     WHERE type = 'CSV'
                     ORDER BY created_at DESC
-                    LIMIT 50
+                    LIMIT 150
                     """
                 )
                 for row in cur.fetchall():
@@ -324,11 +324,27 @@ def pure_llm(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, ali
         "relevant. If the data does not contain the answer, say so."
     )
     if csv_blocks:
+        # Context-window guards:
+        #   • per-file trim: 10 KB (≈2.5K tokens)
+        #   • cumulative budget: 600 KB (≈150K tokens) — leaves headroom under the 200K window
+        PER_FILE_CAP = 10_000
+        TOTAL_BUDGET = 600_000
         system += "\n\n# Source CSV Files\n"
+        used = 0
+        included = 0
+        skipped = 0
         for name, body in csv_blocks:
-            # Cap each CSV at ~30 KB to protect the context window
-            trimmed = body if len(body) <= 30000 else body[:30000] + "\n…[truncated]"
-            system += f"\n## {name}\n```csv\n{trimmed}\n```\n"
+            trimmed = body if len(body) <= PER_FILE_CAP else body[:PER_FILE_CAP] + "\n…[truncated]"
+            block = f"\n## {name}\n```csv\n{trimmed}\n```\n"
+            if used + len(block) > TOTAL_BUDGET:
+                skipped = len(csv_blocks) - included
+                system += f"\n…[{skipped} additional CSV files omitted to stay within context budget]\n"
+                break
+            system += block
+            used += len(block)
+            included += 1
+        logger.info("pure-llm: included %d/%d CSVs (%d bytes, skipped=%d)",
+                    included, len(csv_blocks), used, skipped)
 
     try:
         import anthropic
