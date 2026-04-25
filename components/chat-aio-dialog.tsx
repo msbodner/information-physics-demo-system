@@ -697,7 +697,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                     <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
                       <li><span className="font-medium text-purple-600 font-semibold">Substrate</span> (purple, leftmost) is the default — press <span className="font-medium text-foreground">Enter</span> to run it. Fastest, cheapest, auto-saves MRO</li>
                       <li>Use <span className="font-medium text-foreground">AIO Search</span> when asking about specific people, projects, or entities</li>
-                      <li>Use <span className="font-medium text-foreground">Pure LLM</span> as the control case — standard Claude with the raw saved CSVs only (no AIO/HSL machinery)</li>
+                      <li>Use <span className="font-medium text-foreground">CSV->LLM Raw</span> as the control case — standard Claude with the raw saved CSVs only (no AIO/HSL machinery)</li>
                       <li>Use <span className="font-medium text-foreground">Blind Dump AIO/HSL</span> only for exploratory questions — NO retrieval, just dumps the first 300 AIOs + 10 HSLs at Claude unfiltered (slow, token-heavy)</li>
                       <li>ChatAIO requires a valid Anthropic API key configured in System Admin → API Key</li>
                       <li>Responses include markdown tables when relevant — they render as formatted tables in the chat</li>
@@ -833,8 +833,8 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
               <Button size="sm" variant="outline" onClick={handleAioSearch} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Search HSL library first, then answer with matching AIOs only">
                 <Search className="w-4 h-4" />AIO Search
               </Button>
-              <Button size="sm" variant="outline" onClick={handlePureLlm} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Pure LLM: standard Claude prompt with the raw saved CSV files as context (no AIO/HSL/MRO machinery — control case)">
-                <Sparkles className="w-4 h-4" />Pure LLM
+              <Button size="sm" variant="outline" onClick={handlePureLlm} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="CSV->LLM Raw: standard Claude prompt with the raw saved CSV files as context (no AIO/HSL/MRO machinery — control case)">
+                <Sparkles className="w-4 h-4" />CSV->LLM Raw
               </Button>
               <Button size="sm" variant="outline" onClick={handleSend} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Blind Dump AIO/HSL: NO retrieval — ships the first 300 AIOs + 10 HSLs from the DB to Claude with no relevance filtering. Slow and token-heavy.">
                 <Send className="w-4 h-4" />Blind Dump AIO/HSL

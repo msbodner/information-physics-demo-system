@@ -225,11 +225,11 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
             {activeSection === "substrate" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Brain className="w-5 h-5 text-purple-600" />Substrate Mode — Claude Answers Grounded in the AIO/HSL/MRO Substrate</CardTitle></CardHeader>
               <CardContent className="space-y-5 text-sm text-muted-foreground leading-relaxed">
-                <p>V4.1 introduces <strong>Substrate Mode</strong> in the ChatAIO dialog — one of four retrieval modes alongside <strong>Pure LLM</strong> (raw CSVs, no IP machinery), <strong>Blind Dump AIO/HSL</strong> (broad AIO/HSL dump), and <strong>AIO Search</strong> (HSL-guided four-phase). It implements the full five-step pipeline from <em>Paper III: Precomputed Semantic Substrates for Large Language Models</em>, using your stored AIOs, HSL neighborhoods, and prior Memory Result Objects (MROs) as a direct replacement for traditional Retrieval-Augmented Generation.</p>
+                <p>V4.1 introduces <strong>Substrate Mode</strong> in the ChatAIO dialog — one of four retrieval modes alongside <strong>CSV->LLM Raw</strong> (raw CSVs, no IP machinery), <strong>Blind Dump AIO/HSL</strong> (broad AIO/HSL dump), and <strong>AIO Search</strong> (HSL-guided four-phase). It implements the full five-step pipeline from <em>Paper III: Precomputed Semantic Substrates for Large Language Models</em>, using your stored AIOs, HSL neighborhoods, and prior Memory Result Objects (MROs) as a direct replacement for traditional Retrieval-Augmented Generation.</p>
 
                 <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
                   <p className="text-purple-800 dark:text-purple-200 text-xs leading-relaxed">
-                    <strong>Where to find it:</strong> Click <strong>ChatAIO</strong> on the home page. In the input bar at the bottom you will see four buttons: <strong>Substrate</strong> (purple, default — Enter key), <strong>AIO Search</strong> (HSL-guided), <strong>Pure LLM</strong> (raw CSV control case), and <strong>Blind Dump AIO/HSL</strong> (broad AIO/HSL dump).
+                    <strong>Where to find it:</strong> Click <strong>ChatAIO</strong> on the home page. In the input bar at the bottom you will see four buttons: <strong>Substrate</strong> (purple, default — Enter key), <strong>AIO Search</strong> (HSL-guided), <strong>CSV->LLM Raw</strong> (raw CSV control case), and <strong>Blind Dump AIO/HSL</strong> (broad AIO/HSL dump).
                   </p>
                 </div>
 
@@ -258,7 +258,7 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                 <h4 className="text-foreground font-medium mt-4">When to use each mode</h4>
                 <div className="space-y-2">
                   <div className="pl-3 border-l-2 border-amber-500/50">
-                    <p className="text-foreground font-medium text-xs">Pure LLM — Standard Claude w/ Raw CSVs</p>
+                    <p className="text-foreground font-medium text-xs">CSV->LLM Raw — Standard Claude w/ Raw CSVs</p>
                     <p>The control case. Sends only the original saved CSV files (up to 50, capped at ~30 KB each) to Claude with no Information-Physics framing — no AIO bracket notation, no HSL traversal, no MRO priors. Use this to demonstrate what a vanilla LLM can do with the same data and to benchmark the lift the AIO/HSL/MRO substrate provides.</p>
                   </div>
                   <div className="pl-3 border-l-2 border-blue-500/50">
