@@ -7,6 +7,7 @@ Endpoints:
   POST /v1/op/aio-search         — four-phase AIO search algebra
   POST /v1/op/pdf-extract        — PDF-to-CSV via Claude vision
   POST /v1/op/substrate-chat     — LLM call using client-assembled substrate
+  POST /v1/op/pure-llm           — standard Claude w/ raw saved CSVs (no AIO/HSL)
 """
 
 from __future__ import annotations
@@ -269,6 +270,85 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
         reply=reply_text,
         model_ref="claude-sonnet-4-6",
         context_records=len(aio_lines) + len(hsl_blocks),
+        input_tokens=in_tok,
+        output_tokens=out_tok,
+    )
+
+
+@router.post("/v1/op/pure-llm", response_model=ChatResponse)
+def pure_llm(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id")):
+    """Pure-LLM mode: standard Claude prompt with raw saved CSVs as context.
+
+    Unlike /v1/op/chat (which dumps AIO bracket-notation records and HSL blocks),
+    this endpoint sends only the original CSV files exactly as the user uploaded
+    them, with no Information-Physics framing. This is the control case — what
+    Claude would do with the same data and no AIO/HSL/MRO machinery.
+    """
+    logger.info("pure-llm tenant=%s messages=%d", x_tenant_id, len(payload.messages))
+
+    api_key = get_effective_api_key()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
+    if not payload.messages:
+        raise HTTPException(status_code=400, detail="messages must not be empty")
+
+    tenant = x_tenant_id or "tenantA"
+
+    csv_blocks: List[tuple[str, str]] = []  # (name, body)
+    try:
+        with db() as conn:
+            set_tenant(conn, tenant)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT name, raw_uri
+                    FROM information_objects
+                    WHERE type = 'CSV'
+                    ORDER BY created_at DESC
+                    LIMIT 50
+                    """
+                )
+                for row in cur.fetchall():
+                    name = row[0] or "untitled.csv"
+                    raw_uri = row[1] or ""
+                    if raw_uri.startswith("data:text/csv,"):
+                        csv_blocks.append((name, unquote(raw_uri[len("data:text/csv,"):])))
+    except Exception:
+        logger.warning("Could not fetch saved CSVs for pure-llm — proceeding without context")
+
+    # Build a no-frills system prompt: standard analyst persona, raw CSVs only.
+    system = (
+        "You are a helpful data analyst. Answer the user's question using the "
+        "CSV data provided below. Show your reasoning and cite the file/row when "
+        "relevant. If the data does not contain the answer, say so."
+    )
+    if csv_blocks:
+        system += "\n\n# Source CSV Files\n"
+        for name, body in csv_blocks:
+            # Cap each CSV at ~30 KB to protect the context window
+            trimmed = body if len(body) <= 30000 else body[:30000] + "\n…[truncated]"
+            system += f"\n## {name}\n```csv\n{trimmed}\n```\n"
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            system=system,
+            messages=[{"role": m.role, "content": m.content} for m in payload.messages],
+        )
+        reply_text = response.content[0].text
+        in_tok = getattr(response.usage, "input_tokens", 0) or 0
+        out_tok = getattr(response.usage, "output_tokens", 0) or 0
+    except Exception as exc:
+        logger.exception("Anthropic API error during pure-llm")
+        raise HTTPException(status_code=502, detail=f"LLM error: {str(exc)}")
+
+    return ChatResponse(
+        reply=reply_text,
+        model_ref="claude-sonnet-4-6",
+        context_records=len(csv_blocks),
         input_tokens=in_tok,
         output_tokens=out_tok,
     )

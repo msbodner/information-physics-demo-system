@@ -3,8 +3,8 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye } from "lucide-react"
-import { chatWithAIO, aioSearchChat, listSavedPrompts, createSavedPrompt, listMroObjects, createMroObject, listAioData, listHslData, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord } from "@/lib/api-client"
+import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye, Sparkles } from "lucide-react"
+import { chatWithAIO, pureLlmChat, aioSearchChat, listSavedPrompts, createSavedPrompt, listMroObjects, createMroObject, listAioData, listHslData, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord } from "@/lib/api-client"
 import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
@@ -307,6 +307,42 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "Send" })
       createChatStat({
         search_mode: "Send", query_text: text,
+        result_preview: result.reply.slice(0, 500),
+        elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
+        total_tokens: inTok + outTok, context_records: result.context_records ?? 0,
+        matched_hsls: 0, matched_aios: 0, cue_count: 0,
+        neighborhood_size: 0, prior_count: 0, mro_saved: false,
+      }).catch(() => {})
+    }
+  }, [chatInput, chatMessages, isChatLoading])
+
+  const handlePureLlm = useCallback(async () => {
+    const text = chatInput.trim()
+    if (!text || isChatLoading) return
+    const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
+    setChatMessages(next)
+    setChatInput("")
+    setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
+    setIsChatLoading(true)
+    const t0 = Date.now()
+    const result = await pureLlmChat(next)
+    const elapsedMs = Date.now() - t0
+    setIsChatLoading(false)
+    if (!result) {
+      setChatMessages([...next, { role: "assistant", content: "❌ Backend unreachable. Check your Railway deployment." }])
+    } else if ("error" in result) {
+      const isKeyMissing = result.error.toLowerCase().includes("api_key") || result.error.toLowerCase().includes("not configured")
+      setChatMessages([...next, { role: "assistant", content: isKeyMissing
+        ? "❌ Anthropic API key not configured.\n\nGo to System Admin → API Key tab and paste your key (starts with sk-ant-…)."
+        : `❌ ${result.error}` }])
+    } else {
+      const inTok = result.input_tokens ?? 0
+      const outTok = result.output_tokens ?? 0
+      const perfLine = `\n\n---\n_⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens · ${result.context_records ?? 0} CSV files_`
+      setChatMessages([...next, { role: "assistant", content: result.reply + perfLine }])
+      setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "PureLLM" })
+      createChatStat({
+        search_mode: "PureLLM", query_text: text,
         result_preview: result.reply.slice(0, 500),
         elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
         total_tokens: inTok + outTok, context_records: result.context_records ?? 0,
@@ -661,7 +697,8 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                     <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
                       <li><span className="font-medium text-purple-600 font-semibold">Substrate</span> (purple, leftmost) is the default — press <span className="font-medium text-foreground">Enter</span> to run it. Fastest, cheapest, auto-saves MRO</li>
                       <li>Use <span className="font-medium text-foreground">AIO Search</span> when asking about specific people, projects, or entities</li>
-                      <li>Use <span className="font-medium text-foreground">Send</span> (Broad Search) only for exploratory questions across all data — slow and token-heavy</li>
+                      <li>Use <span className="font-medium text-foreground">Pure LLM</span> as the control case — standard Claude with the raw saved CSVs only (no AIO/HSL machinery)</li>
+                      <li>Use <span className="font-medium text-foreground">Straight LLM</span> only for exploratory questions across all AIO/HSL data — slow and token-heavy</li>
                       <li>ChatAIO requires a valid Anthropic API key configured in System Admin → API Key</li>
                       <li>Responses include markdown tables when relevant — they render as formatted tables in the chat</li>
                     </ul>
@@ -796,8 +833,11 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
               <Button size="sm" variant="outline" onClick={handleAioSearch} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Search HSL library first, then answer with matching AIOs only">
                 <Search className="w-4 h-4" />AIO Search
               </Button>
-              <Button size="sm" variant="outline" onClick={handleSend} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Broad Search: send ALL stored AIO/HSL records as context (slow, expensive)">
-                <Send className="w-4 h-4" />Send
+              <Button size="sm" variant="outline" onClick={handlePureLlm} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Pure LLM: standard Claude prompt with the raw saved CSV files as context (no AIO/HSL/MRO machinery — control case)">
+                <Sparkles className="w-4 h-4" />Pure LLM
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleSend} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Straight LLM: send ALL stored AIO/HSL records as context (slow, expensive)">
+                <Send className="w-4 h-4" />Straight LLM
               </Button>
             </div>
           </div>

@@ -1500,7 +1500,7 @@ function InformationElementsPane() {
 export function SearchStatsPane() {
   const [stats, setStats] = useState<ChatStatRecord[]>([])
   const [loading, setLoading] = useState(false)
-  const [filter, setFilter] = useState<"All" | "Send" | "AIOSearch" | "Substrate">("All")
+  const [filter, setFilter] = useState<"All" | "Send" | "PureLLM" | "AIOSearch" | "Substrate">("All")
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -1520,7 +1520,8 @@ export function SearchStatsPane() {
   const visible = filter === "All" ? stats : stats.filter((s) => s.search_mode === filter)
 
   const modeBadge = (mode: string) => {
-    if (mode === "Send") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Send</span>
+    if (mode === "Send") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Straight LLM</span>
+    if (mode === "PureLLM") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Pure LLM</span>
     if (mode === "AIOSearch") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">AIO Search</span>
     if (mode === "Substrate") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">Substrate</span>
     return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-muted text-muted-foreground">{mode}</span>
@@ -1528,7 +1529,7 @@ export function SearchStatsPane() {
 
   // Summary totals
   const totalSearches = stats.length
-  const byMode = { Send: 0, AIOSearch: 0, Substrate: 0 } as Record<string, number>
+  const byMode = { Send: 0, PureLLM: 0, AIOSearch: 0, Substrate: 0 } as Record<string, number>
   let totalTokens = 0, avgElapsed = 0
   for (const s of stats) {
     byMode[s.search_mode] = (byMode[s.search_mode] ?? 0) + 1
@@ -1540,10 +1541,11 @@ export function SearchStatsPane() {
   return (
     <div className="space-y-4">
       {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
           { label: "Total Searches", value: totalSearches },
-          { label: "Send", value: byMode.Send ?? 0 },
+          { label: "Straight LLM", value: byMode.Send ?? 0 },
+          { label: "Pure LLM", value: byMode.PureLLM ?? 0 },
           { label: "AIO Search", value: byMode.AIOSearch ?? 0 },
           { label: "Substrate", value: byMode.Substrate ?? 0 },
         ].map((card) => (
@@ -1566,10 +1568,10 @@ export function SearchStatsPane() {
 
       {/* Controls */}
       <div className="flex items-center gap-2 flex-wrap">
-        {(["All", "Send", "AIOSearch", "Substrate"] as const).map((m) => (
+        {(["All", "Send", "PureLLM", "AIOSearch", "Substrate"] as const).map((m) => (
           <button key={m} onClick={() => setFilter(m)}
             className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${filter === m ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
-            {m === "AIOSearch" ? "AIO Search" : m}
+            {m === "AIOSearch" ? "AIO Search" : m === "Send" ? "Straight LLM" : m === "PureLLM" ? "Pure LLM" : m}
           </button>
         ))}
         <div className="flex-1" />

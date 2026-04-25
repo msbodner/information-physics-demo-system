@@ -121,6 +121,24 @@ export interface ChatResponse {
   output_tokens: number
 }
 
+export async function pureLlmChat(messages: ChatMessage[]): Promise<ChatResponse | { error: string } | null> {
+  try {
+    const res = await fetch("/api/op/pure-llm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      const detail: string = body?.detail ?? body?.error ?? `HTTP ${res.status}`
+      return { error: detail }
+    }
+    return res.json() as Promise<ChatResponse>
+  } catch {
+    return null
+  }
+}
+
 export async function chatWithAIO(messages: ChatMessage[]): Promise<ChatResponse | { error: string } | null> {
   try {
     const res = await fetch("/api/op/chat", {
