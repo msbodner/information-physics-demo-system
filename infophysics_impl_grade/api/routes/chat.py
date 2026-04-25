@@ -540,7 +540,9 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
                     set_tenant(conn, tenant)
                     with conn.cursor() as cur:
                         seen = {row[0] for row in matched_hsl_rows}
-                        # Equality probe first (cheapest).
+                        # Equality probe first (cheapest). The ::text[]
+                        # cast keeps psycopg adaptation explicit for any
+                        # connector version (psycopg2 vs psycopg3).
                         cur.execute(
                             f"""
                             SELECT h.hsl_id, h.hsl_name, {_HSL_COLS}
@@ -549,7 +551,7 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
                                 SELECT DISTINCT hsl_id
                                   FROM information_element_refs
                                  WHERE hsl_id IS NOT NULL
-                                   AND value_lower = ANY(%s)
+                                   AND value_lower = ANY(%s::text[])
                               ) ier ON ier.hsl_id = h.hsl_id
                              LIMIT %s
                             """,
@@ -565,11 +567,11 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
                         )
 
                         # Substring probe: only run if equality didn't fill
-                        # the bucket. Uses the trigram GIN on value_lower.
+                        # the bucket. ILIKE ANY(ARRAY[...]) gives the trgm
+                        # GIN planner a single predicate to match against
+                        # the gin_trgm_ops index, instead of an N-way OR
+                        # tree that the planner often won't push down.
                         if len(matched_hsl_rows) < HSL_EARLY_EXIT:
-                            ilike_clause = " OR ".join(
-                                ["value_lower LIKE %s"] * len(needles)
-                            )
                             ilike_params = [f"%{n}%" for n in needles]
                             cur.execute(
                                 f"""
@@ -579,11 +581,11 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
                                     SELECT DISTINCT hsl_id
                                       FROM information_element_refs
                                      WHERE hsl_id IS NOT NULL
-                                       AND ({ilike_clause})
+                                       AND value_lower ILIKE ANY(%s::text[])
                                   ) ier ON ier.hsl_id = h.hsl_id
                                  LIMIT %s
                                 """,
-                                ilike_params + [HSL_CAP],
+                                (ilike_params, HSL_CAP),
                             )
                             for row in cur.fetchall():
                                 if row[0] not in seen:
@@ -1060,7 +1062,11 @@ def substrate_chat(
 # does for the non-streaming response.
 
 def _sse(event: str, data: dict | str) -> bytes:
-    payload = json.dumps(data) if not isinstance(data, str) else json.dumps(data)
+    # json.dumps handles both strings and dicts uniformly: a str input
+    # becomes a quoted JSON string with embedded newlines escaped as \n,
+    # which is exactly the SSE-safe form we need so a single chunk
+    # never gets split across multiple `data:` lines.
+    payload = json.dumps(data)
     return f"event: {event}\ndata: {payload}\n\n".encode("utf-8")
 
 

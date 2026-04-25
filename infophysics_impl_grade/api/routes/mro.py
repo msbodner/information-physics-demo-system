@@ -61,7 +61,7 @@ def _mro_from_row(r):
 
 @router.get("/v1/mro-objects", response_model=List[MroObjectOut])
 def list_mro_objects(
-    limit: int = Query(200, ge=1, le=100000),
+    limit: int = Query(200, ge=1, le=10000),
     summary: bool = Query(False, description="When true, omit heavy fields (result_text, context_bundle)"),
     fields: Optional[str] = Query(None, description="Alias for summary; set to 'summary' to use the lightweight projection"),
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),

@@ -1703,8 +1703,16 @@ export function SearchStatsPane() {
 
   // ── Build a printable HTML document of the current view ──────────────
   const buildPrintableHtml = useCallback((): string => {
+    // Defense-in-depth: cover both text and attribute contexts so any
+    // future code that interpolates user-controlled fields (query_text,
+    // mode labels, etc.) into HTML attributes doesn't open an XSS hole.
     const esc = (s: string) =>
-      String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;")
     const modeLabel = (m: string) =>
       m === "Send" ? "Blind Dump AIO/HSL"
       : m === "PureLLM" ? "CSV→LLM Raw"
@@ -1879,7 +1887,10 @@ export function SearchStatsPane() {
       "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;"
     document.body.appendChild(iframe)
 
+    let cleaned = false
     const cleanup = () => {
+      if (cleaned) return
+      cleaned = true
       // Defer removal so Chrome/Edge finish flushing the print job before
       // the iframe disappears. afterprint can fire before the dialog closes.
       setTimeout(() => { try { iframe.remove() } catch {} }, 1000)
@@ -1891,6 +1902,10 @@ export function SearchStatsPane() {
         if (!win) { cleanup(); toast.error("Print failed: iframe unavailable."); return }
         // Listen for the user closing the print dialog so we can clean up.
         win.addEventListener("afterprint", cleanup, { once: true })
+        // Safety net: some browsers (Safari, headless flows) never emit
+        // afterprint, which would leak the iframe in the DOM forever.
+        // 60s is well past any reasonable print-dialog interaction.
+        setTimeout(cleanup, 60_000)
         win.focus()
         win.print()
       } catch (e) {

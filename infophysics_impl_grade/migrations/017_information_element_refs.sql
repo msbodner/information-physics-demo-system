@@ -83,27 +83,36 @@ $$;
 -- ── 3. Per-row refresh helpers ───────────────────────────────────────
 -- These rebuild the refs for a single hsl/aio row. Called from the
 -- triggers AND from the backfill block.
+-- Implementation note: we read element columns through to_jsonb(row).
+-- This sidesteps two PL/pgSQL footguns:
+--   1. EXECUTE format('SELECT ($1).hsl_element_%s', i) USING rec is brittle
+--      across postgres versions for anonymous record types and forces a
+--      replan per iteration (50–100 EXECUTEs per row).
+--   2. to_jsonb(row)->>'col' returns text directly and is one cheap C
+--      function call per column with no SQL replan overhead.
 CREATE OR REPLACE FUNCTION ier_refresh_hsl(p_hsl_id uuid)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
-  rec record;
+  row_json jsonb;
+  row_tenant text;
   i int;
   col_val text;
   parsed record;
 BEGIN
   DELETE FROM information_element_refs WHERE hsl_id = p_hsl_id;
 
-  SELECT * INTO rec FROM hsl_data WHERE hsl_id = p_hsl_id;
-  IF rec IS NULL THEN RETURN; END IF;
+  SELECT to_jsonb(h.*), h.tenant_id INTO row_json, row_tenant
+    FROM hsl_data h WHERE h.hsl_id = p_hsl_id;
+  IF row_json IS NULL THEN RETURN; END IF;
 
   FOR i IN 1..100 LOOP
-    EXECUTE format('SELECT ($1).hsl_element_%s', i) INTO col_val USING rec;
+    col_val := row_json->>('hsl_element_' || i);
     IF col_val IS NULL OR length(trim(col_val)) = 0 THEN CONTINUE; END IF;
     FOR parsed IN SELECT * FROM ier_parse_bracket(col_val) LOOP
       INSERT INTO information_element_refs
         (tenant_id, field_name, value, value_lower, hsl_id, aio_id, position)
       VALUES
-        (rec.tenant_id, parsed.field_name, parsed.value,
+        (row_tenant, parsed.field_name, parsed.value,
          lower(parsed.value), p_hsl_id, NULL, i);
     END LOOP;
   END LOOP;
@@ -113,24 +122,26 @@ $$;
 CREATE OR REPLACE FUNCTION ier_refresh_aio(p_aio_id uuid)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
-  rec record;
+  row_json jsonb;
+  row_tenant text;
   i int;
   col_val text;
   parsed record;
 BEGIN
   DELETE FROM information_element_refs WHERE aio_id = p_aio_id;
 
-  SELECT * INTO rec FROM aio_data WHERE aio_id = p_aio_id;
-  IF rec IS NULL THEN RETURN; END IF;
+  SELECT to_jsonb(a.*), a.tenant_id INTO row_json, row_tenant
+    FROM aio_data a WHERE a.aio_id = p_aio_id;
+  IF row_json IS NULL THEN RETURN; END IF;
 
   FOR i IN 1..50 LOOP
-    EXECUTE format('SELECT ($1).element_%s', i) INTO col_val USING rec;
+    col_val := row_json->>('element_' || i);
     IF col_val IS NULL OR length(trim(col_val)) = 0 THEN CONTINUE; END IF;
     FOR parsed IN SELECT * FROM ier_parse_bracket(col_val) LOOP
       INSERT INTO information_element_refs
         (tenant_id, field_name, value, value_lower, hsl_id, aio_id, position)
       VALUES
-        (rec.tenant_id, parsed.field_name, parsed.value,
+        (row_tenant, parsed.field_name, parsed.value,
          lower(parsed.value), NULL, p_aio_id, i);
     END LOOP;
   END LOOP;
@@ -175,20 +186,26 @@ AFTER INSERT OR UPDATE OR DELETE ON aio_data
 FOR EACH ROW EXECUTE FUNCTION ier_aio_trigger();
 
 -- ── 5. Backfill ──────────────────────────────────────────────────────
--- Only runs if the inverted-index table is empty, so re-running this
--- migration is a no-op.
+-- The DO block must bypass RLS while it scans every tenant: with FORCE
+-- RLS enabled, the outer SELECT against hsl_data / aio_data would only
+-- see rows whose tenant_id matches the current `app.tenant_id` GUC —
+-- which is unset at migration time and would silently match zero rows.
+--
+-- We set `row_security = off` for the duration of the transaction
+-- (works for the table owner the migration runs as) and re-set GUCs
+-- per row before calling the refresh functions, so the INSERTs into
+-- information_element_refs are still tagged with the correct tenant.
+--
+-- DELETE-then-INSERT inside `ier_refresh_*` makes the backfill safely
+-- re-runnable: re-applying this migration on an already-populated
+-- corpus will simply rebuild the refs without duplicates.
 DO $$
 DECLARE
-  cnt int;
   r record;
 BEGIN
-  SELECT count(*) INTO cnt FROM information_element_refs;
-  IF cnt > 0 THEN RETURN; END IF;
-
-  -- Back-fill must bypass RLS while it scans every tenant. The
-  -- migration session runs as the table owner with FORCE RLS off
-  -- here because we set app.tenant_id on a per-row basis below.
-  PERFORM set_config('app.tenant_id', 'tenantA', true);
+  -- Bypass RLS for the migration's duration. Restored automatically at
+  -- transaction end; re-enabled explicitly below for safety.
+  SET LOCAL row_security = off;
 
   FOR r IN SELECT hsl_id, tenant_id FROM hsl_data LOOP
     PERFORM set_config('app.tenant_id', r.tenant_id, true);
@@ -200,3 +217,7 @@ BEGIN
     PERFORM ier_refresh_aio(r.aio_id);
   END LOOP;
 END $$;
+
+-- Reset row_security to default outside the DO block (defensive — the
+-- SET LOCAL above is scoped to the transaction, but explicit is better).
+SET row_security = on;
