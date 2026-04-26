@@ -788,3 +788,89 @@ export async function extractPdfToCsv(file: File): Promise<PdfExtractResult | nu
     return null
   }
 }
+
+// ---------------------------------------------------------------------------
+// Demo Reset / Backup / Restore
+// ---------------------------------------------------------------------------
+
+export interface DemoBackupSummary {
+  backup_id: string
+  tenant_id: string
+  name: string
+  note: string | null
+  counts: Record<string, number>
+  created_at: string
+  created_by: string | null
+}
+
+export interface DemoResetResponse {
+  wiped: Record<string, number>
+  backup_id: string | null
+}
+
+export interface DemoRestoreResponse {
+  restored: Record<string, number>
+  from_backup_id: string
+}
+
+export async function listDemoBackups(): Promise<DemoBackupSummary[]> {
+  try {
+    const res = await fetch("/api/op/demo-backups", { cache: "no-store" })
+    if (!res.ok) return []
+    const data = await res.json()
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
+export async function createDemoBackup(name: string, note?: string): Promise<DemoBackupSummary | null> {
+  try {
+    const res = await fetch("/api/op/demo-backup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, note: note || null }),
+    })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
+export async function deleteDemoBackup(backupId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/op/demo-backups/${backupId}`, { method: "DELETE" })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function resetDemoData(opts: {
+  create_backup_first: boolean
+  backup_name?: string
+  backup_note?: string
+}): Promise<DemoResetResponse | null> {
+  try {
+    const res = await fetch("/api/op/demo-reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...opts, confirm: "ERASE" }),
+    })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
+export async function restoreDemoBackup(backupId: string): Promise<DemoRestoreResponse | null> {
+  try {
+    const res = await fetch(`/api/op/demo-restore/${backupId}`, { method: "POST" })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}

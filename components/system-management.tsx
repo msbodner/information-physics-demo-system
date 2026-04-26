@@ -7,6 +7,7 @@ import {
   Users, Key, Loader2, ShieldCheck, User, Lock, FileSpreadsheet, FileText,
   Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network, BarChart2, LayoutGrid,
   BookOpen, Cpu, Brain, Library, Printer, AlertTriangle,
+  RotateCcw, Archive, ShieldAlert, CheckCircle2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -26,9 +27,10 @@ import {
   getApiKeySetting, updateApiKeySetting, loginUser, listIOs,
   listChatStats, deleteChatStat,
   listMroObjects, getMroObject, updateMroObject, deleteMroObject,
+  listDemoBackups, createDemoBackup, deleteDemoBackup, resetDemoData, restoreDemoBackup,
   type User as SystemUser, type Role, type AioDataRecord, type HslDataRecord,
   type LoginResult, type IORecord, type SavedPrompt, type InformationElement,
-  type ChatStatRecord, type MroObject,
+  type ChatStatRecord, type MroObject, type DemoBackupSummary,
 } from "@/lib/api-client"
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -1304,6 +1306,409 @@ function HslDataPane() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)} className="gap-2"><Trash2 className="w-4 h-4" />Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+// ── Demo Reset Pane ────────────────────────────────────────────────
+// Backup, wipe, and restore all demo data tables (everything except
+// users, roles, and system settings). Designed for clearing the system
+// before a new demo while preserving the ability to roll back.
+
+function DemoResetPane() {
+  const [backups, setBackups] = useState<DemoBackupSummary[]>([])
+  const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  // Manual backup form
+  const [backupName, setBackupName] = useState("")
+  const [backupNote, setBackupNote] = useState("")
+
+  // Reset confirm dialog
+  const [resetOpen, setResetOpen] = useState(false)
+  const [resetCreateBackup, setResetCreateBackup] = useState(true)
+  const [resetConfirmText, setResetConfirmText] = useState("")
+  const [resetBackupName, setResetBackupName] = useState("")
+
+  // Restore confirm dialog
+  const [restoreTarget, setRestoreTarget] = useState<DemoBackupSummary | null>(null)
+  const [restoreConfirmText, setRestoreConfirmText] = useState("")
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    const rows = await listDemoBackups()
+    setBackups(rows)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { refresh() }, [refresh])
+
+  const totalRowsInBackup = (b: DemoBackupSummary) =>
+    Object.values(b.counts || {}).reduce((a, n) => a + (Number(n) || 0), 0)
+
+  const handleCreateBackup = async () => {
+    if (!backupName.trim()) {
+      toast.error("Please give the backup a name")
+      return
+    }
+    setBusy("backup")
+    const result = await createDemoBackup(backupName.trim(), backupNote.trim() || undefined)
+    setBusy(null)
+    if (result) {
+      toast.success(`Backup created: ${result.name}`)
+      setBackupName("")
+      setBackupNote("")
+      refresh()
+    } else {
+      toast.error("Failed to create backup")
+    }
+  }
+
+  const handleDeleteBackup = async (b: DemoBackupSummary) => {
+    if (!confirm(`Permanently delete backup "${b.name}"? This cannot be undone.`)) return
+    setBusy(b.backup_id)
+    const ok = await deleteDemoBackup(b.backup_id)
+    setBusy(null)
+    if (ok) {
+      toast.success("Backup deleted")
+      refresh()
+    } else {
+      toast.error("Failed to delete backup")
+    }
+  }
+
+  const handleReset = async () => {
+    if (resetConfirmText !== "ERASE") {
+      toast.error('Type ERASE in capital letters to confirm')
+      return
+    }
+    setBusy("reset")
+    const result = await resetDemoData({
+      create_backup_first: resetCreateBackup,
+      backup_name: resetCreateBackup ? (resetBackupName.trim() || undefined) : undefined,
+      backup_note: resetCreateBackup ? "Auto-created before demo reset" : undefined,
+    })
+    setBusy(null)
+    if (result) {
+      const wipedTotal = Object.values(result.wiped || {}).reduce((a, n) => a + (Number(n) || 0), 0)
+      toast.success(
+        result.backup_id
+          ? `Demo data erased (${wipedTotal} rows). Backup saved before wipe.`
+          : `Demo data erased (${wipedTotal} rows). No backup was made.`
+      )
+      setResetOpen(false)
+      setResetConfirmText("")
+      setResetBackupName("")
+      refresh()
+    } else {
+      toast.error("Reset failed — see backend logs")
+    }
+  }
+
+  const handleRestore = async () => {
+    if (!restoreTarget) return
+    if (restoreConfirmText !== "RESTORE") {
+      toast.error('Type RESTORE in capital letters to confirm')
+      return
+    }
+    setBusy("restore")
+    const result = await restoreDemoBackup(restoreTarget.backup_id)
+    setBusy(null)
+    if (result) {
+      const total = Object.values(result.restored || {}).reduce((a, n) => a + (Number(n) || 0), 0)
+      toast.success(`Restored ${total} rows from "${restoreTarget.name}"`)
+      setRestoreTarget(null)
+      setRestoreConfirmText("")
+      refresh()
+    } else {
+      toast.error("Restore failed — see backend logs")
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Warning banner */}
+      <div className="rounded-md border border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-900/60 p-4">
+        <div className="flex items-start gap-3">
+          <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+          <div className="space-y-1">
+            <p className="font-semibold text-red-700 dark:text-red-400">Destructive operations</p>
+            <p className="text-sm text-red-700/90 dark:text-red-300/90">
+              Erasing demo data permanently removes all AIOs, HSLs, MROs, Information Elements,
+              saved prompts, embeddings, query cache, citations, and chat statistics for this tenant.
+              <strong className="font-semibold"> Users, roles, system settings, and saved backups are preserved.</strong>
+            </p>
+            <p className="text-sm text-red-700/90 dark:text-red-300/90">
+              You can save the current state as a backup first, and restore it later to roll back.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Action row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Create backup */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Archive className="w-4 h-4" /> Create Backup
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Snapshot all current demo data into a named restore point.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <Label className="text-xs">Backup name</Label>
+              <Input
+                value={backupName}
+                onChange={(e) => setBackupName(e.target.value)}
+                placeholder="e.g., Before Acme demo, March 14"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Note (optional)</Label>
+              <Input
+                value={backupNote}
+                onChange={(e) => setBackupNote(e.target.value)}
+                placeholder="What's in this state?"
+              />
+            </div>
+            <Button onClick={handleCreateBackup} disabled={busy === "backup"} className="w-full">
+              {busy === "backup" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              Create Backup
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Erase */}
+        <Card className="border-red-300 dark:border-red-900/60">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base text-red-700 dark:text-red-400">
+              <AlertTriangle className="w-4 h-4" /> Erase All Demo Data
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Wipe AIOs, HSLs, MROs, Info Elements, prompts, and all derived data for this tenant.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              This action cannot be undone except by restoring from a backup.
+              You can have the system create a safety backup automatically before erasing.
+            </p>
+            <Button
+              variant="destructive"
+              className="w-full"
+              onClick={() => {
+                setResetCreateBackup(true)
+                setResetConfirmText("")
+                setResetBackupName(`Auto-backup ${new Date().toISOString().slice(0,16).replace("T"," ")}`)
+                setResetOpen(true)
+              }}
+            >
+              <Trash2 className="w-4 h-4 mr-2" /> Erase All Demo Data…
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Backups list */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Archive className="w-4 h-4" /> Saved Backups
+              <Badge variant="secondary">{backups.length}</Badge>
+            </CardTitle>
+            <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {backups.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              No backups yet. Create one above before erasing or whenever you reach a state worth keeping.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="text-left p-2 font-medium">Name</th>
+                    <th className="text-left p-2 font-medium">Note</th>
+                    <th className="text-left p-2 font-medium">Created</th>
+                    <th className="text-right p-2 font-medium">Rows</th>
+                    <th className="text-right p-2 font-medium w-48">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backups.map((b) => (
+                    <tr key={b.backup_id} className="border-b hover:bg-muted/20">
+                      <td className="p-2 font-medium">{b.name}</td>
+                      <td className="p-2 text-muted-foreground">{b.note || "—"}</td>
+                      <td className="p-2 text-muted-foreground whitespace-nowrap">
+                        {new Date(b.created_at).toLocaleString()}
+                      </td>
+                      <td className="p-2 text-right tabular-nums">{totalRowsInBackup(b).toLocaleString()}</td>
+                      <td className="p-2 text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { setRestoreTarget(b); setRestoreConfirmText("") }}
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 mr-1" /> Restore
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteBackup(b)}
+                            disabled={busy === b.backup_id}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Reset confirm dialog */}
+      <Dialog open={resetOpen} onOpenChange={setResetOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700 dark:text-red-400">
+              <AlertTriangle className="w-5 h-5" /> Erase All Demo Data
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-900/60 p-3">
+              <p className="text-sm text-red-700 dark:text-red-300 font-medium">
+                This will permanently delete all demo data for this tenant.
+              </p>
+              <ul className="text-xs text-red-700/90 dark:text-red-300/90 list-disc list-inside mt-2 space-y-0.5">
+                <li>AIOs, HSLs, MROs, Information Elements, saved prompts</li>
+                <li>Embeddings, query cache, citations, chat statistics</li>
+                <li>Field maps and all derived/auxiliary tables</li>
+              </ul>
+              <p className="text-xs text-red-700/90 dark:text-red-300/90 mt-2">
+                Preserved: users, roles, system settings, and existing backups.
+              </p>
+            </div>
+
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={resetCreateBackup}
+                onChange={(e) => setResetCreateBackup(e.target.checked)}
+              />
+              <div className="flex-1">
+                <p className="text-sm font-medium">Create a safety backup first (recommended)</p>
+                <p className="text-xs text-muted-foreground">
+                  Snapshot the current state into a named backup before erasing, so you can roll back.
+                </p>
+              </div>
+            </label>
+
+            {resetCreateBackup && (
+              <div>
+                <Label className="text-xs">Backup name</Label>
+                <Input
+                  value={resetBackupName}
+                  onChange={(e) => setResetBackupName(e.target.value)}
+                  placeholder="Auto-backup before reset"
+                />
+              </div>
+            )}
+
+            <div>
+              <Label className="text-xs">
+                Type <span className="font-mono font-bold">ERASE</span> to confirm
+              </Label>
+              <Input
+                value={resetConfirmText}
+                onChange={(e) => setResetConfirmText(e.target.value)}
+                placeholder="ERASE"
+                autoFocus
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetOpen(false)} disabled={busy === "reset"}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={handleReset}
+              disabled={busy === "reset" || resetConfirmText !== "ERASE"}
+            >
+              {busy === "reset"
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Erasing…</>
+                : <><Trash2 className="w-4 h-4 mr-2" /> Erase All Demo Data</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Restore confirm dialog */}
+      <Dialog open={!!restoreTarget} onOpenChange={(open) => { if (!open) setRestoreTarget(null) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="w-5 h-5" /> Restore from Backup
+            </DialogTitle>
+          </DialogHeader>
+          {restoreTarget && (
+            <div className="space-y-4">
+              <div className="rounded-md border bg-muted/40 p-3">
+                <p className="text-sm font-medium">{restoreTarget.name}</p>
+                {restoreTarget.note && <p className="text-xs text-muted-foreground mt-1">{restoreTarget.note}</p>}
+                <p className="text-xs text-muted-foreground mt-1">
+                  Created {new Date(restoreTarget.created_at).toLocaleString()} ·
+                  {" "}{totalRowsInBackup(restoreTarget).toLocaleString()} rows
+                </p>
+              </div>
+              <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900/60 p-3">
+                <p className="text-sm text-amber-800 dark:text-amber-200 font-medium flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" /> Restoring will replace current data
+                </p>
+                <p className="text-xs text-amber-800/90 dark:text-amber-200/90 mt-1">
+                  All current AIOs, HSLs, MROs, and derived data for this tenant will be erased and
+                  replaced with the contents of this backup. Users, roles, settings, and other
+                  backups are preserved.
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs">
+                  Type <span className="font-mono font-bold">RESTORE</span> to confirm
+                </Label>
+                <Input
+                  value={restoreConfirmText}
+                  onChange={(e) => setRestoreConfirmText(e.target.value)}
+                  placeholder="RESTORE"
+                  autoFocus
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRestoreTarget(null)} disabled={busy === "restore"}>Cancel</Button>
+            <Button
+              onClick={handleRestore}
+              disabled={busy === "restore" || restoreConfirmText !== "RESTORE"}
+            >
+              {busy === "restore"
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Restoring…</>
+                : <><CheckCircle2 className="w-4 h-4 mr-2" /> Restore Backup</>}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2717,6 +3122,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
               { value: "aio-data",      icon: <Database className="w-4 h-4" />,        label: "AIO Data" },
               { value: "hsl-data",      icon: <LayoutList className="w-4 h-4" />,      label: "HSL Data" },
               { value: "mro-data",      icon: <Brain className="w-4 h-4" />,           label: "MRO Data" },
+              { value: "demo-reset",    icon: <ShieldAlert className="w-4 h-4" />,     label: "Demo Reset" },
               { value: "apikey",        icon: <Key className="w-4 h-4" />,             label: "API Key" },
               { value: "csvs",          icon: <FileSpreadsheet className="w-4 h-4" />, label: "Saved CSVs" },
               { value: "aios",          icon: <FileText className="w-4 h-4" />,        label: "Saved AIOs" },
@@ -2780,6 +3186,18 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
             <TabsContent value="mro-data" className="mt-0">
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Brain className="w-5 h-5" />MRO Data</CardTitle></CardHeader>
                 <CardContent><MroDataPane /></CardContent></Card>
+            </TabsContent>
+
+            <TabsContent value="demo-reset" className="mt-0">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5" />Demo Reset &amp; Backup</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Clear the system for a fresh demo. Save the current state as a backup first, and restore it later if needed.
+                  </p>
+                </CardHeader>
+                <CardContent><DemoResetPane /></CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="apikey" className="mt-0">

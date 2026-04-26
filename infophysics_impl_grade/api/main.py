@@ -28,6 +28,7 @@ from api.routes.prompts import router as prompts_router
 from api.routes.settings import router as settings_router
 from api.routes.stats import router as stats_router
 from api.routes.users import router as users_router
+from api.routes.demo_reset import router as demo_reset_router
 
 load_dotenv()
 
@@ -62,6 +63,7 @@ app.include_router(mro_router)        # /v1/mro-objects
 app.include_router(prompts_router)    # /v1/saved-prompts
 app.include_router(chat_router)       # /v1/op/* (summarize, chat, aio-search, substrate, pdf)
 app.include_router(stats_router)      # /v1/chat-stats
+app.include_router(demo_reset_router) # /v1/op/demo-backup, /v1/op/demo-backups, /v1/op/demo-reset, /v1/op/demo-restore
 
 
 # ---------------------------------------------------------------------------
