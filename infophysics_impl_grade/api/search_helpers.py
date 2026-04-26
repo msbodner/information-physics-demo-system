@@ -8,6 +8,7 @@ in without changing its control flow.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
@@ -245,16 +246,39 @@ def apply_exclusions(record_lines: List[str], exclusions: List[str]) -> List[str
 
 
 def adaptive_aio_cap(num_cues: int, *, base: int = 50, per_cue: int = 50,
-                     floor: int = 100, ceiling: int = 300) -> int:
+                     floor: int = 100, ceiling: int = 300,
+                     total_matches: Optional[int] = None) -> int:
     """Compute the AIO context cap as a function of cue count.
 
     Single-cue queries ("show me Vance") get a tight bundle so Claude
     doesn't drown in noise. Multi-cue queries ("Vance AND Houston AND
     2024") get a wider bundle because each additional cue narrows the
     candidate set and we want more breadth per cue.
+
+    V4.4 P10 — Density-aware tightening (opt-in via env). When
+    ``AIO_SEARCH_DENSITY_AWARE_CAP=1`` and ``total_matches`` is supplied,
+    we tighten the cap when the retrieval set is dense relative to the
+    cue count (lots of matches per cue → broad query → noisier bundle).
+    Defaults are unchanged when the env flag is unset, so this is a
+    no-op for existing deployments.
     """
     raw = base + per_cue * max(0, num_cues)
-    return max(floor, min(ceiling, raw))
+    cap = max(floor, min(ceiling, raw))
+
+    if total_matches is None:
+        return cap
+    if os.environ.get("AIO_SEARCH_DENSITY_AWARE_CAP", "").strip() not in ("1", "true", "yes"):
+        return cap
+
+    cues = max(1, num_cues)
+    density = total_matches / cues
+    # Heuristic: density > 200 records/cue suggests a broad query
+    # (e.g. single-keyword "vendors" matches everything). Tighten the
+    # cap proportionally; never below the floor.
+    if density > 200:
+        scale = max(0.5, 200.0 / density)  # bottoms out at 50% of cap
+        cap = int(cap * scale)
+    return max(floor, min(ceiling, cap))
 
 
 # ── Field-aware needle split (#1) ─────────────────────────────────────

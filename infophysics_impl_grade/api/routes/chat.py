@@ -579,10 +579,19 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
             # faster/cheaper parses once they've verified parse quality.
             parse_model = os.environ.get("AIO_SEARCH_PARSE_MODEL", "claude-sonnet-4-6")
             try:
+                # V4.4 P11: mark parse_system as ephemeral so the
+                # tenant-scoped known_fields list (which can be 50 tokens
+                # of vocabulary) gets the 90% cache-read discount on any
+                # parse within a ~5min window. The user_prompt varies per
+                # query but the system prefix is stable per tenant.
                 parse_response = client.messages.create(
                     model=parse_model,
                     max_tokens=500,
-                    system=parse_system,
+                    system=[{
+                        "type": "text",
+                        "text": parse_system,
+                        "cache_control": {"type": "ephemeral"},
+                    }],
                     messages=[{"role": "user", "content": user_prompt}],
                 )
                 raw_json = parse_response.content[0].text.strip()
@@ -914,21 +923,26 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
     # ── Phase 3: Gather AIOs from matched HSLs ──
     # Cap aio_refs early: 500 matched HSLs × ~100 elements = up to 50k refs.
     # We only ever send 300 to the LLM, so surfacing >1000 is wasted DB work.
+    # V4.4 P12: also cap mro_ids extraction so a pathologically dense HSL
+    # corpus (lots of [MRO.…] tokens) can't blow the iteration budget.
     AIO_REFS_CAP = 1500
+    MRO_IDS_CAP  = 50  # the downstream batch fetch only honors the first 5 anyway
     aio_refs: set = set()
     mro_ids_from_hsl: List[str] = []
     for row in matched_hsl_rows:
-        if len(aio_refs) >= AIO_REFS_CAP:
+        if len(aio_refs) >= AIO_REFS_CAP and len(mro_ids_from_hsl) >= MRO_IDS_CAP:
             break
         for elem in row[2:]:
             if elem and isinstance(elem, str) and elem.strip():
                 ref = elem.strip()
                 if ref.startswith("[MRO.") and ref.endswith("]"):
-                    mro_ids_from_hsl.append(ref[5:-1])
+                    if len(mro_ids_from_hsl) < MRO_IDS_CAP:
+                        mro_ids_from_hsl.append(ref[5:-1])
                 else:
-                    aio_refs.add(ref)
-                    if len(aio_refs) >= AIO_REFS_CAP:
-                        break
+                    if len(aio_refs) < AIO_REFS_CAP:
+                        aio_refs.add(ref)
+                if len(aio_refs) >= AIO_REFS_CAP and len(mro_ids_from_hsl) >= MRO_IDS_CAP:
+                    break
 
     matched_aio_lines: List[str] = []
     seen_aio_names: set = set()
@@ -1211,7 +1225,7 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         # Single-cue queries get a tight window so the model doesn't drown
         # in noise; multi-cue queries get more breadth because each extra
         # cue narrows the candidate set.
-        cap = adaptive_aio_cap(len(needles))
+        cap = adaptive_aio_cap(len(needles), total_matches=len(matched_aio_lines))
         sample = matched_aio_lines[:cap]
         context_section += f"\n\n## Matched AIO Records ({len(sample)} of {len(matched_aio_lines)} total)\n"
         context_section += "\n".join(sample)
@@ -1268,7 +1282,10 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
     # answer text. We deliberately ship the post-cap slice (``sample``)
     # rather than the full matched list, so "sources used: N of M"
     # reports against what Claude could plausibly cite.
-    shipped_records = matched_aio_lines[: adaptive_aio_cap(len(needles))] if matched_aio_lines else []
+    shipped_records = (
+        matched_aio_lines[: adaptive_aio_cap(len(needles), total_matches=len(matched_aio_lines))]
+        if matched_aio_lines else []
+    )
 
     return {
         "api_key": api_key,
