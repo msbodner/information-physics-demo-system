@@ -18,11 +18,11 @@ import { AIOReferencePaper } from "@/components/views/AIOReferencePaper"
 import { MROReferencePaper } from "@/components/views/MROReferencePaper"
 import { PaperIII } from "@/components/views/PaperIII"
 import { BulkHslTechnote } from "@/components/views/BulkHslTechnote"
-import { createIO, listIOs, createAioData, loginUser, rebuildHslsFromAios, type IORecord, type LoginResult } from "@/lib/api-client"
+import { createIO, listIOs, createAioData, loginUser, rebuildHslsFromAios, pruneHsls, type IORecord, type LoginResult } from "@/lib/api-client"
 import {
   Database, ArrowRight, Layers, Cpu, Globe, BookOpen, FileText, Zap,
   Settings, FileSpreadsheet, LogOut, Lock, Eye, EyeOff, MessageSquare,
-  Upload, Brain, Loader2, BarChart2, ArrowLeft,
+  Upload, Brain, Loader2, BarChart2, ArrowLeft, Scissors,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -74,6 +74,37 @@ export default function HomePage() {
       setIsBulkBuildingHsls(false)
     }
   }, [isBulkBuildingHsls])
+
+  // Prune HSLs (dual of Bulk HSL Build) — destructive, so confirm first.
+  const [isPruningHsls, setIsPruningHsls] = useState(false)
+  const handlePruneHsls = useCallback(async () => {
+    if (isPruningHsls) return
+    if (!window.confirm(
+      "Prune HSLs?\n\n" +
+      "This permanently deletes every HSL whose surviving live-AIO " +
+      "member count has dropped below 2. MRO references do not count " +
+      "toward the floor.\n\nThis action cannot be undone."
+    )) return
+    setIsPruningHsls(true)
+    try {
+      const result = await pruneHsls()
+      if (!result) {
+        toast.error("Backend unavailable — could not prune HSLs")
+        return
+      }
+      const sample = result.names.slice(0, 5).join(", ")
+      toast.success(
+        result.pruned === 0
+          ? "Prune HSLs: nothing to prune — every HSL still has ≥2 live AIO members."
+          : `Prune HSLs: ${result.pruned} removed${sample ? ` · e.g. ${sample}${result.names.length > 5 ? "…" : ""}` : ""}`,
+        { duration: 6000 },
+      )
+    } catch {
+      toast.error("Prune HSLs failed")
+    } finally {
+      setIsPruningHsls(false)
+    }
+  }, [isPruningHsls])
 
   // Converter state
   const [downloadedFileNames, setDownloadedFileNames] = useState<string[]>([])
@@ -378,6 +409,19 @@ export default function HomePage() {
               >
                 {isBulkBuildingHsls ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
                 {isBulkBuildingHsls ? "Building HSLs…" : "Bulk HSL Build"}
+              </Button>
+            )}
+            {backendIsOnline && (
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={handlePruneHsls}
+                disabled={isPruningHsls}
+                className="gap-2 px-8"
+                title="Remove HSLs whose surviving live-AIO member count has dropped below 2. Dual of Bulk HSL Build. Destructive — confirms first."
+              >
+                {isPruningHsls ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scissors className="w-4 h-4" />}
+                {isPruningHsls ? "Pruning HSLs…" : "Prune HSLs"}
               </Button>
             )}
             {backendIsOnline && (

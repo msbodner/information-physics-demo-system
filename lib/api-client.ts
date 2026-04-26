@@ -553,10 +553,38 @@ export interface RebuildHslsResult {
   skipped_single_aio: number
   already_existed: number
   total_aios_scanned: number
+  as_of?: string | null
 }
 
-export async function rebuildHslsFromAios(): Promise<RebuildHslsResult | null> {
-  return safeFetch<RebuildHslsResult>("/api/hsl-data/rebuild-from-aios", {
+/**
+ * Bulk HSL rebuild.
+ *
+ * @param asOf  Optional ISO-8601 timestamp. When supplied, the rebuild
+ *              considers only AIOs whose ``created_at <= as_of``, enabling
+ *              forensic / point-in-time reconstruction of the HSL topology.
+ *              Omit for the default "rebuild against current corpus" behavior.
+ */
+export async function rebuildHslsFromAios(asOf?: string): Promise<RebuildHslsResult | null> {
+  const qs = asOf ? `?as_of=${encodeURIComponent(asOf)}` : ""
+  return safeFetch<RebuildHslsResult>(`/api/hsl-data/rebuild-from-aios${qs}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+export interface PruneHslsResult {
+  pruned: number
+  names: string[]
+}
+
+/**
+ * Dual of rebuild: removes HSLs whose surviving live-AIO member count has
+ * dropped below 2. Authoritative count is taken from the ``hsl_member``
+ * side table joined against current ``aio_data``; MRO members do not
+ * count toward the floor.
+ */
+export async function pruneHsls(): Promise<PruneHslsResult | null> {
+  return safeFetch<PruneHslsResult>("/api/hsl-data/prune", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   })

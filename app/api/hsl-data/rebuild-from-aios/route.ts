@@ -1,10 +1,13 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 
 const API_BASE = process.env.API_BASE ?? "http://localhost:8000"
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const res = await fetch(`${API_BASE}/v1/hsl-data/rebuild-from-aios`, {
+    // Forward optional ?as_of=<ISO8601> for point-in-time rebuilds.
+    const asOf = req.nextUrl.searchParams.get("as_of")
+    const qs = asOf ? `?as_of=${encodeURIComponent(asOf)}` : ""
+    const res = await fetch(`${API_BASE}/v1/hsl-data/rebuild-from-aios${qs}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // This can take a while for large AIO corpora — set a generous timeout
