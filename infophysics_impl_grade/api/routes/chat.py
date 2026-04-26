@@ -17,6 +17,7 @@ import csv as csv_mod
 import io
 import json
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import unquote
@@ -549,26 +550,65 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         parse_out_tok = 0
         logger.info("AIO Search: short-lookup tokens=%s (saved 1 LLM call)", keywords)
     else:
-        try:
-            parse_response = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=500,
-                system=parse_system,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-            raw_json = parse_response.content[0].text.strip()
-            if raw_json.startswith("```"):
-                raw_json = raw_json.split("```")[1]
-                if raw_json.startswith("json"):
-                    raw_json = raw_json[4:]
-            search_terms = json.loads(raw_json)
-            parse_in_tok = getattr(parse_response.usage, "input_tokens", 0) or 0
-            parse_out_tok = getattr(parse_response.usage, "output_tokens", 0) or 0
-        except Exception:
-            logger.warning("Failed to parse search terms, falling back to keyword split")
-            search_terms = {"field_values": [], "keywords": user_prompt.split()}
-            parse_in_tok = 0
-            parse_out_tok = 0
+        # V4.4 P6: parse-result cache. The Phase 1 parse step is
+        # (a) the slowest non-DB hop (~150–250ms) and
+        # (b) deterministic in `(parse_system, user_prompt)`.
+        # We reuse the existing query_cache table by hashing under a
+        # distinct mode ("aio-search-parse") and storing the JSON-encoded
+        # search_terms in answer_text. Saves one full LLM round trip on
+        # every repeat / paraphrase that normalizes to the same string.
+        search_terms = None
+        parse_in_tok = 0
+        parse_out_tok = 0
+        cached_parse = _qcache.lookup(tenant, "aio-search-parse", user_prompt)
+        if cached_parse:
+            try:
+                search_terms = json.loads(cached_parse.answer_text)
+                logger.info(
+                    "AIO Search: parse-cache HIT cache_id=%s hits=%d (skipping LLM parse)",
+                    cached_parse.cache_id, cached_parse.hit_count,
+                )
+            except Exception:
+                logger.info("parse-cache hit had unparsable JSON; falling through")
+                search_terms = None
+
+        if search_terms is None:
+            # V4.4 P7: parse model is env-configurable. Default stays
+            # claude-sonnet-4-6 (zero behavior change). Operators can opt
+            # into Haiku via AIO_SEARCH_PARSE_MODEL=claude-haiku-4-5 for
+            # faster/cheaper parses once they've verified parse quality.
+            parse_model = os.environ.get("AIO_SEARCH_PARSE_MODEL", "claude-sonnet-4-6")
+            try:
+                parse_response = client.messages.create(
+                    model=parse_model,
+                    max_tokens=500,
+                    system=parse_system,
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
+                raw_json = parse_response.content[0].text.strip()
+                if raw_json.startswith("```"):
+                    raw_json = raw_json.split("```")[1]
+                    if raw_json.startswith("json"):
+                        raw_json = raw_json[4:]
+                search_terms = json.loads(raw_json)
+                parse_in_tok = getattr(parse_response.usage, "input_tokens", 0) or 0
+                parse_out_tok = getattr(parse_response.usage, "output_tokens", 0) or 0
+                # Best-effort persist into the parse cache.
+                try:
+                    _qcache.store(
+                        tenant,
+                        "aio-search-parse",
+                        user_prompt,
+                        json.dumps(search_terms),
+                        mro_id=None,
+                    )
+                except Exception:
+                    logger.info("parse-cache store failed", exc_info=True)
+            except Exception:
+                logger.warning("Failed to parse search terms, falling back to keyword split")
+                search_terms = {"field_values": [], "keywords": user_prompt.split()}
+                parse_in_tok = 0
+                parse_out_tok = 0
 
     # V4.4 P2: literal [Key.Value] cue extraction. Bracket-syntax cues
     # in the raw prompt bypass LLM parse drift entirely and feed the
