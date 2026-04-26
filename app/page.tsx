@@ -17,6 +17,7 @@ import { ResearchAndDevelopment } from "@/components/views/ResearchAndDevelopmen
 import { AIOReferencePaper } from "@/components/views/AIOReferencePaper"
 import { MROReferencePaper } from "@/components/views/MROReferencePaper"
 import { PaperIII } from "@/components/views/PaperIII"
+import { BulkHslTechnote } from "@/components/views/BulkHslTechnote"
 import { createIO, listIOs, createAioData, loginUser, rebuildHslsFromAios, type IORecord, type LoginResult } from "@/lib/api-client"
 import {
   Database, ArrowRight, Layers, Cpu, Globe, BookOpen, FileText, Zap,
@@ -34,7 +35,7 @@ import { parseCSV, csvToAio, reconstructCsvFromAios, parseAioLine, type Converte
 
 type View =
   | "home" | "converter" | "guide" | "workflow" | "reference"
-  | "processor" | "paper" | "mro-paper" | "paper-iii" | "sysadmin" | "rnd" | "pdf-import" | "search-stats"
+  | "processor" | "paper" | "mro-paper" | "paper-iii" | "bulk-hsl-technote" | "sysadmin" | "rnd" | "pdf-import" | "search-stats"
 
 // ── Main Page ────────────────────────────────────────────────────────
 
@@ -287,6 +288,7 @@ export default function HomePage() {
   if (currentView === "paper") return <AIOReferencePaper onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
   if (currentView === "mro-paper") return <MROReferencePaper onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
   if (currentView === "paper-iii") return <PaperIII onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
+  if (currentView === "bulk-hsl-technote") return <BulkHslTechnote onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
   if (currentView === "processor") return <SemanticProcessor files={convertedFiles} downloadedFiles={downloadedFileNames} onBack={() => setCurrentView("converter")} backendIsOnline={backendIsOnline} onSysAdmin={handleSystemClick} />
   if (currentView === "sysadmin") return <SystemManagement onBack={() => setCurrentView("home")} onNavigate={setCurrentView} />
   if (currentView === "rnd") return <ResearchAndDevelopment onBack={() => setCurrentView("home")} backendIsOnline={backendIsOnline} onSysAdmin={handleSystemClick} />

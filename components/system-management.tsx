@@ -3394,8 +3394,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         color: "border-emerald-300/50 hover:border-emerald-400",
                       },
                       {
-                        download: "/docs/Technical_Notes_Bulk_HSL_Build.docx",
-                        filename: "Technical_Notes_Bulk_HSL_Build.docx",
+                        view: "bulk-hsl-technote",
                         icon: <Layers className="w-6 h-6 text-rose-700" />,
                         title: "Technical Notes — Bulk HSL Build",
                         desc: "Confidential / Trade-Secret engineering reference for the tenant-wide HSL reconstruction function (POST /v1/hsl-data/rebuild-from-aios). Subject to NDA on file.",
