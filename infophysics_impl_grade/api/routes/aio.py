@@ -17,6 +17,10 @@ from pydantic import BaseModel, Field
 
 from api.db import db, set_tenant
 
+# NOTE: ``synth_hsls_for_aio`` is imported lazily inside create/update handlers
+# to avoid the circular import with ``api.routes.hsl`` (which imports
+# ``_AIO_COLS`` from this module at module load).
+
 logger = logging.getLogger("infophysics.api.aio")
 
 router = APIRouter()
@@ -153,6 +157,14 @@ def create_aio_data(
                 _sync_information_elements(conn, field_names)
         except Exception as e:
             logger.warning(f"Failed to sync information_elements: {e}")
+        # Incremental HSL synth-on-insert (V4.4): grow HSL topology in place
+        # so Bulk HSL Build becomes a recovery tool rather than routine action.
+        # Best-effort: failures must not fail the AIO write.
+        try:
+            from api.routes.hsl import synth_hsls_for_aio  # lazy: avoid circular import
+            synth_hsls_for_aio(conn, tenant, payload.aio_name.strip(), elems)
+        except Exception as e:
+            logger.warning(f"synth_hsls_for_aio failed for {payload.aio_name!r}: {e}")
         conn.commit()
     return _aio_row_to_out(row)
 
@@ -180,6 +192,14 @@ def update_aio_data(
             row = cur.fetchone()
             if row is None:
                 raise HTTPException(status_code=404, detail="AIO record not found")
+        # Incremental HSL synth-on-update (V4.4): if the AIO was renamed or
+        # gained new (Key,Value) pairs, grow the HSL topology accordingly.
+        # synth_hsls_for_aio is idempotent on existing memberships.
+        try:
+            from api.routes.hsl import synth_hsls_for_aio  # lazy: avoid circular import
+            synth_hsls_for_aio(conn, tenant, payload.aio_name.strip(), elems)
+        except Exception as e:
+            logger.warning(f"synth_hsls_for_aio failed for {payload.aio_name!r}: {e}")
         conn.commit()
     return _aio_row_to_out(row)
 
