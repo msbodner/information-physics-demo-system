@@ -25,7 +25,7 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
                 <p className="text-xs text-muted-foreground">by InformationPhysics.ai</p>
               </div>
             </div>
-            <div className="text-xs font-mono text-muted-foreground">V4.3</div>
+            <div className="text-xs font-mono text-muted-foreground">V4.4</div>
           </div>
         </div>
       </header>
@@ -37,7 +37,7 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
             <Globe className="w-4 h-4" />
             Information Physics Standard Model
           </div>
-          <h2 className="text-5xl font-bold text-foreground mb-3">AIO/HSL/MRO Demo System V4.3</h2>
+          <h2 className="text-5xl font-bold text-foreground mb-3">AIO/HSL/MRO Demo System V4.4</h2>
           <p className="text-lg text-muted-foreground mb-2">by InformationPhysics.ai</p>
           <p className="text-lg text-muted-foreground mb-10 leading-relaxed">
             Transform your CSV data into Associated Information Objects (AIOs) — the fundamental
@@ -122,7 +122,7 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
           </Button>
           <p className="text-xs text-muted-foreground">
             <Database className="w-3 h-3 inline mr-1" />
-            V4.3 — Bulk HSL Build, MRO popup on Search Stats, and the Substrate Mode pipeline
+            V4.4 — Self-maintaining HSL substrate: synth-on-insert, Prune HSLs, hsl_member side table, point-in-time rebuild
           </p>
         </div>
       </section>

@@ -50,7 +50,7 @@ export function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void
           <div className="space-y-6">
             {activeSection === "overview" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />End-to-End AIO Workflow</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p>AIO/HSL/MRO Demo System V4.3 is the production release — a self-contained platform with its own FastAPI backend and PostgreSQL database. It converts CSV files into Associated Information Objects through a full-stack pipeline. Each stage is described in detail in the sections to the left. At a high level, the flow is:</p>
+                <p>AIO/HSL/MRO Demo System V4.4 is the production release — a self-contained platform with its own FastAPI backend and PostgreSQL database. It converts CSV files into Associated Information Objects through a full-stack pipeline. Each stage is described in detail in the sections to the left. At a high level, the flow is:</p>
                 <ol className="list-decimal list-inside space-y-2">
                   <li><strong>Upload:</strong> User selects one or more <code className="bg-muted px-1 rounded">.csv</code> files via drag-and-drop or file picker.</li>
                   <li><strong>Duplicate check:</strong> If the backend is online, filenames are compared against already-saved CSVs; duplicates are rejected with an error toast.</li>
@@ -276,17 +276,35 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                 <h4 className="text-foreground font-medium mt-4">Why HSL Files Matter</h4>
                 <p>An HSL file is an auditable, portable record of a discovered semantic relationship. It captures <em>which</em> AIOs share a common element value, <em>where</em> they originated (CSV source + line), and <em>when</em> the relationship was observed. This provenance chain is what distinguishes Hyper-Semantic Layer records from simple query results.</p>
 
-                <h4 className="text-foreground font-medium mt-4">Bulk HSL Build (V4.3) — <code className="bg-muted px-1 rounded">POST /v1/hsl-data/rebuild-from-aios</code></h4>
+                <h4 className="text-foreground font-medium mt-4">Bulk HSL Build (V4.3, refactored in V4.4) — <code className="bg-muted px-1 rounded">POST /v1/hsl-data/rebuild-from-aios</code></h4>
                 <p>The <strong>Bulk HSL Build</strong> button on the home page (left of ChatAIO) triggers a tenant-wide reconstruction of the entire HSL topology from the current <code className="bg-muted px-1 rounded">aio_data</code> table. Each step is deterministic and idempotent:</p>
                 <ol className="list-decimal list-inside space-y-1">
-                  <li><strong>Scan:</strong> read every AIO row for the active tenant.</li>
+                  <li><strong>Scan:</strong> read every AIO row for the active tenant. Optional <code className="bg-muted px-1 rounded">?as_of=&lt;ISO8601&gt;</code> filters to AIOs created at or before that timestamp for forensic / regression rebuilds.</li>
                   <li><strong>Extract:</strong> tokenize each row into its <code className="bg-muted px-1 rounded">[Key.Value]</code> elements.</li>
                   <li><strong>Anchor:</strong> for every element shared by ≥ 2 AIOs, derive a canonical anchor key.</li>
-                  <li><strong>Reconcile:</strong> upsert one HSL row per anchor; existing rows are detected and preserved (counted as <em>already existed</em>).</li>
+                  <li><strong>Reconcile (V4.4 batched):</strong> phase 1 inserts up to 200 candidate <code className="bg-muted px-1 rounded">hsl_data</code> rows per round-trip via <code className="bg-muted px-1 rounded">INSERT … ON CONFLICT (tenant_id, hsl_name) DO NOTHING</code>; phase 2 follows up with up to 1,000 <code className="bg-muted px-1 rounded">hsl_member</code> side-table rows per <code className="bg-muted px-1 rounded">executemany</code>. Names that already existed are re-queried and their member side-table is still topped up.</li>
                   <li><strong>Skip:</strong> single-AIO elements are excluded — they cannot form a Hyper-Semantic Layer.</li>
-                  <li><strong>Report:</strong> response returns <code className="bg-muted px-1 rounded">{"{ created, already_existed, skipped_single_aio, total_aios_scanned }"}</code>; the home page surfaces these as a toast.</li>
+                  <li><strong>Report:</strong> response returns <code className="bg-muted px-1 rounded">{"{ created, already_existed, skipped_single_aio, total_aios_scanned, as_of }"}</code>; the home page surfaces these as a toast.</li>
                 </ol>
-                <p>Use this after a large CSV import or a System Admin AIO edit to refresh the HSL topology in place — no need to re-run the per-element <strong>Create HSL</strong> flow. Full algorithmic detail, the inverted-index build, and the trade-secret anchor signature are documented in the <strong>Technical Notes — Bulk HSL Build</strong> reference paper (System Admin → Reference Papers).</p>
+                <p><strong>V4.4 status change.</strong> Bulk HSL Build is now a recovery / forensic tool, not a routine action. Steady-state HSL growth is handled by <code className="bg-muted px-1 rounded">synth_hsls_for_aio</code>, fired inline on every AIO insert and update. Click Bulk HSL Build only after a bulk import that bypassed the API, after manual <code className="bg-muted px-1 rounded">hsl_data</code> edits in System Admin, or after a schema upgrade. Full algorithmic detail and the trade-secret anchor signature are documented in the <strong>Technical Notes — Bulk HSL Build</strong> reference paper (System Admin → Reference Papers).</p>
+
+                <h4 className="text-foreground font-medium mt-4">synth_hsls_for_aio (V4.4) — incremental, per-AIO substrate growth</h4>
+                <p>On every successful <code className="bg-muted px-1 rounded">create_aio_data</code> and <code className="bg-muted px-1 rounded">update_aio_data</code>, the AIO route fires <code className="bg-muted px-1 rounded">synth_hsls_for_aio(conn, tenant, aio_name, elements)</code> before commit. For each <code className="bg-muted px-1 rounded">[Key.Value]</code> pair the AIO carries:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>If the corresponding HSL already exists, append this AIO to the <code className="bg-muted px-1 rounded">hsl_member</code> side table idempotently.</li>
+                  <li>Else if at least one <em>other</em> AIO in the same tenant already carries the same pair (single indexed LIKE against the <code className="bg-muted px-1 rounded">elements_text</code> generated column), create the HSL with both members.</li>
+                  <li>Else skip the pair — a single-AIO anchor is not yet a Hyper-Semantic Layer.</li>
+                </ol>
+                <p>The call is best-effort: failures are logged but never fail the AIO write. Concurrent-create races are absorbed via <code className="bg-muted px-1 rounded">ON CONFLICT DO NOTHING</code> followed by a re-query and append.</p>
+
+                <h4 className="text-foreground font-medium mt-4">Prune HSLs (V4.4) — <code className="bg-muted px-1 rounded">POST /v1/hsl-data/prune</code></h4>
+                <p>The <strong>Prune HSLs</strong> button (right of Bulk HSL Build) is the dual function. A single CTE statement removes every HSL whose surviving live-AIO member count has dropped below 2:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li><code className="bg-muted px-1 rounded">live_member_counts</code> CTE counts <code className="bg-muted px-1 rounded">member_kind = &apos;aio&apos;</code> rows in <code className="bg-muted px-1 rounded">hsl_member</code> that still resolve to a live <code className="bg-muted px-1 rounded">aio_data.aio_name</code>.</li>
+                  <li><code className="bg-muted px-1 rounded">doomed</code> CTE selects every HSL whose surviving count is &lt; 2.</li>
+                  <li>Outer DELETE removes those rows; <code className="bg-muted px-1 rounded">ON DELETE CASCADE</code> on the FK from <code className="bg-muted px-1 rounded">hsl_member.hsl_id</code> sweeps the side-table rows.</li>
+                </ol>
+                <p>MRO references (<code className="bg-muted px-1 rounded">member_kind = &apos;mro&apos;</code>) do not count toward the floor — an HSL with one live AIO and three MRO refs is still pruned. Returns <code className="bg-muted px-1 rounded">{"{ pruned, names }"}</code>; the toast reports the count and the first five pruned <code className="bg-muted px-1 rounded">hsl_name</code>s. The frontend confirms before invoking, since prune is destructive.</p>
               </CardContent></Card>
             )}
             {activeSection === "chataio" && (

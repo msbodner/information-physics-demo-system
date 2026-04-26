@@ -55,8 +55,8 @@ export function BulkHslTechnote({ onBack, onSysAdmin }: { onBack: () => void; on
             <p className="text-base text-muted-foreground mb-1 italic">Logic, Workflow, and Operational Notes for the Tenant-Wide HSL Reconstruction Function</p>
             <p className="text-sm font-medium text-foreground mt-4">Michael Simon Bodner, Ph.D.</p>
             <p className="text-xs text-primary">Founder &amp; Chief Scientist, InformationPhysics.ai</p>
-            <p className="text-sm text-muted-foreground">April 2026 — Software Version V4.3.0</p>
-            <p className="text-xs text-muted-foreground mt-1">Endpoint: <code className="bg-muted px-1.5 py-0.5 rounded">POST /v1/hsl-data/rebuild-from-aios</code></p>
+            <p className="text-sm text-muted-foreground">April 2026 — Software Version V4.4.0</p>
+            <p className="text-xs text-muted-foreground mt-1">Endpoints: <code className="bg-muted px-1.5 py-0.5 rounded">POST /v1/hsl-data/rebuild-from-aios</code> · <code className="bg-muted px-1.5 py-0.5 rounded">POST /v1/hsl-data/prune</code></p>
             <p className="text-xs text-muted-foreground mt-2">© 2026 InformationPhysics.ai, LLC. All rights reserved.</p>
           </div>
 
@@ -64,14 +64,15 @@ export function BulkHslTechnote({ onBack, onSysAdmin }: { onBack: () => void; on
             <CardHeader><CardTitle className="text-base">Abstract</CardTitle></CardHeader>
             <CardContent className="text-sm leading-relaxed text-muted-foreground space-y-3">
               <p>Bulk HSL Build is the tenant-wide reconstruction function for the Hyper-Semantic Layer (HSL). Its job is to scan every Associated Information Object (AIO) belonging to a single tenant, identify the <code className="bg-muted px-1 rounded">[Key.Value]</code> elements that two or more AIOs share, and emit one HSL pointer record per shared element group. The result is a precomputed, deterministic, query-time-ready relational layer that AIO Search and Substrate retrieval modes use to traverse the corpus without any embedding store, vector index, or graph database.</p>
-              <p>This document covers the production version of the function as shipped in V4.3.0, exposed at <code className="bg-muted px-1 rounded">POST /v1/hsl-data/rebuild-from-aios</code> and surfaced on the application home page as the Bulk HSL Build button immediately to the left of ChatAIO. It is the authoritative engineering description for the function&apos;s logic, inputs, outputs, side effects, performance envelope, and known limitations.</p>
+              <p>This document covers the production version of the function as shipped in V4.4.0, exposed at <code className="bg-muted px-1 rounded">POST /v1/hsl-data/rebuild-from-aios</code> and surfaced on the application home page as the Bulk HSL Build button immediately to the left of ChatAIO. It is the authoritative engineering description for the function&apos;s logic, inputs, outputs, side effects, performance envelope, and known limitations.</p>
+              <p><strong className="text-foreground">V4.4 substrate refactor.</strong> Six structural changes shipped together: (1) a <code className="bg-muted px-1 rounded">UNIQUE INDEX</code> on <code className="bg-muted px-1 rounded">hsl_data(tenant_id, hsl_name)</code>; (2) batched <code className="bg-muted px-1 rounded">INSERT … ON CONFLICT DO NOTHING</code> replacing per-group existence-check round-trips; (3) a new <code className="bg-muted px-1 rounded">prune_hsls</code> dual function; (4) an inline <code className="bg-muted px-1 rounded">synth_hsls_for_aio</code> call on every AIO write so Bulk HSL Build becomes a recovery tool rather than a routine action; (5) a side table <code className="bg-muted px-1 rounded">hsl_member</code> that lifts the 100-element width cap; (6) an optional <code className="bg-muted px-1 rounded">?as_of=&lt;ISO8601&gt;</code> query parameter for point-in-time rebuilds. The roadmap that closed §11 in V4.3 is now the subject of §11 below as &ldquo;What changed in V4.4&rdquo;.</p>
             </CardContent>
           </Card>
 
           <Section num={1} title="Purpose and Scope">
             <p>Bulk HSL Build operates strictly on Layer 1 (AIO) data and writes strictly to the relational HSL layer. It never reads or writes MROs, embeddings, or any external service.</p>
             <Sub title="Out of scope for this document">
-              HSL hand-edit (covered under HSL Data administration); per-AIO incremental HSL synthesis on AIO insert (a future feature); MRO compaction and trust scoring (covered in the Substrate technote).
+              HSL hand-edit (covered under HSL Data administration); MRO compaction and trust scoring (covered in the Substrate technote). Per-AIO incremental HSL synthesis (<code className="bg-muted px-1 rounded">synth_hsls_for_aio</code>) is documented in §11.4 because it now sits beside Bulk HSL Build on the same call surface.
             </Sub>
           </Section>
 
@@ -108,19 +109,23 @@ export function BulkHslTechnote({ onBack, onSysAdmin }: { onBack: () => void; on
           </Section>
 
           <Section num={3} title="External Interface (Inputs and Outputs)">
-            <p>Bulk HSL Build is a POST endpoint with no request body. It is parameter-free by design: the function rebuilds against the complete AIO set of the requesting tenant in a single deterministic pass. This keeps the operator-facing contract narrow — there is exactly one button, one click, one outcome.</p>
+            <p>Bulk HSL Build is a POST endpoint that takes one optional query parameter. The default contract — a parameter-free rebuild against the complete current AIO set — is preserved exactly, so the home-page button continues to be one click, one outcome. The optional parameter exists for forensic and regression scenarios.</p>
             <Sub title="Method / Path"><code className="bg-muted px-1 rounded">POST /v1/hsl-data/rebuild-from-aios</code></Sub>
             <Sub title="Headers"><code className="bg-muted px-1 rounded">X-Tenant-Id</code> (optional; defaults to <code className="bg-muted px-1 rounded">tenantA</code>). Authentication is governed by the gateway; the function trusts the tenant header.</Sub>
-            <Sub title="Body">None. The function takes no parameters.</Sub>
-            <Sub title="Side effects">INSERTs new rows into <code className="bg-muted px-1 rounded">hsl_data</code>. Never UPDATEs or DELETEs. Existing HSL rows are preserved unchanged.</Sub>
-            <Sub title="Idempotency">Safe to call repeatedly. The duplicate-name check makes a second invocation a no-op for any HSL that already exists, so re-runs converge.</Sub>
-            <Sub title="Concurrency">Single transaction per call; one call per tenant at a time is the recommended operational constraint. The system does not currently take an advisory lock — see §8.</Sub>
+            <Sub title="Query parameters">
+              <code className="bg-muted px-1 rounded">as_of</code> (optional, ISO-8601 timestamp). When supplied, the rebuild considers only AIOs whose <code className="bg-muted px-1 rounded">created_at &le; as_of</code>. Enables point-in-time reconstruction of the HSL topology — useful for forensic replay or for regression-testing a substrate change against a frozen corpus snapshot. Omit for the default behavior. Echoed back in the response shape as <code className="bg-muted px-1 rounded">as_of</code> for audit trails.
+            </Sub>
+            <Sub title="Body">None.</Sub>
+            <Sub title="Side effects">INSERTs new rows into <code className="bg-muted px-1 rounded">hsl_data</code> and into the V4.4 side table <code className="bg-muted px-1 rounded">hsl_member</code>. Never UPDATEs or DELETEs <code className="bg-muted px-1 rounded">hsl_data</code>. (Member-list maintenance for existing HSLs is the job of <code className="bg-muted px-1 rounded">synth_hsls_for_aio</code>; deletion is the job of <code className="bg-muted px-1 rounded">prune_hsls</code>.)</Sub>
+            <Sub title="Idempotency">Structural in V4.4: the <code className="bg-muted px-1 rounded">UNIQUE INDEX hsl_data(tenant_id, hsl_name)</code> guarantees that <code className="bg-muted px-1 rounded">INSERT … ON CONFLICT DO NOTHING</code> is a no-op for any HSL that already exists, regardless of how many concurrent rebuild calls race for the same name.</Sub>
+            <Sub title="Concurrency">Two simultaneous calls for the same tenant are now safe. The conflict resolution is at the database tier; no application-level lock is required.</Sub>
             <Sub title="Response shape">
               <Code>{`{
-  "created":             <int>,  // new HSL rows inserted
-  "skipped_single_aio":  <int>,  // [K.V] groups in only 1 AIO
-  "already_existed":     <int>,  // hsl_name already present
-  "total_aios_scanned":  <int>   // size of aio_data at scan time
+  "created":             <int>,         // new HSL rows inserted
+  "skipped_single_aio":  <int>,         // [K.V] groups in only 1 AIO
+  "already_existed":     <int>,         // hsl_name already present
+  "total_aios_scanned":  <int>,         // size of aio_data at scan time
+  "as_of":               <iso8601|null> // echo of the input parameter
 }`}</Code>
             </Sub>
           </Section>
@@ -246,10 +251,10 @@ def rebuild_hsls_from_aios(
             <Sub title="8.1  AIOs without aio_name">Rows whose <code className="bg-muted px-1 rounded">aio_name</code> is NULL or empty are skipped. Such rows should not exist in well-formed tenants but the function tolerates them defensively.</Sub>
             <Sub title="8.2  Non-string element columns">Element columns are typed text in the schema, but the function explicitly checks <code className="bg-muted px-1 rounded">isinstance(el, str)</code>. A future migration introducing JSON or array columns will require a corresponding extraction path.</Sub>
             <Sub title="8.3  Tokens containing the closing bracket">The lazy quantifier in the value capture cannot match a literal &ldquo;]&rdquo;. A value containing &ldquo;]&rdquo; (e.g., <code className="bg-muted px-1 rounded">[Note.see [4]]</code>) is truncated to the first inner bracket. The price of the simple grammar; rare in practice.</Sub>
-            <Sub title="8.4  Width cap of 100 AIOs per HSL">Once an HSL exists with 100 element columns filled, a later rebuild cannot widen it. Remediations: (1) operationally, delete the saturated HSL via the HSL admin pane and re-run; (2) engineering, extend the schema beyond 100 columns or migrate the element list to a side table. Both are roadmap items.</Sub>
-            <Sub title="8.5  Concurrent invocations">Two simultaneous calls for the same tenant can both pass the existence check for the same <code className="bg-muted px-1 rounded">hsl_name</code> and both attempt to INSERT. Without a uniqueness constraint, both rows would land. Operational policy: one rebuild call per tenant at a time. Engineering remediation: a <code className="bg-muted px-1 rounded">UNIQUE INDEX hsl_data(tenant_id, hsl_name)</code>, recommended before exposing the function to multi-operator administration.</Sub>
+            <Sub title="8.4  Width cap of 100 AIOs per HSL — lifted in V4.4">The historical 100-column cap is now decoupled from the data model. The authoritative member list lives in the side table <code className="bg-muted px-1 rounded">hsl_member(hsl_id, member_value, member_kind)</code> with no upper bound. The legacy <code className="bg-muted px-1 rounded">hsl_element_1..100</code> columns on <code className="bg-muted px-1 rounded">hsl_data</code> are kept dual-written (truncated to the first 100 members) for backward compatibility with the <code className="bg-muted px-1 rounded">elements_text</code> generated column (migration 016) and the legacy fallback paths in <code className="bg-muted px-1 rounded">chat.py</code>. Reads now go through the side table; the column overflow is silent.</Sub>
+            <Sub title="8.5  Concurrent invocations — fixed in V4.4">Two simultaneous calls for the same tenant are now safe by construction. The <code className="bg-muted px-1 rounded">UNIQUE INDEX hsl_data(tenant_id, hsl_name)</code> turns a racing INSERT into a no-op via <code className="bg-muted px-1 rounded">ON CONFLICT DO NOTHING</code>; the side-table writer re-queries the surviving row and tops up its members. No application-level lock is taken or required.</Sub>
             <Sub title="8.6  Trailing skip values that are real">A tenant whose domain genuinely uses, say, the value &ldquo;true&rdquo; as a discriminator will not get HSLs for it. Wrap such values with disambiguating text at the source (e.g., <code className="bg-muted px-1 rounded">[Status.true-confirmed]</code>).</Sub>
-            <Sub title="8.7  No removal pass">Bulk HSL Build never deletes HSLs. If an AIO is removed and its element drops below the 2-AIO threshold, the corresponding HSL becomes a stale single-pointer row. A planned companion function, &ldquo;HSL prune,&rdquo; will sweep these.</Sub>
+            <Sub title="8.7  Removal — added as a dual function in V4.4">Bulk HSL Build still never deletes HSLs. The dual function <code className="bg-muted px-1 rounded">prune_hsls</code> at <code className="bg-muted px-1 rounded">POST /v1/hsl-data/prune</code> is now the authoritative removal pass. A single CTE DELETE removes every HSL whose surviving live-AIO member count has dropped below 2; <code className="bg-muted px-1 rounded">ON DELETE CASCADE</code> on the FK from <code className="bg-muted px-1 rounded">hsl_member.hsl_id</code> removes the side-table rows. MRO references (<code className="bg-muted px-1 rounded">member_kind = &apos;mro&apos;</code>) do not count toward the floor — an HSL with one live AIO and three MRO refs is still pruned.</Sub>
           </Section>
 
           <Section num={9} title="Operator User Experience">
@@ -262,8 +267,11 @@ def rebuild_hsls_from_aios(
                 <li>On failure: toast surfaces the API error string. The function is transactional, so a backend failure leaves no half-state.</li>
               </ul>
             </Sub>
+            <Sub title="Prune HSLs — the dual button (V4.4)">
+              Sitting immediately right of Bulk HSL Build on the home page is the new Prune HSLs button (scissors icon). It is destructive — it deletes every HSL whose surviving live-AIO member count has dropped below 2 — so the click goes through a <code className="bg-muted px-1 rounded">window.confirm</code> guard before reaching the backend. The success toast reports the count and the first five pruned <code className="bg-muted px-1 rounded">hsl_name</code>s, or &ldquo;nothing to prune&rdquo; when the substrate is already coherent.
+            </Sub>
             <Sub title="Where the function used to live">
-              In V4.2.x the function was reachable only from the R&amp;D view. As of V4.3.0 it has been promoted to the home page because it is the canonical &ldquo;reset the topology&rdquo; action that any operator running a fresh demo or onboarding a new tenant needs to perform. The R&amp;D entry point has been removed; this document is the authoritative reference for what that button does.
+              In V4.2.x the function was reachable only from the R&amp;D view. As of V4.3.0 it was promoted to the home page because it is the canonical &ldquo;reset the topology&rdquo; action that any operator running a fresh demo or onboarding a new tenant needs to perform. As of V4.4 it has changed status again: it is no longer the routine path for HSL growth — that path is now <code className="bg-muted px-1 rounded">synth_hsls_for_aio</code>, fired inline on every AIO write — and is positioned as a recovery / forensic tool. The button stays where it is; the operator&apos;s mental model shifts.
             </Sub>
           </Section>
 
@@ -280,16 +288,46 @@ def rebuild_hsls_from_aios(
             <p>Disclosure of any of the above outside the boundary of the Transaction-Grade One-Way NDA on file would constitute a material breach.</p>
           </Section>
 
-          <Section num={11} title="Roadmap (Next Engineering Steps)">
+          <Section num={11} title="What Changed in V4.4">
+            <p>Every item on the V4.3 roadmap that closed this document has shipped. The substrate is now structurally coherent: concurrent rebuilds are safe, growth is incremental, removal is a first-class operation, and the topology is reproducible against any historical AIO snapshot. The six changes below are documented in the order they appeared on the V4.3 roadmap so the diff against that document is easy to verify.</p>
+
+            <Sub title="11.1  UNIQUE INDEX hsl_data(tenant_id, hsl_name)">
+              Migration <code className="bg-muted px-1 rounded">023_hsl_member_and_uniqueness.sql</code> creates the index. Concurrent rebuilds, concurrent <code className="bg-muted px-1 rounded">synth_hsls_for_aio</code> calls from parallel AIO inserts, and any future multi-operator administration are now structurally race-free. The index is also a precondition for the batched <code className="bg-muted px-1 rounded">ON CONFLICT</code> path in §11.2.
+            </Sub>
+
+            <Sub title="11.2  Batched INSERT … ON CONFLICT DO NOTHING">
+              The V4.3 algorithm performed two database round-trips per group (one SELECT for existence, one INSERT). At <code className="bg-muted px-1 rounded">G ≈ 5,000–15,000</code> groups per rebuild, that is the dominant cost. V4.4 collapses this to a two-phase pattern: phase 1 inserts up to 200 candidate <code className="bg-muted px-1 rounded">hsl_data</code> rows per round-trip via a <code className="bg-muted px-1 rounded">VALUES</code> list, with <code className="bg-muted px-1 rounded">ON CONFLICT (tenant_id, hsl_name) DO NOTHING RETURNING hsl_id, hsl_name</code>; phase 2 follows up with an <code className="bg-muted px-1 rounded">executemany</code> of up to 1,000 <code className="bg-muted px-1 rounded">hsl_member</code> rows per round-trip. Names that collided in phase 1 are re-queried so their member side-table is still topped up. Empirically the round-trip count drops from <code className="bg-muted px-1 rounded">2G</code> to <code className="bg-muted px-1 rounded">⌈G/200⌉ + ⌈M/1000⌉</code>, a 100×–500× reduction at typical demo scale.
+            </Sub>
+
+            <Sub title="11.3  prune_hsls — the dual function">
+              <code className="bg-muted px-1 rounded">POST /v1/hsl-data/prune</code> is a single CTE statement: a <code className="bg-muted px-1 rounded">live_member_counts</code> CTE counts <code className="bg-muted px-1 rounded">member_kind = &apos;aio&apos;</code> rows that still resolve to a live <code className="bg-muted px-1 rounded">aio_data.aio_name</code>; a <code className="bg-muted px-1 rounded">doomed</code> CTE selects every HSL whose surviving count is &lt; 2; the outer DELETE removes them, and <code className="bg-muted px-1 rounded">ON DELETE CASCADE</code> sweeps <code className="bg-muted px-1 rounded">hsl_member</code>. The whole operation is atomic under FORCE RLS — no application-level loop, no half-state. Returns <code className="bg-muted px-1 rounded">{`{ pruned: int, names: string[] }`}</code> with the first 50 pruned <code className="bg-muted px-1 rounded">hsl_name</code>s for audit. The frontend Prune HSLs button confirms before invoking.
+            </Sub>
+
+            <Sub title="11.4  synth_hsls_for_aio — incremental, per-AIO">
+              On every successful <code className="bg-muted px-1 rounded">create_aio_data</code> and <code className="bg-muted px-1 rounded">update_aio_data</code>, the AIO route fires <code className="bg-muted px-1 rounded">synth_hsls_for_aio(conn, tenant, aio_name, elements)</code> before commit. For each <code className="bg-muted px-1 rounded">[Key.Value]</code> pair the AIO carries: if the corresponding HSL exists, the AIO is appended to <code className="bg-muted px-1 rounded">hsl_member</code> idempotently; otherwise the function looks for at least one <em>other</em> AIO in the same tenant carrying the same pair (single indexed LIKE against <code className="bg-muted px-1 rounded">elements_text</code>) and creates the HSL with both members; otherwise it skips the pair as a single-AIO anchor. The call is best-effort — failures are logged but never fail the AIO write — and the function is structured to handle the concurrent-create race via <code className="bg-muted px-1 rounded">ON CONFLICT DO NOTHING</code> followed by re-query and append. The architectural consequence is that Bulk HSL Build is now a <em>recovery tool</em>: in steady state, the topology is correct after every AIO write and the rebuild button is rarely needed.
+            </Sub>
+
+            <Sub title="11.5  hsl_member side table — width cap lifted">
+              <code className="bg-muted px-1 rounded">hsl_member(hsl_id, member_value, member_kind, tenant_id, created_at)</code> with <code className="bg-muted px-1 rounded">PRIMARY KEY (hsl_id, member_value)</code>, FK to <code className="bg-muted px-1 rounded">hsl_data</code> with <code className="bg-muted px-1 rounded">ON DELETE CASCADE</code>, and FORCE ROW LEVEL SECURITY mirroring <code className="bg-muted px-1 rounded">hsl_data</code>&apos;s policy. <code className="bg-muted px-1 rounded">member_kind</code> is a CHECK-constrained text column (<code className="bg-muted px-1 rounded">&apos;aio&apos;</code> or <code className="bg-muted px-1 rounded">&apos;mro&apos;</code>) so prune can ignore MRO references when computing the surviving floor. Reads of <code className="bg-muted px-1 rounded">HslDataOut</code> now bulk-fetch from this table via <code className="bg-muted px-1 rounded">_members_for_hsls(cur, ids)</code> and pad/truncate to the 100-element wire shape the API contract still exposes; writes dual-write the side table and the legacy <code className="bg-muted px-1 rounded">hsl_element_1..100</code> columns so <code className="bg-muted px-1 rounded">elements_text</code> (migration 016) and the legacy fallback paths in <code className="bg-muted px-1 rounded">chat.py</code> continue to work unchanged. The dual-write is the seam at which a future migration will retire the element columns once all consumers are migrated.
+            </Sub>
+
+            <Sub title="11.6  ?as_of=&lt;ISO8601&gt; — point-in-time rebuilds">
+              The rebuild query gains a single <code className="bg-muted px-1 rounded">WHERE aio_data.created_at &le; %s</code> clause when <code className="bg-muted px-1 rounded">as_of</code> is supplied. Use cases: (a) reproducing a substrate state at the moment a regression was introduced, (b) auditing a Substrate-mode retrieval against the topology that existed when the MRO was created, (c) rolling back the substrate to a known-good prior state without rolling back the AIO corpus itself. The parameter is echoed in the response for audit; the <code className="bg-muted px-1 rounded">created_at</code> on the resulting HSL rows is still <code className="bg-muted px-1 rounded">now()</code>, so the rebuild itself remains forward-temporal.
+            </Sub>
+
+            <Sub title="11.7  What this means for the operator and the substrate">
+              The substrate is now a self-maintaining layer. AIO inserts grow it; AIO deletes (followed by Prune HSLs) shrink it; Bulk HSL Build is the reset button when the two have somehow diverged. The trade-secret invariant of §10 is unchanged — the HSL layer is still a deterministic function of the AIO set, computed offline, used at query time as a lookup not a computation. V4.4 simply makes that function continuous in time rather than a periodic batch.
+            </Sub>
+          </Section>
+
+          <Section num={12} title="Future Roadmap">
             <ol className="list-decimal list-inside space-y-1.5">
-              <li>Add <code className="bg-muted px-1 rounded">UNIQUE INDEX hsl_data(tenant_id, hsl_name)</code> to make concurrent rebuilds structurally safe.</li>
-              <li>Replace the 2G existence-check round-trips with a batched <code className="bg-muted px-1 rounded">INSERT … ON CONFLICT DO NOTHING</code>.</li>
-              <li>Implement HSL Prune as the dual function: scan HSLs, remove rows whose surviving element count is &lt; 2.</li>
-              <li>Implement incremental, per-AIO HSL synth-on-insert so Bulk HSL Build becomes a recovery tool rather than a routine action.</li>
-              <li>Lift the 100-AIO width cap by migrating element columns to a side table (<code className="bg-muted px-1 rounded">hsl_member</code>) keyed on <code className="bg-muted px-1 rounded">(hsl_id, aio_name)</code>.</li>
-              <li>Add an <code className="bg-muted px-1 rounded">--as-of</code> timestamp parameter to support point-in-time rebuilds for forensic and regression scenarios.</li>
+              <li>Drop the legacy <code className="bg-muted px-1 rounded">hsl_element_1..100</code> columns from <code className="bg-muted px-1 rounded">hsl_data</code> once <code className="bg-muted px-1 rounded">chat.py</code>&apos;s fallback paths and the <code className="bg-muted px-1 rounded">elements_text</code> generated column have been migrated to read from <code className="bg-muted px-1 rounded">hsl_member</code> directly. Reduces row width by &gt;90% and removes the dual-write from every HSL writer.</li>
+              <li>Expose the <code className="bg-muted px-1 rounded">as_of</code> parameter as a UI surface inside the System Admin panel — currently it is reachable only via the API client.</li>
+              <li>Periodic background prune as a Postgres extension or a scheduled job, so the operator does not have to remember to click the button after a bulk AIO delete.</li>
+              <li>Surface the <code className="bg-muted px-1 rounded">synth_hsls_for_aio</code> counters (appended / created / skipped_single) as per-write telemetry on the AIO insert response, so the operator can watch the substrate grow in real time.</li>
+              <li>Multi-tenant aware backfill in migration 023 — the current backfill loops over a single hard-coded tenant and is correct for the demo footprint but will need a per-tenant loop before exposure to multi-tenant production.</li>
             </ol>
-            <p>Items 1 and 2 are recommended before any production deployment beyond the demo footprint. Items 3–6 are R&amp;D items consistent with the platform&apos;s preserve-first thesis and will be undertaken inside the same trade-secret regime as the existing function.</p>
           </Section>
 
           <p className="text-center text-xs text-muted-foreground border-t border-border pt-4 mt-8">
