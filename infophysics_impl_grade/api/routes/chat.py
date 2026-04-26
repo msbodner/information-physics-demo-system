@@ -682,10 +682,17 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
 
     # Efficiency caps: we only keep 300 AIOs in the final LLM context, so
     # gathering unbounded HSLs/AIOs beyond what feeds that cap is waste.
-    HSL_CAP = 500        # more than enough to produce 300 AIO refs
-    HSL_EARLY_EXIT = 300 # stop pass 2/3 once we already have this many
-    AIO_CAP = 400        # ~33% headroom over the 300 context cap, for dedup
-    AIO_EARLY_EXIT = 350
+    # V4.4 P9: env-tunable so production can dial without redeploys. The
+    # defaults reproduce the previous hardcoded behavior exactly.
+    def _intenv(name: str, default: int) -> int:
+        try:
+            return max(1, int(os.environ.get(name, "")))
+        except (TypeError, ValueError):
+            return default
+    HSL_CAP        = _intenv("AIO_SEARCH_HSL_CAP", 500)
+    HSL_EARLY_EXIT = _intenv("AIO_SEARCH_HSL_EARLY_EXIT", 300)
+    AIO_CAP        = _intenv("AIO_SEARCH_AIO_CAP", 400)
+    AIO_EARLY_EXIT = _intenv("AIO_SEARCH_AIO_EARLY_EXIT", 350)
 
     matched_hsl_rows = []
     if needles:
@@ -953,8 +960,63 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
 
     # V4.4 P1: elements_text (indexed) leads, aio_name ILIKE (unindexed) falls back.
     # V4.4 P3: probe cap lifted from 10 → 30 needles.
+    # V4.4 P8: AIO field-aware compound probe via information_element_refs
+    # (mirrors HSL Pass 1) leads when explicit (field, value) cues exist —
+    # strongest precision signal on the AIO side.
 
-    # Pass 1: elements_text (fast indexed path, migration 016).
+    # Pass 1a: AIO field-aware probe — when the parser identified explicit
+    # (field, value) pairs, hit the (field_name, value_lower) compound
+    # index keyed by aio_id (migration 017 also indexed aio_id; we just
+    # weren't using it on the AIO gather side until now).
+    if (
+        needles
+        and len(matched_aio_lines) < AIO_EARLY_EXIT
+    ):
+        # Reuse the same field-aware needles HSL Pass 1 computed; if the
+        # variable doesn't exist (e.g. no `needles` branch above ran),
+        # recompute from search_terms.
+        try:
+            _aio_field_needles = field_needles  # type: ignore[name-defined]
+        except NameError:
+            _aio_field_needles, _ = split_field_needles(
+                search_terms.get("field_values", []), [],
+            )
+        if _aio_field_needles:
+            try:
+                with db() as conn:
+                    set_tenant(conn, tenant)
+                    with conn.cursor() as cur:
+                        placeholders = ", ".join(["(%s, %s)"] * len(_aio_field_needles))
+                        flat: List[str] = []
+                        for f, v in _aio_field_needles:
+                            flat.extend([f, v])
+                        cur.execute(
+                            f"""
+                            SELECT a.aio_name, {_AIO_COLS}
+                              FROM aio_data a
+                              JOIN (
+                                SELECT DISTINCT aio_id
+                                  FROM information_element_refs
+                                 WHERE aio_id IS NOT NULL
+                                   AND (field_name, value_lower) IN ({placeholders})
+                              ) ier ON ier.aio_id = a.aio_id
+                             LIMIT %s
+                            """,
+                            flat + [AIO_CAP],
+                        )
+                        for row in cur.fetchall():
+                            _add_aio_row(row)
+                logger.info(
+                    "AIO Search: %d AIOs after field-aware probe",
+                    len(matched_aio_lines),
+                )
+            except Exception:
+                logger.info(
+                    "AIO field-aware probe failed — falling through to elements_text",
+                    exc_info=True,
+                )
+
+    # Pass 1b: elements_text (fast indexed path, migration 016).
     # Skipped if earlier passes already got us past the early-exit threshold.
     if needles and len(matched_aio_lines) < AIO_EARLY_EXIT:
         try:

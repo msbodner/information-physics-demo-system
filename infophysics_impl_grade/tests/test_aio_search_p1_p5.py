@@ -40,7 +40,11 @@ def test_p1_hsl_inverted_index_leads_aio_name_ilike_falls_back():
 
 def test_p1_aio_elements_text_leads_aio_name_ilike_falls_back():
     src = _src()
-    et_pass = src.find("Pass 1: elements_text (fast indexed path, migration 016)")
+    # P8 split AIO Pass 1 into 1a (field-aware) + 1b (elements_text);
+    # accept either marker for forward compatibility.
+    et_pass = src.find("Pass 1b: elements_text")
+    if et_pass == -1:
+        et_pass = src.find("Pass 1: elements_text (fast indexed path, migration 016)")
     name_pass = src.find("Pass 2: aio_name ILIKE — unindexed but always works")
     assert et_pass != -1, "AIO elements_text leading pass missing"
     assert name_pass != -1, "AIO aio_name fallback pass missing"
