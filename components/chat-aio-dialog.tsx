@@ -475,7 +475,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       const inTok = result.input_tokens ?? 0
       const outTok = result.output_tokens ?? 0
       const meta =
-        `\n\n---\n_Substrate: ${result.cost.cues} cues → ` +
+        `\n\n---\n_Recall Search: ${result.cost.cues} cues → ` +
         `${result.cost.neighborhood} AIOs in neighborhood · ` +
         `${result.cost.priors} priors · ` +
         `${result.mro_saved ? "MRO saved" : "MRO not saved"} · ` +

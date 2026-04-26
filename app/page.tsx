@@ -331,7 +331,7 @@ export default function HomePage() {
       <header className="bg-[#1e3a5f] text-white px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <BarChart2 className="w-6 h-6" />
-          <h1 className="text-xl font-bold">Search Statistics Analytic</h1>
+          <h1 className="text-xl font-bold">Search Statistics Analytics</h1>
         </div>
         <Button variant="secondary" size="sm" onClick={() => setCurrentView("home")} className="gap-2">
           <ArrowLeft className="w-4 h-4" />Back to Home
@@ -433,7 +433,7 @@ export default function HomePage() {
             )}
             {backendIsOnline && (
               <Button size="lg" variant="outline" onClick={() => setCurrentView("search-stats")} className="gap-2 px-8">
-                <BarChart2 className="w-4 h-4" />Search Statistics Analytic
+                <BarChart2 className="w-4 h-4" />Search Statistics Analytics
               </Button>
             )}
             <Button size="lg" variant="outline" onClick={() => setCurrentView("guide")} className="gap-2 px-8">

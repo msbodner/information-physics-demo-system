@@ -2379,8 +2379,8 @@ export function SearchStatsPane() {
   const modeBadge = (mode: string) => {
     if (mode === "Send") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Blind Dump AIO/HSL</span>
     if (mode === "PureLLM") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">CSV→LLM Raw</span>
-    if (mode === "AIOSearch") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">AIO Search</span>
-    if (mode === "Substrate") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">Substrate</span>
+    if (mode === "AIOSearch") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Live Search</span>
+    if (mode === "Substrate") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">Recall Search</span>
     return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-muted text-muted-foreground">{mode}</span>
   }
 
@@ -2440,7 +2440,7 @@ export function SearchStatsPane() {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Search Statistics Analytic — ${new Date().toLocaleDateString()}</title>
+  <title>Search Statistics Analytics — ${new Date().toLocaleDateString()}</title>
   <style>
     /* CRITICAL for color-preserving Print → Save as PDF.
        Without these the print engine will strip backgrounds/borders. */
@@ -2504,7 +2504,7 @@ export function SearchStatsPane() {
   </style>
 </head>
 <body>
-  <h1>ChatAIO Search Statistics Analytic</h1>
+  <h1>ChatAIO Search Statistics Analytics</h1>
   <div class="subtitle">${esc(new Date().toLocaleString())} · ${visible.length} of ${stats.length} record${stats.length === 1 ? "" : "s"} (filter: ${esc(filterLabel)})</div>
   <div class="summary">
     <div class="card"><div class="num">${totalSearches}</div><div class="lbl">Total</div></div>
@@ -2841,13 +2841,13 @@ export function SearchStatsPane() {
       <Dialog open={pdfPreviewHtml !== null} onOpenChange={(o) => { if (!o) setPdfPreviewHtml(null) }}>
         <DialogContent className="max-w-5xl w-[95vw] h-[90vh] p-0 gap-0 flex flex-col">
           <DialogHeader className="px-5 py-3 border-b border-border">
-            <DialogTitle>PDF Preview — Search Statistics Analytic</DialogTitle>
+            <DialogTitle>PDF Preview — Search Statistics Analytics</DialogTitle>
           </DialogHeader>
           <div className="flex-1 min-h-0 bg-muted/30">
             {pdfPreviewHtml && (
               <iframe
                 id="pdf-preview-frame"
-                title="Search Statistics Analytic PDF Preview"
+                title="Search Statistics Analytics PDF Preview"
                 srcDoc={pdfPreviewHtml}
                 className="w-full h-full border-0 bg-white"
               />
@@ -3496,7 +3496,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
               { value: "hsl-data",      icon: <LayoutList className="w-4 h-4" />,      label: "HSL Data" },
               { value: "mro-data",      icon: <Brain className="w-4 h-4" />,           label: "MRO Data" },
               { value: "demo-reset",    icon: <ShieldAlert className="w-4 h-4" />,     label: "Demo Reset" },
-              { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Statistics Analytic" },
+              { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Statistics Analytics" },
               { value: "apikey",        icon: <Key className="w-4 h-4" />,             label: "API Key" },
               { value: "csvs",          icon: <FileSpreadsheet className="w-4 h-4" />, label: "Saved CSVs" },
               { value: "aios",          icon: <FileText className="w-4 h-4" />,        label: "Saved AIOs" },
