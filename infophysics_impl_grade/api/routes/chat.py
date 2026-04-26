@@ -17,6 +17,7 @@ import csv as csv_mod
 import io
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import unquote
 
@@ -569,6 +570,26 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
             parse_in_tok = 0
             parse_out_tok = 0
 
+    # V4.4 P2: literal [Key.Value] cue extraction. Bracket-syntax cues
+    # in the raw prompt bypass LLM parse drift entirely and feed the
+    # field-aware compound index directly. Merged into search_terms so
+    # downstream needle/alias logic picks them up uniformly.
+    bracket_pairs = re.findall(r"\[([A-Za-z0-9_ ]{1,40})\.([^\]]{1,80})\]", user_prompt)
+    if bracket_pairs:
+        existing_fv = search_terms.get("field_values") or []
+        seen_fv = {(fv.get("field", "").lower(), (fv.get("value") or "").lower())
+                   for fv in existing_fv if isinstance(fv, dict)}
+        for k, v in bracket_pairs:
+            kk, vv = k.strip(), v.strip()
+            if not kk or not vv:
+                continue
+            if (kk.lower(), vv.lower()) in seen_fv:
+                continue
+            existing_fv.append({"field": kk, "value": vv})
+            seen_fv.add((kk.lower(), vv.lower()))
+        search_terms["field_values"] = existing_fv
+        logger.info("AIO Search: %d [Key.Value] cues from raw prompt", len(bracket_pairs))
+
     logger.info("AIO Search parsed terms: %s", search_terms)
 
     # ── Phase 2: Search HSL library ──
@@ -628,32 +649,22 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
 
     matched_hsl_rows = []
     if needles:
-        # We search HSLs in three progressively-broader passes:
-        #   1. hsl_name ILIKE  — always works, catches named HSLs like
-        #      "[Employee.Sarah Mitchell].hsl" even when the generated
-        #      elements_text column is absent (pre-migration 016 DBs).
-        #   2. elements_text LIKE — the fast indexed path when migration
-        #      016 has applied. Skipped silently on "column does not exist"
-        #      or if Pass 1 already has enough rows.
-        #   3. per-element ILIKE fallback — unindexed but always works;
-        #      only run if passes 1 and 2 produced nothing.
+        # V4.4 P1: indexed passes lead, unindexed ILIKE falls back.
+        #
+        # Order:
+        #   1. Field-aware compound probe on information_element_refs
+        #      (field_name, value_lower) — strongest signal, single-row index lookup.
+        #   2. Free-value probe on information_element_refs (equality, then trgm
+        #      substring) — the proven fast path (migration 017).
+        #   3. elements_text trgm GIN (migration 016) — fallback when refs are
+        #      under-populated.
+        #   4. hsl_name ILIKE — unindexed, but always works on pre-migration DBs;
+        #      only runs when the indexed passes are still under early-exit.
+        #   5. per-element ILIKE — last-ditch unindexed scan.
         name_clause = " OR ".join(["hsl_name ILIKE %s"] * len(needles))
         name_params = [f"%{n}%" for n in needles]
-        try:
-            with db() as conn:
-                set_tenant(conn, tenant)
-                with conn.cursor() as cur:
-                    cur.execute(
-                        f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data "
-                        f"WHERE {name_clause} LIMIT %s",
-                        name_params + [HSL_CAP],
-                    )
-                    matched_hsl_rows = cur.fetchall()
-        except Exception:
-            logger.warning("HSL name search failed", exc_info=True)
-        logger.info("AIO Search: %d HSLs via hsl_name pass", len(matched_hsl_rows))
 
-        # Pass 2a': FIELD-AWARE probe (#1) — when the parser identified
+        # Pass 1: FIELD-AWARE probe (#1) — when the parser identified
         # explicit (field, value) pairs, hit the (field_name, value_lower)
         # compound index. A match here is stronger evidence than a free
         # value match (we know "[Project.Vance]" not just "vance"
@@ -778,7 +789,7 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
                     exc_info=True,
                 )
 
-        # Pass 2b: elements_text (legacy fast path, migration 016).
+        # Pass 3: elements_text (legacy fast path, migration 016).
         # Only used if the inverted index was unavailable or under-populated.
         if len(matched_hsl_rows) < HSL_EARLY_EXIT:
             try:
@@ -800,7 +811,30 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
             except Exception:
                 logger.info("elements_text not available on hsl_data — skipping fast path")
 
-        # Pass 3: per-element ILIKE fallback (only if still empty)
+        # Pass 4: hsl_name ILIKE — unindexed but always works (handles
+        # pre-migration-016/017 databases and named-HSL patterns like
+        # "[Employee.Sarah Mitchell].hsl"). Demoted from leading position
+        # so the indexed passes lead in the common case.
+        if len(matched_hsl_rows) < HSL_EARLY_EXIT:
+            try:
+                with db() as conn:
+                    set_tenant(conn, tenant)
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            f"SELECT hsl_id, hsl_name, {_HSL_COLS} FROM hsl_data "
+                            f"WHERE {name_clause} LIMIT %s",
+                            name_params + [HSL_CAP],
+                        )
+                        seen = {row[0] for row in matched_hsl_rows}
+                        for row in cur.fetchall():
+                            if row[0] not in seen:
+                                matched_hsl_rows.append(row)
+                                seen.add(row[0])
+            except Exception:
+                logger.warning("HSL name search failed", exc_info=True)
+            logger.info("AIO Search: %d HSLs after hsl_name fallback", len(matched_hsl_rows))
+
+        # Pass 5: per-element ILIKE fallback (only if still empty)
         if not matched_hsl_rows:
             try:
                 with db() as conn:
@@ -877,8 +911,32 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
             logger.warning("AIO ref lookup failed", exc_info=True)
         logger.info("AIO Search: %d AIOs via HSL refs", len(matched_aio_lines))
 
-    # Pass 1: aio_name ILIKE — always works, catches named AIOs directly.
-    # Skipped entirely if Pass 0 already produced enough AIOs.
+    # V4.4 P1: elements_text (indexed) leads, aio_name ILIKE (unindexed) falls back.
+    # V4.4 P3: probe cap lifted from 10 → 30 needles.
+
+    # Pass 1: elements_text (fast indexed path, migration 016).
+    # Skipped if earlier passes already got us past the early-exit threshold.
+    if needles and len(matched_aio_lines) < AIO_EARLY_EXIT:
+        try:
+            with db() as conn:
+                set_tenant(conn, tenant)
+                with conn.cursor() as cur:
+                    probe_needles = needles[:30]
+                    or_clause = " OR ".join(["elements_text LIKE %s"] * len(probe_needles))
+                    et_params = [f"%{n}%" for n in probe_needles]
+                    cur.execute(
+                        f"SELECT aio_name, {_AIO_COLS} FROM aio_data "
+                        f"WHERE {or_clause} LIMIT %s",
+                        et_params + [AIO_CAP],
+                    )
+                    for row in cur.fetchall():
+                        _add_aio_row(row)
+        except Exception:
+            logger.info("elements_text not available on aio_data — skipping fast path")
+        logger.info("AIO Search: %d AIOs after elements_text pass", len(matched_aio_lines))
+
+    # Pass 2: aio_name ILIKE — unindexed but always works. Demoted from
+    # leading position so the indexed elements_text path runs first.
     if needles and len(matched_aio_lines) < AIO_EARLY_EXIT:
         try:
             with db() as conn:
@@ -895,27 +953,7 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
                         _add_aio_row(row)
         except Exception:
             logger.warning("AIO name search failed", exc_info=True)
-        logger.info("AIO Search: %d AIOs after aio_name pass", len(matched_aio_lines))
-
-    # Pass 2: elements_text (fast indexed path, migration 016).
-    # Skipped if earlier passes already got us past the early-exit threshold.
-    if needles and len(matched_aio_lines) < AIO_EARLY_EXIT:
-        try:
-            with db() as conn:
-                set_tenant(conn, tenant)
-                with conn.cursor() as cur:
-                    probe_needles = needles[:10]
-                    or_clause = " OR ".join(["elements_text LIKE %s"] * len(probe_needles))
-                    et_params = [f"%{n}%" for n in probe_needles]
-                    cur.execute(
-                        f"SELECT aio_name, {_AIO_COLS} FROM aio_data "
-                        f"WHERE {or_clause} LIMIT %s",
-                        et_params + [AIO_CAP],
-                    )
-                    for row in cur.fetchall():
-                        _add_aio_row(row)
-        except Exception:
-            logger.info("elements_text not available on aio_data — skipping fast path")
+        logger.info("AIO Search: %d AIOs after aio_name fallback", len(matched_aio_lines))
 
     # Pass 3: per-element ILIKE fallback (only if still empty)
     if not matched_aio_lines and needles:
@@ -1034,25 +1072,31 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
     logger.info("AIO Search: %d AIOs in context (post-filter)", len(matched_aio_lines))
 
     # ── Fetch MRO priors referenced in HSL elements ──
+    # V4.4 P4: single batched query (was N round-trips in a Python loop).
     mro_context_lines: List[str] = []
     if mro_ids_from_hsl:
+        # De-dupe while preserving order, then cap.
+        wanted = list(dict.fromkeys(mro_ids_from_hsl))[:5]
         try:
             with db() as conn:
                 set_tenant(conn, tenant)
                 with conn.cursor() as cur:
-                    for mro_uuid in mro_ids_from_hsl[:5]:
-                        cur.execute(
-                            "SELECT query_text, result_text FROM mro_objects WHERE mro_id = %s",
-                            (mro_uuid,)
-                        )
-                        mro_row = cur.fetchone()
-                        if mro_row:
+                    cur.execute(
+                        "SELECT mro_id, query_text, result_text "
+                        "FROM mro_objects WHERE mro_id::text = ANY(%s::text[])",
+                        (wanted,),
+                    )
+                    rows_by_id = {str(r[0]): (r[1], r[2]) for r in cur.fetchall()}
+                    # Preserve the original (HSL-element) ordering.
+                    for mro_uuid in wanted:
+                        row = rows_by_id.get(mro_uuid)
+                        if row:
                             mro_context_lines.append(
-                                f"[Prior Query: {mro_row[0][:120]}]\n"
-                                f"[Finding: {mro_row[1][:500]}]"
+                                f"[Prior Query: {row[0][:120]}]\n"
+                                f"[Finding: {row[1][:500]}]"
                             )
         except Exception:
-            logger.warning("MRO prior fetch failed for HSL-linked MROs")
+            logger.warning("MRO prior fetch failed for HSL-linked MROs", exc_info=True)
         logger.info("AIO Search: %d MRO priors from HSL links", len(mro_context_lines))
 
     # ── Phase 4: Answer using focused context ──
@@ -1471,12 +1515,50 @@ def substrate_chat_stream(
 def aio_search_stream(
     payload: ChatRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+    bypass_cache: bool = False,
 ):
     """Streaming variant of AIO Search. Phases 1–3 run synchronously
     (they're DB-bound, no user-visible delay benefit from streaming).
     Phase 4 (synthesis) is streamed token-by-token as SSE `text` events;
     the final `meta` event carries token counts and search metadata.
     """
+    # V4.4 P5: cache short-circuit. Mirrors the JSON endpoint's cache
+    # behavior so re-asking the same question over the streaming wire
+    # serves the cached reply as a single text frame + meta event with
+    # served_from_cache=true. Phases 1–3 are skipped entirely on hit.
+    tenant = x_tenant_id or "tenantA"
+    user_prompt = payload.messages[-1].content if payload.messages else ""
+    if not bypass_cache and user_prompt:
+        hit = _qcache.lookup(tenant, "aio-search", user_prompt)
+        if hit:
+            logger.info(
+                "aio-search-stream cache HIT cache_id=%s mro=%s hits=%d (skipping LLM)",
+                hit.cache_id, hit.mro_id, hit.hit_count,
+            )
+            cached_text = hit.answer_text
+            cached_meta = {
+                "model_ref": "claude-sonnet-4-6",
+                "context_records": 0,
+                "matched_hsls": 0,
+                "matched_aios": 0,
+                "matched_hsl_ids": [],
+                "search_terms": {"field_values": [], "keywords": []},
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "served_from_cache": True,
+                "cache_id": hit.cache_id,
+                "cached_mro_id": hit.mro_id,
+            }
+
+            def gen_cached():
+                yield _sse("text", cached_text)
+                yield _sse("meta", cached_meta)
+
+            return StreamingResponse(gen_cached(), media_type="text/event-stream", headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            })
+
     # Phases 1–3: prep is fully synchronous. Doing it before we open the
     # SSE stream lets us 502 cleanly on prep failure instead of having to
     # surface errors mid-stream.
@@ -1486,6 +1568,7 @@ def aio_search_stream(
         try:
             import anthropic
             client = anthropic.Anthropic(api_key=prep["api_key"])
+            collected: List[str] = []
             with client.messages.stream(
                 model="claude-sonnet-4-6",
                 max_tokens=2048,
@@ -1498,6 +1581,7 @@ def aio_search_stream(
             ) as stream:
                 for text in stream.text_stream:
                     if text:
+                        collected.append(text)
                         yield _sse("text", text)
                 final = stream.get_final_message()
                 ans_in_tok = getattr(final.usage, "input_tokens", 0) or 0
@@ -1515,7 +1599,15 @@ def aio_search_stream(
                     "search_terms": prep["search_terms"],
                     "input_tokens": prep["parse_in_tok"] + ans_in_tok,
                     "output_tokens": prep["parse_out_tok"] + ans_out_tok,
+                    "served_from_cache": False,
                 })
+                # V4.4 P5: persist the streamed reply so subsequent
+                # identical queries hit the micro-cache short-circuit.
+                if not bypass_cache and user_prompt and collected:
+                    try:
+                        _qcache.store(tenant, "aio-search", user_prompt, "".join(collected), mro_id=None)
+                    except Exception:
+                        logger.info("aio-search-stream cache store failed", exc_info=True)
         except Exception as exc:
             logger.exception("Anthropic streaming error during aio-search")
             yield _sse("error", {"error": f"LLM error: {str(exc)}"})
