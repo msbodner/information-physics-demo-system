@@ -31,7 +31,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
         <section className="space-y-4">
           <h2 className="text-2xl font-bold">Getting Started</h2>
           <p className="text-muted-foreground leading-relaxed">
-            AIO/HSL/MRO Demo System V4.2 adds the R &amp; D Compound HSL Builder and Information Elements tracking to the production platform. It converts CSV data into Associated Information Objects (AIOs),
+            AIO/HSL/MRO Demo System V4.3 adds the R &amp; D Compound HSL Builder and Information Elements tracking to the production platform. It converts CSV data into Associated Information Objects (AIOs),
             stores them in a dedicated PostgreSQL database, and provides semantic search, ChatAIO (AI-powered Q&amp;A via Claude), HSL relationship tracking,
             compound multi-field HSL queries, an Information Elements directory, saved prompts for recurring queries, and full system administration — all deployed as a self-contained production service.
           </p>
@@ -271,7 +271,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
 
               <h3 className="font-semibold text-lg mt-6 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-amber-500" />
-                What AIO Search does under the hood (V4.2 upgrades)
+                What AIO Search does under the hood (V4.3 upgrades)
               </h3>
               <p className="leading-relaxed text-muted-foreground">
                 AIO Search now applies a stack of cross-cutting layers in addition to the four-phase algebra. These layers run automatically — there is no UI to enable them — but the response metadata exposes what each one did so you can audit the answer.
@@ -487,7 +487,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
           <Card>
             <CardContent className="pt-6 space-y-4">
               <p className="leading-relaxed">
-                V4.2 adds three operator-facing endpoints that are exposed via API and surfaced where it makes sense in the UI. They are not required for everyday use, but they are essential when you are tuning the system, demoing the value of Information Physics, or running a tenant against a tight cost budget.
+                V4.3 adds three operator-facing endpoints that are exposed via API and surfaced where it makes sense in the UI. They are not required for everyday use, but they are essential when you are tuning the system, demoing the value of Information Physics, or running a tenant against a tight cost budget.
               </p>
 
               <h3 className="font-semibold text-lg flex items-center gap-2">

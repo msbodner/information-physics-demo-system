@@ -70,7 +70,7 @@ interface AppSidebarProps {
   username?: string | null
 }
 
-export function AppSidebar({ currentView, onNavigate, backendIsOnline, version = "V4.2", username }: AppSidebarProps) {
+export function AppSidebar({ currentView, onNavigate, backendIsOnline, version = "V4.3", username }: AppSidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
 

@@ -50,7 +50,7 @@ export function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void
           <div className="space-y-6">
             {activeSection === "overview" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />End-to-End AIO Workflow</CardTitle></CardHeader><CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p>AIO/HSL/MRO Demo System V4.2 is the production release — a self-contained platform with its own FastAPI backend and PostgreSQL database. It converts CSV files into Associated Information Objects through a full-stack pipeline. Each stage is described in detail in the sections to the left. At a high level, the flow is:</p>
+                <p>AIO/HSL/MRO Demo System V4.3 is the production release — a self-contained platform with its own FastAPI backend and PostgreSQL database. It converts CSV files into Associated Information Objects through a full-stack pipeline. Each stage is described in detail in the sections to the left. At a high level, the flow is:</p>
                 <ol className="list-decimal list-inside space-y-2">
                   <li><strong>Upload:</strong> User selects one or more <code className="bg-muted px-1 rounded">.csv</code> files via drag-and-drop or file picker.</li>
                   <li><strong>Duplicate check:</strong> If the backend is online, filenames are compared against already-saved CSVs; duplicates are rejected with an error toast.</li>
@@ -275,6 +275,18 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                 <p className="mt-2">The HSL can then be retrieved from the HSL Database dialog, decoded from the URI, and displayed.</p>
                 <h4 className="text-foreground font-medium mt-4">Why HSL Files Matter</h4>
                 <p>An HSL file is an auditable, portable record of a discovered semantic relationship. It captures <em>which</em> AIOs share a common element value, <em>where</em> they originated (CSV source + line), and <em>when</em> the relationship was observed. This provenance chain is what distinguishes Hyper-Semantic Layer records from simple query results.</p>
+
+                <h4 className="text-foreground font-medium mt-4">Bulk HSL Build (V4.3) — <code className="bg-muted px-1 rounded">POST /v1/hsl-data/rebuild-from-aios</code></h4>
+                <p>The <strong>Bulk HSL Build</strong> button on the home page (left of ChatAIO) triggers a tenant-wide reconstruction of the entire HSL topology from the current <code className="bg-muted px-1 rounded">aio_data</code> table. Each step is deterministic and idempotent:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li><strong>Scan:</strong> read every AIO row for the active tenant.</li>
+                  <li><strong>Extract:</strong> tokenize each row into its <code className="bg-muted px-1 rounded">[Key.Value]</code> elements.</li>
+                  <li><strong>Anchor:</strong> for every element shared by ≥ 2 AIOs, derive a canonical anchor key.</li>
+                  <li><strong>Reconcile:</strong> upsert one HSL row per anchor; existing rows are detected and preserved (counted as <em>already existed</em>).</li>
+                  <li><strong>Skip:</strong> single-AIO elements are excluded — they cannot form a Hyper-Semantic Layer.</li>
+                  <li><strong>Report:</strong> response returns <code className="bg-muted px-1 rounded">{"{ created, already_existed, skipped_single_aio, total_aios_scanned }"}</code>; the home page surfaces these as a toast.</li>
+                </ol>
+                <p>Use this after a large CSV import or a System Admin AIO edit to refresh the HSL topology in place — no need to re-run the per-element <strong>Create HSL</strong> flow. Full algorithmic detail, the inverted-index build, and the trade-secret anchor signature are documented in the <strong>Technical Notes — Bulk HSL Build</strong> reference paper (System Admin → Reference Papers).</p>
               </CardContent></Card>
             )}
             {activeSection === "chataio" && (

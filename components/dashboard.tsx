@@ -263,7 +263,7 @@ export function Dashboard({ backendIsOnline, onNavigate }: DashboardProps) {
             </ul>
             <div className="mt-5 pt-4 border-t border-border text-xs text-muted-foreground space-y-1">
               <div>Tenant: tenantA</div>
-              <div>Version: V4.2</div>
+              <div>Version: V4.3</div>
             </div>
           </CardContent>
         </Card>

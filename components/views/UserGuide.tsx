@@ -13,7 +13,7 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
     { id: "csv-converter", label: "CSV Converter", icon: FileText },
     { id: "hsp", label: "Hyper-Semantic Processor", icon: Cpu },
     { id: "hsl", label: "HSL — Creating & Viewing", icon: Layers },
-    { id: "substrate", label: "Substrate Mode (V4.2)", icon: Brain },
+    { id: "substrate", label: "Substrate Mode (V4.3)", icon: Brain },
     { id: "aio-hsl-structure", label: "AIO Body & HSL String", icon: GitMerge },
     { id: "mro-topology", label: "MRO Topology Diagram", icon: Network },
     { id: "system-admin", label: "System Admin", icon: Settings },
@@ -51,10 +51,16 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
 
             {/* ── OVERVIEW ── */}
             {activeSection === "overview" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />Overview — AIO/HSL/MRO Demo System V4.2</CardTitle></CardHeader>
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />Overview — AIO/HSL/MRO Demo System V4.3</CardTitle></CardHeader>
               <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
-                <p>AIO/HSL/MRO Demo System V4.2 converts CSV files into <strong>Associated Information Objects (AIOs)</strong> — the fundamental unit of the Information Physics Standard Model. Each CSV row becomes a single self-describing AIO string, stored in a PostgreSQL database and searchable through the Hyper-Semantic Processor.</p>
-                <p><strong>New in V4.2: Substrate Mode.</strong> ChatAIO now implements the full Paper III pipeline — deterministic cue extraction, bounded HSL neighborhood traversal, Jaccard-ranked MRO pre-fetch, and automatic MRO capture. The AIO/HSL/MRO substrate replaces traditional RAG + Medallion Gold curation as Claude&apos;s retrieval layer. See the <strong>Substrate Mode</strong> section in this guide.</p>
+                <p>AIO/HSL/MRO Demo System V4.3 converts CSV files into <strong>Associated Information Objects (AIOs)</strong> — the fundamental unit of the Information Physics Standard Model. Each CSV row becomes a single self-describing AIO string, stored in a PostgreSQL database and searchable through the Hyper-Semantic Processor.</p>
+                <p><strong>New in V4.3: Substrate Mode.</strong> ChatAIO now implements the full Paper III pipeline — deterministic cue extraction, bounded HSL neighborhood traversal, Jaccard-ranked MRO pre-fetch, and automatic MRO capture. The AIO/HSL/MRO substrate replaces traditional RAG + Medallion Gold curation as Claude&apos;s retrieval layer. See the <strong>Substrate Mode</strong> section in this guide.</p>
+                <h4 className="text-foreground font-medium mt-4">What&apos;s New in V4.3</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li><strong>Bulk HSL Build button on the home page</strong> — a one-click <code className="bg-muted px-1 rounded">POST /v1/hsl-data/rebuild-from-aios</code> action sits to the left of ChatAIO. It scans every AIO for the active tenant and rebuilds the entire HSL topology in place, with a live toast summary of created / pre-existing / skipped / scanned counts.</li>
+                  <li><strong>MRO popup on Search Stats</strong> — every row in the Search Stats tab whose MRO checkmark is set is now clickable. A read-only Dialog opens showing the full saved MRO record (key, query, intent, confidence, trust score, seed HSLs, search terms, result text, context bundle, policy scope, lineage). Resolved via the new <code className="bg-muted px-1 rounded">GET /v1/chat-stats/&lt;id&gt;/mro</code> endpoint with tiered nearest-in-time match.</li>
+                  <li><strong>New reference paper — &quot;Technical Notes — Bulk HSL Build&quot; (Confidential / Trade Secret).</strong> Engineering reference for the bulk-rebuild function, available as an in-app paper view from the System Admin → Reference Papers panel. Subject to the NDA on file.</li>
+                </ul>
                 <h4 className="text-foreground font-medium mt-4">What the app does</h4>
                 <ol className="list-decimal list-inside space-y-2">
                   <li><strong>Convert</strong> — Upload CSVs; every row becomes an AIO bracketstring.</li>
@@ -92,6 +98,8 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
                 <div className="space-y-3 pl-2 border-l-2 border-border">
                   <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Load New CSVs for Conversion</p><p>Opens the CSV Converter page where you can drag-and-drop or browse for CSV files to upload and convert to AIOs.</p></div>
                   <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Create New HSLs</p><p>Loads all previously saved AIOs from the backend database into memory, then navigates directly to the Hyper-Semantic Processor so you can create new HSL records without re-uploading any CSVs.</p></div>
+                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Bulk HSL Build (V4.3)</p><p>Sits to the left of <strong>ChatAIO</strong> on the home page. One click triggers a tenant-wide <code className="bg-muted px-1 rounded">POST /v1/hsl-data/rebuild-from-aios</code> — every saved AIO is scanned, all element-pair anchors are reanchored, and the <code className="bg-muted px-1 rounded">hsl_data</code> table is rebuilt in place. A toast reports <em>created</em>, <em>already existed</em>, <em>skipped (single-AIO)</em>, and <em>total AIOs scanned</em>. Use this after a large CSV import or after editing AIOs in System Admin to refresh the HSL topology without leaving the home page. See the new <strong>Technical Notes — Bulk HSL Build</strong> reference paper for full algorithm details.</p></div>
+                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">ChatAIO</p><p>Opens the full-screen ChatAIO dialog directly from the home page. See the <strong>Substrate Mode</strong> section for the four retrieval modes available inside.</p></div>
                 </div>
 
                 <h4 className="text-foreground font-medium mt-2">Navigation buttons</h4>
@@ -221,11 +229,11 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
               </CardContent></Card>
             )}
 
-            {/* ── SUBSTRATE MODE (V4.2) ── */}
+            {/* ── SUBSTRATE MODE (V4.3) ── */}
             {activeSection === "substrate" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Brain className="w-5 h-5 text-purple-600" />Substrate Mode — Claude Answers Grounded in the AIO/HSL/MRO Substrate</CardTitle></CardHeader>
               <CardContent className="space-y-5 text-sm text-muted-foreground leading-relaxed">
-                <p>V4.2 introduces <strong>Substrate Mode</strong> in the ChatAIO dialog — one of four retrieval modes alongside <strong>CSV→LLM Raw</strong> (raw CSVs, no IP machinery), <strong>Blind Dump AIO/HSL</strong> (broad AIO/HSL dump), and <strong>AIO Search</strong> (HSL-guided four-phase). It implements the full five-step pipeline from <em>Paper III: Precomputed Semantic Substrates for Large Language Models</em>, using your stored AIOs, HSL neighborhoods, and prior Memory Result Objects (MROs) as a direct replacement for traditional Retrieval-Augmented Generation.</p>
+                <p>V4.3 introduces <strong>Substrate Mode</strong> in the ChatAIO dialog — one of four retrieval modes alongside <strong>CSV→LLM Raw</strong> (raw CSVs, no IP machinery), <strong>Blind Dump AIO/HSL</strong> (broad AIO/HSL dump), and <strong>AIO Search</strong> (HSL-guided four-phase). It implements the full five-step pipeline from <em>Paper III: Precomputed Semantic Substrates for Large Language Models</em>, using your stored AIOs, HSL neighborhoods, and prior Memory Result Objects (MROs) as a direct replacement for traditional Retrieval-Augmented Generation.</p>
 
                 <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
                   <p className="text-purple-800 dark:text-purple-200 text-xs leading-relaxed">
@@ -278,7 +286,7 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                 <h4 className="text-foreground font-medium mt-4">Why Substrate gets better over time</h4>
                 <p>Each Substrate query persists an MRO containing the cue set, the traversal path, and the answer. When you (or any user) ask a similar question later, the Jaccard-ranked MRO priors are injected into the new prompt as framing — the system literally remembers its prior successful retrievals. Traditional RAG has no equivalent mechanism; its Gold layer is static.</p>
 
-                <h4 className="text-foreground font-medium mt-4">V4.2 Performance &amp; Quality Enhancements</h4>
+                <h4 className="text-foreground font-medium mt-4">V4.3 Performance &amp; Quality Enhancements</h4>
                 <p>The latest iteration of the search pipeline ships four optimizations that are visible to you as a faster, cheaper, more accurate experience without changing how you ask questions:</p>
                 <ul className="list-disc list-inside space-y-2 ml-2">
                   <li><strong>Streaming responses (SSE)</strong> — both Substrate and AIO Search now stream tokens to the dialog as Claude generates them, so the answer begins appearing within roughly a second instead of after the full reply is composed. The footer (token counts, MRO save, perf metrics) is appended on stream completion. Implementation: <code className="bg-muted px-1 rounded">/v1/op/substrate-chat/stream</code> and <code className="bg-muted px-1 rounded">/v1/op/aio-search/stream</code> over Server-Sent Events.</li>
@@ -558,6 +566,28 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                 <div className="pl-2 border-l-2 border-border">
                   <p>Configure the <strong>Anthropic API Key</strong> used by the ChatAIO feature and the Summarize All function. Paste your key and click Save. The key is stored securely in the <code className="bg-muted px-1 rounded">system_settings</code> table and loaded at server startup.</p>
                 </div>
+
+                <h4 className="text-foreground font-medium mt-2">Search Stats tab (V4.3)</h4>
+                <div className="space-y-2 pl-2 border-l-2 border-border">
+                  <p>Per-tenant telemetry for every ChatAIO query — search mode, query text, elapsed milliseconds, token usage, context records, matched HSLs/AIOs, cue count, neighborhood size, prior count, and whether an MRO was saved.</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li><strong>MRO popup (new in V4.3).</strong> The ✅ in the MRO column is now a button. Click it to open a read-only Dialog showing the full saved MRO — <em>mro_key</em>, <em>query_text</em>, <em>result_text</em>, <em>intent</em>, <em>confidence</em>, <em>trust_score</em>, <em>seed_hsls</em>, <em>search_terms</em>, <em>parent_mro_ids</em>, <em>context_bundle</em>, and <em>policy_scope</em>. The lookup uses <code className="bg-muted px-1 rounded">GET /v1/chat-stats/&lt;id&gt;/mro</code>, which falls back through three match strategies (exact <code className="bg-muted px-1 rounded">query_text</code>, then case-insensitive trim, then any MRO within ±5 minutes of the stat&apos;s timestamp) so normalized MRO query text still resolves cleanly.</li>
+                    <li><strong>PDF / Print exports.</strong> Both preserve mode-color badges and append a &quot;How the four search modes differ&quot; reference table.</li>
+                    <li><strong>Delete</strong> removes the stat row only — the underlying MRO is preserved.</li>
+                  </ul>
+                </div>
+
+                <h4 className="text-foreground font-medium mt-2">Reference Papers tab</h4>
+                <div className="space-y-2 pl-2 border-l-2 border-border">
+                  <p>In-app, view-only renderings of the foundational documents — no downloads required. Currently includes:</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li><strong>Information Physics Reference</strong> — theoretical overview.</li>
+                    <li><strong>AIO Reference Paper</strong> — the AIO as the quantum particle of Information Physics.</li>
+                    <li><strong>MRO Reference Paper</strong> — the Memory Result Object as governed episodic memory.</li>
+                    <li><strong>Paper III — Precomputed Substrates for LLMs</strong> — the foundation of Substrate Chat mode.</li>
+                    <li><strong>Technical Notes — Bulk HSL Build (V4.3, Confidential / Trade Secret)</strong> — engineering reference for the tenant-wide HSL reconstruction function. Subject to the NDA on file.</li>
+                  </ul>
+                </div>
               </CardContent></Card>
             )}
 
@@ -660,6 +690,13 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
 
                 <h4 className="text-foreground font-medium mt-4">Configuring the AI (ChatAIO / Summarize)</h4>
                 <p>Log in to System Admin → Settings tab → paste your Anthropic API key → Save. The key is stored in the database and loaded automatically on every backend restart.</p>
+
+                <h4 className="text-foreground font-medium mt-4">V4.3 quick tips</h4>
+                <ul className="list-disc list-inside space-y-2">
+                  <li><strong>Refresh the topology after any AIO churn.</strong> If you imported a large CSV batch or edited rows in System Admin → AIO Data, click <strong>Bulk HSL Build</strong> on the home page once. It reanchors every element pair across the full tenant in a single transaction so Substrate Mode immediately sees the new neighborhoods.</li>
+                  <li><strong>Audit any ChatAIO answer.</strong> Open System Admin → Search Stats, find the row for the query, and click the ✅ in the MRO column. The popup shows the full saved MRO — the same evidence Substrate Mode used to answer — without leaving the stats screen.</li>
+                  <li><strong>Substrate vs. AIO Search.</strong> Substrate is the new default and reuses prior MROs as priors; AIO Search is the original four-phase HSL-guided synthesizer. Keep Substrate on for repeat-question workloads where MRO accumulation pays off.</li>
+                </ul>
               </CardContent></Card>
             )}
 
