@@ -17,7 +17,7 @@ import { ResearchAndDevelopment } from "@/components/views/ResearchAndDevelopmen
 import { AIOReferencePaper } from "@/components/views/AIOReferencePaper"
 import { MROReferencePaper } from "@/components/views/MROReferencePaper"
 import { PaperIII } from "@/components/views/PaperIII"
-import { createIO, listIOs, createAioData, loginUser, type IORecord, type LoginResult } from "@/lib/api-client"
+import { createIO, listIOs, createAioData, loginUser, rebuildHslsFromAios, type IORecord, type LoginResult } from "@/lib/api-client"
 import {
   Database, ArrowRight, Layers, Cpu, Globe, BookOpen, FileText, Zap,
   Settings, FileSpreadsheet, LogOut, Lock, Eye, EyeOff, MessageSquare,
@@ -51,6 +51,28 @@ export default function HomePage() {
   // Navigation
   const [currentView, setCurrentView] = useState<View>("home")
   const [showHomeChatAIO, setShowHomeChatAIO] = useState(false)
+
+  // Bulk HSL Build (front-page action)
+  const [isBulkBuildingHsls, setIsBulkBuildingHsls] = useState(false)
+  const handleBulkHslBuild = useCallback(async () => {
+    if (isBulkBuildingHsls) return
+    setIsBulkBuildingHsls(true)
+    try {
+      const result = await rebuildHslsFromAios()
+      if (!result) {
+        toast.error("Backend unavailable — could not build HSLs")
+        return
+      }
+      toast.success(
+        `Bulk HSL Build: ${result.created} created · ${result.already_existed} already existed · ${result.skipped_single_aio} skipped (single-AIO) · ${result.total_aios_scanned} AIOs scanned`,
+        { duration: 6000 },
+      )
+    } catch {
+      toast.error("Bulk HSL Build failed")
+    } finally {
+      setIsBulkBuildingHsls(false)
+    }
+  }, [isBulkBuildingHsls])
 
   // Converter state
   const [downloadedFileNames, setDownloadedFileNames] = useState<string[]>([])
@@ -343,6 +365,19 @@ export default function HomePage() {
             <Button size="lg" variant="outline" onClick={async () => { await handleLoadFromBackend(); setCurrentView("processor") }} className="gap-2 px-8">
               <Layers className="w-4 h-4" />Create New HSLs
             </Button>
+            {backendIsOnline && (
+              <Button
+                size="lg"
+                variant="outline"
+                onClick={handleBulkHslBuild}
+                disabled={isBulkBuildingHsls}
+                className="gap-2 px-8"
+                title="Scan every AIO and emit one HSL per shared [Key.Value] element group (≥2 AIOs). Existing HSLs are preserved."
+              >
+                {isBulkBuildingHsls ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
+                {isBulkBuildingHsls ? "Building HSLs…" : "Bulk HSL Build"}
+              </Button>
+            )}
             {backendIsOnline && (
               <Button size="lg" variant="outline" onClick={() => setShowHomeChatAIO(true)} className="gap-2 px-8">
                 <MessageSquare className="w-4 h-4" />ChatAIO

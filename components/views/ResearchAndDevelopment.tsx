@@ -1,14 +1,14 @@
 "use client"
 
 import { useState, useCallback, useMemo, useEffect } from "react"
-import { ArrowLeft, Search, X, Download, Database, Layers, FileText, Atom, Loader2, Settings, FileSpreadsheet, Eye, Upload, MessageSquare } from "lucide-react"
+import { ArrowLeft, Search, X, Download, Database, Layers, FileText, Atom, Settings, FileSpreadsheet, Eye, Upload, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import { parseAioLine, parseCSV, csvToAio, downloadBlob, type ConvertedFile, type ParsedAio, type ParsedElement } from "@/lib/aio-utils"
-import { summarizeAIOs, resolveEntities, listHslData, createIO, createHslData, listAioData, listInformationElements, createInformationElement, rebuildHslsFromAios, type IORecord, type EntityItem, type HslDataRecord, type AioDataRecord, type InformationElement, type RebuildHslsResult } from "@/lib/api-client"
+import { summarizeAIOs, resolveEntities, listHslData, createIO, createHslData, listAioData, listInformationElements, createInformationElement, type IORecord, type EntityItem, type HslDataRecord, type AioDataRecord, type InformationElement } from "@/lib/api-client"
 import { ChatAioDialog } from "@/components/chat-aio-dialog"
 
 export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: { onBack: () => void; backendIsOnline: boolean; onSysAdmin: () => void }) {
@@ -23,26 +23,6 @@ export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: 
   const [compoundHslData, setCompoundHslData] = useState<{ labels: string[]; fileName: string; rows: { aioName: string; csvRoot: string; lineNumber: number; createdAt: string }[]; content: string; matchingAioDetails: ParsedAio[] } | null>(null)
   const [showFileViewer, setShowFileViewer] = useState(false)
   const [showDetailsAio, setShowDetailsAio] = useState<ParsedAio | null>(null)
-  const [isRebuildingHsls, setIsRebuildingHsls] = useState(false)
-  const [rebuildResult, setRebuildResult] = useState<RebuildHslsResult | null>(null)
-
-  const handleRebuildAllHsls = useCallback(async () => {
-    setIsRebuildingHsls(true)
-    setRebuildResult(null)
-    try {
-      const result = await rebuildHslsFromAios()
-      if (!result) {
-        toast.error("Backend unavailable — could not rebuild HSLs")
-        return
-      }
-      setRebuildResult(result)
-      toast.success(`Created ${result.created} new HSL${result.created === 1 ? "" : "s"} from ${result.total_aios_scanned} AIOs`)
-    } catch {
-      toast.error("Failed to rebuild HSLs")
-    } finally {
-      setIsRebuildingHsls(false)
-    }
-  }, [])
 
   // Load AIOs and Information Elements
   useEffect(() => {
@@ -197,52 +177,6 @@ export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: 
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Layers className="w-4 h-4" />
-              Rebuild HSLs from All AIOs
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <div className="flex items-center gap-6 text-sm">
-                <div>
-                  <p className="text-xs text-muted-foreground">AIOs in database</p>
-                  <p className="text-2xl font-bold text-foreground">{isLoadingAios ? "…" : aioRecords.length.toLocaleString()}</p>
-                </div>
-                {rebuildResult && (
-                  <>
-                    <div>
-                      <p className="text-xs text-muted-foreground">HSLs created</p>
-                      <p className="text-2xl font-bold text-emerald-600">{rebuildResult.created.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Already existed</p>
-                      <p className="text-2xl font-bold text-muted-foreground">{rebuildResult.already_existed.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Skipped (single-AIO)</p>
-                      <p className="text-2xl font-bold text-muted-foreground">{rebuildResult.skipped_single_aio.toLocaleString()}</p>
-                    </div>
-                  </>
-                )}
-              </div>
-              <Button
-                onClick={handleRebuildAllHsls}
-                disabled={isRebuildingHsls || !backendIsOnline || aioRecords.length === 0}
-                className="gap-2"
-              >
-                {isRebuildingHsls ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
-                {isRebuildingHsls ? "Rebuilding…" : "Rebuild All HSLs"}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-3">
-              Scans every AIO and creates one HSL per shared [Key.Value] element group (≥2 AIOs). Existing HSLs are preserved.
-            </p>
-          </CardContent>
-        </Card>
-
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Left Column: Information Elements (Field Names) */}
           <div className="space-y-4">

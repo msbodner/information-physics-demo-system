@@ -141,6 +141,67 @@ def create_chat_stat(
     )
 
 
+@router.get("/v1/chat-stats/{stat_id}/mro")
+def get_stat_mro(stat_id: str, x_tenant_id: Optional[str] = Header(default="tenantA")):
+    """Resolve the MRO that was saved for a given chat-stats row.
+
+    Stats rows do not carry an explicit FK to mro_objects (the table only
+    records ``mro_saved`` boolean), so we look up the MRO by matching
+    tenant + query_text and choosing the row whose created_at is closest
+    to the stat's timestamp. Returns the full MRO record or 404.
+    """
+    tenant = x_tenant_id or "tenantA"
+    with db() as conn:
+        with conn.cursor() as cur:
+            set_tenant(conn, tenant)
+            cur.execute(
+                "SELECT query_text, created_at, mro_saved FROM chat_search_stats "
+                "WHERE stat_id = %s AND tenant_id = %s",
+                (stat_id, tenant),
+            )
+            stat = cur.fetchone()
+            if not stat:
+                raise HTTPException(status_code=404, detail="stat not found")
+            query_text, stat_created, mro_saved = stat
+            if not mro_saved:
+                raise HTTPException(status_code=404, detail="no MRO was saved for this stat")
+            cur.execute(
+                """
+                SELECT mro_id, mro_key, query_text, intent, seed_hsls,
+                       matched_aios_count, search_terms, result_text,
+                       confidence, trust_score, parent_mro_ids,
+                       context_bundle, model_used, derivation_method,
+                       created_at, updated_at
+                FROM mro_objects
+                WHERE tenant_id = %s AND query_text = %s
+                ORDER BY ABS(EXTRACT(EPOCH FROM (created_at - %s))) ASC
+                LIMIT 1
+                """,
+                (tenant, query_text, stat_created),
+            )
+            r = cur.fetchone()
+            if not r:
+                raise HTTPException(status_code=404, detail="MRO not found for this stat")
+            return {
+                "mro_id": str(r[0]),
+                "mro_key": r[1],
+                "query_text": r[2],
+                "intent": r[3],
+                "seed_hsls": r[4],
+                "matched_aios_count": r[5],
+                "search_terms": r[6],
+                "result_text": r[7],
+                "confidence": r[8],
+                "trust_score": float(r[9]) if r[9] is not None else None,
+                "parent_mro_ids": r[10],
+                "context_bundle": r[11],
+                "model_used": r[12],
+                "derivation_method": r[13],
+                "created_at": str(r[14]),
+                "updated_at": str(r[15]) if r[15] else None,
+            }
+
+
 @router.delete("/v1/chat-stats/{stat_id}")
 def delete_chat_stat(stat_id: str):
     with db() as conn:
