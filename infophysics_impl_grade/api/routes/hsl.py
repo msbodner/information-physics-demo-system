@@ -423,7 +423,9 @@ def synth_hsls_for_aio(
                 continue
 
             # No HSL yet — does another AIO carry this (Key, Value)?
-            like_pat = f"%[{key}.{val}]%"
+            # NB: ``elements_text`` is a ``lower(...)`` generated column
+            # (migration 016) so the LIKE pattern must also be lowercased.
+            like_pat = f"%[{key}.{val}]%".lower()
             cur.execute(
                 "SELECT aio_name FROM aio_data "
                 "WHERE tenant_id = %s AND aio_name <> %s AND elements_text LIKE %s "
