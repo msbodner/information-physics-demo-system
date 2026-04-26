@@ -351,6 +351,29 @@ export async function deleteChatStat(statId: string): Promise<boolean> {
   return result !== null
 }
 
+export interface MroForStat {
+  mro_id: string
+  mro_key: string | null
+  query_text: string | null
+  intent: string | null
+  seed_hsls: unknown
+  matched_aios_count: number | null
+  search_terms: unknown
+  result_text: string | null
+  confidence: string | null
+  trust_score: number | null
+  parent_mro_ids: unknown
+  context_bundle: unknown
+  model_used: string | null
+  derivation_method: string | null
+  created_at: string
+  updated_at: string | null
+}
+
+export async function getMroForStat(statId: string): Promise<MroForStat | null> {
+  return safeFetch<MroForStat>(`/api/chat-stats/${statId}/mro`)
+}
+
 // User management
 export interface User {
   user_id: string

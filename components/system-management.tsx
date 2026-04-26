@@ -25,7 +25,7 @@ import {
   listSavedPrompts, createSavedPrompt, updateSavedPrompt, deleteSavedPrompt,
   listInformationElements, createInformationElement, updateInformationElement, deleteInformationElement, rebuildInformationElements,
   getApiKeySetting, updateApiKeySetting, loginUser, listIOs,
-  listChatStats, deleteChatStat,
+  listChatStats, deleteChatStat, getMroForStat, type MroForStat,
   listMroObjects, getMroObject, updateMroObject, deleteMroObject,
   listDemoBackups, createDemoBackup, deleteDemoBackup, resetDemoData, restoreDemoBackup,
   type User as SystemUser, type Role, type AioDataRecord, type HslDataRecord,
@@ -2346,6 +2346,19 @@ export function SearchStatsPane() {
   const [filter, setFilter] = useState<"All" | "Send" | "PureLLM" | "AIOSearch" | "Substrate">("All")
   const [expanded, setExpanded] = useState<string | null>(null)
   const [pdfPreviewHtml, setPdfPreviewHtml] = useState<string | null>(null)
+  const [mroPopup, setMroPopup] = useState<MroForStat | null>(null)
+  const [mroLoading, setMroLoading] = useState<string | null>(null)
+
+  const handleViewMro = async (statId: string) => {
+    setMroLoading(statId)
+    const mro = await getMroForStat(statId)
+    setMroLoading(null)
+    if (!mro) {
+      toast.error("MRO not found for this stat")
+      return
+    }
+    setMroPopup(mro)
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -2722,7 +2735,18 @@ export function SearchStatsPane() {
                       <td className="px-3 py-2 text-right tabular-nums">{s.matched_hsls || "—"}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{s.matched_aios || s.neighborhood_size || "—"}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{s.cue_count || "—"}</td>
-                      <td className="px-3 py-2 text-center">{s.mro_saved ? "✅" : "—"}</td>
+                      <td className="px-3 py-2 text-center">
+                        {s.mro_saved ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleViewMro(s.stat_id) }}
+                            disabled={mroLoading === s.stat_id}
+                            className="text-emerald-600 hover:text-emerald-800 hover:underline font-medium disabled:opacity-50"
+                            title="View saved MRO (read-only)"
+                          >
+                            {mroLoading === s.stat_id ? "…" : "✅"}
+                          </button>
+                        ) : "—"}
+                      </td>
                       <td className="px-3 py-2 text-center">
                         <button onClick={(e) => { e.stopPropagation(); handleDelete(s.stat_id) }}
                           className="text-muted-foreground hover:text-destructive transition-colors">
@@ -2839,6 +2863,101 @@ export function SearchStatsPane() {
             <Button onClick={handleSaveFromPreview} className="gap-1.5">
               <FileText className="w-4 h-4" />Save as PDF
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MRO view-only popup — shown when user clicks the ✅ in the MRO column. */}
+      <Dialog open={mroPopup !== null} onOpenChange={(o) => { if (!o) setMroPopup(null) }}>
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Memory Result Object (MRO) — view only</DialogTitle>
+          </DialogHeader>
+          {mroPopup && (
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">MRO Key</div>
+                  <div className="font-mono text-xs break-all">{mroPopup.mro_key ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">MRO ID</div>
+                  <div className="font-mono text-xs break-all">{mroPopup.mro_id}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Confidence</div>
+                  <div>{mroPopup.confidence ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Trust Score</div>
+                  <div>{mroPopup.trust_score?.toFixed(3) ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Matched AIOs</div>
+                  <div>{mroPopup.matched_aios_count ?? 0}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Model Used</div>
+                  <div>{mroPopup.model_used ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Derivation Method</div>
+                  <div>{mroPopup.derivation_method ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Created</div>
+                  <div className="text-xs">{new Date(mroPopup.created_at).toLocaleString()}</div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Query</div>
+                <div className="bg-muted/40 rounded p-2 border border-border">{mroPopup.query_text ?? "—"}</div>
+              </div>
+
+              {mroPopup.intent && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Intent</div>
+                  <div className="bg-muted/40 rounded p-2 border border-border">{mroPopup.intent}</div>
+                </div>
+              )}
+
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Result</div>
+                <div className="bg-muted/40 rounded p-2 border border-border whitespace-pre-wrap">{mroPopup.result_text ?? "—"}</div>
+              </div>
+
+              {mroPopup.search_terms != null && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Search Terms</div>
+                  <pre className="bg-muted/40 rounded p-2 border border-border text-xs overflow-x-auto">{JSON.stringify(mroPopup.search_terms, null, 2)}</pre>
+                </div>
+              )}
+
+              {mroPopup.seed_hsls != null && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Seed HSLs</div>
+                  <pre className="bg-muted/40 rounded p-2 border border-border text-xs overflow-x-auto">{JSON.stringify(mroPopup.seed_hsls, null, 2)}</pre>
+                </div>
+              )}
+
+              {mroPopup.parent_mro_ids != null && Array.isArray(mroPopup.parent_mro_ids) && (mroPopup.parent_mro_ids as unknown[]).length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Parent MRO IDs</div>
+                  <pre className="bg-muted/40 rounded p-2 border border-border text-xs overflow-x-auto">{JSON.stringify(mroPopup.parent_mro_ids, null, 2)}</pre>
+                </div>
+              )}
+
+              {mroPopup.context_bundle != null && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Context Bundle</div>
+                  <pre className="bg-muted/40 rounded p-2 border border-border text-xs overflow-x-auto max-h-64">{JSON.stringify(mroPopup.context_bundle, null, 2)}</pre>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMroPopup(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
