@@ -2410,8 +2410,8 @@ export function SearchStatsPane() {
     const modeLabel = (m: string) =>
       m === "Send" ? "Blind Dump AIO/HSL"
       : m === "PureLLM" ? "CSV→LLM Raw"
-      : m === "AIOSearch" ? "AIO Search"
-      : m === "Substrate" ? "Substrate"
+      : m === "AIOSearch" ? "Live Search"
+      : m === "Substrate" ? "Recall Search"
       : m
     const modeBadgeClass = (m: string) =>
       m === "Send" ? "badge-blind"
@@ -2440,7 +2440,7 @@ export function SearchStatsPane() {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Search Stats — ${new Date().toLocaleDateString()}</title>
+  <title>Search Statistics Analytic — ${new Date().toLocaleDateString()}</title>
   <style>
     /* CRITICAL for color-preserving Print → Save as PDF.
        Without these the print engine will strip backgrounds/borders. */
@@ -2504,14 +2504,14 @@ export function SearchStatsPane() {
   </style>
 </head>
 <body>
-  <h1>ChatAIO Search Stats</h1>
+  <h1>ChatAIO Search Statistics Analytic</h1>
   <div class="subtitle">${esc(new Date().toLocaleString())} · ${visible.length} of ${stats.length} record${stats.length === 1 ? "" : "s"} (filter: ${esc(filterLabel)})</div>
   <div class="summary">
     <div class="card"><div class="num">${totalSearches}</div><div class="lbl">Total</div></div>
     <div class="card"><div class="num">${byMode.Send ?? 0}</div><div class="lbl">Blind Dump</div></div>
     <div class="card"><div class="num">${byMode.PureLLM ?? 0}</div><div class="lbl">CSV→LLM</div></div>
-    <div class="card"><div class="num">${byMode.AIOSearch ?? 0}</div><div class="lbl">AIO Search</div></div>
-    <div class="card"><div class="num">${byMode.Substrate ?? 0}</div><div class="lbl">Substrate</div></div>
+    <div class="card"><div class="num">${byMode.AIOSearch ?? 0}</div><div class="lbl">Live Search</div></div>
+    <div class="card"><div class="num">${byMode.Substrate ?? 0}</div><div class="lbl">Recall Search</div></div>
     <div class="card"><div class="num">${totalTokens.toLocaleString()}</div><div class="lbl">Tokens</div></div>
     <div class="card"><div class="num">${(avgElapsed / 1000).toFixed(1)}s</div><div class="lbl">Avg Time</div></div>
   </div>
@@ -2541,29 +2541,27 @@ export function SearchStatsPane() {
         <tr>
           <td><span class="pill pill-csv">CSV→LLM Raw</span></td>
           <td>None — control case</td>
-          <td>Up to 50 raw saved CSV files (capped ~30 KB each). No AIO bracket notation, no HSL, no MRO. Vanilla "you are a data analyst" system prompt.</td>
+          <td>Claude receives up to 50 raw saved CSV files (~30 KB each) plus a generic "you are a data analyst" system prompt. No AIO bracket notation, no HSL traversal, no MRO priors — this is the apples-to-apples baseline against vanilla Claude.</td>
         </tr>
         <tr>
           <td><span class="pill pill-blind">Blind Dump AIO/HSL</span></td>
           <td>None — blind dump</td>
-          <td>First 300 AIOs + 10 HSLs from the DB (no relevance filtering). ChatAIO system preamble instructing Claude to parse <code>[Key.Value]</code> notation, group/sum/count, show work.</td>
+          <td>Claude receives the first 300 AIOs and 10 HSLs from the database with no relevance filtering, plus the ChatAIO preamble instructing it to parse <code>[Key.Value]</code> notation and show its work. Cheapest to implement, most token-wasteful — ships ~300 unrelated records per query.</td>
         </tr>
         <tr>
-          <td><span class="pill pill-aio">AIO Search</span></td>
+          <td><span class="pill pill-aio">Live Search <span style="color:#64748b;font-weight:400;">(formerly AIO Search)</span></span></td>
           <td>4-phase: parse → HSL match → AIO gather → synthesize</td>
-          <td>Only the AIOs reached via HSL traversal of cues extracted from the query. Falls back to direct ILIKE if no HSL matches.</td>
+          <td>Claude receives only the AIOs reached by HSL traversal of cues extracted from the query — a tightly bounded evidence set with full provenance. Falls back to direct ILIKE element search if no HSL matches. Stateless: no memory of prior queries.</td>
         </tr>
         <tr>
-          <td><span class="pill pill-sub">Substrate</span></td>
-          <td>Deterministic cue extraction + Jaccard ranking</td>
-          <td>Pre-assembled tiered bundle: cues → neighborhood AIOs → MRO priors. Self-improving (each query persists a new MRO).</td>
+          <td><span class="pill pill-sub">Recall Search <span style="color:#64748b;font-weight:400;">(formerly Substrate)</span></span></td>
+          <td>Deterministic cue extraction + Jaccard-ranked MRO priors</td>
+          <td>Claude receives a pre-assembled tiered substrate bundle: extracted cues, neighborhood AIOs from HSL traversal, and ranked MRO priors from past retrieval episodes. Memory-augmented and self-improving — every query persists a new MRO that strengthens future retrievals on similar topics.</td>
         </tr>
       </tbody>
     </table>
     <p class="legend">
-      <strong>Blind Dump AIO/HSL</strong> is the cheapest to implement but the most token-wasteful — it ships ~300 unrelated records every query.
-      <strong>CSV→LLM Raw</strong> is the apples-to-apples baseline against vanilla Claude — same data, no Information-Physics machinery.
-      <strong>AIO Search</strong> and <strong>Substrate</strong> are where the substrate earns its keep: bounded retrieval, real provenance, and (for Substrate) episodic memory across sessions.
+      <strong>Blind Dump AIO/HSL</strong> and <strong>CSV→LLM Raw</strong> are the controls — they show what Claude does without Information-Physics machinery. <strong>Live Search</strong> and <strong>Recall Search</strong> are where the substrate earns its keep: bounded retrieval, real provenance, and (for Recall Search) episodic memory that compounds across sessions.
     </p>
   </div>
 </body>
@@ -2652,8 +2650,8 @@ export function SearchStatsPane() {
           { label: "Total Searches", value: totalSearches },
           { label: "Blind Dump AIO/HSL", value: byMode.Send ?? 0 },
           { label: "CSV→LLM Raw", value: byMode.PureLLM ?? 0 },
-          { label: "AIO Search", value: byMode.AIOSearch ?? 0 },
-          { label: "Substrate", value: byMode.Substrate ?? 0 },
+          { label: "Live Search", value: byMode.AIOSearch ?? 0 },
+          { label: "Recall Search", value: byMode.Substrate ?? 0 },
         ].map((card) => (
           <div key={card.label} className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-center">
             <div className="text-2xl font-bold text-foreground">{card.value}</div>
@@ -2677,7 +2675,7 @@ export function SearchStatsPane() {
         {(["All", "Send", "PureLLM", "AIOSearch", "Substrate"] as const).map((m) => (
           <button key={m} onClick={() => setFilter(m)}
             className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${filter === m ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
-            {m === "AIOSearch" ? "AIO Search" : m === "Send" ? "Blind Dump AIO/HSL" : m === "PureLLM" ? "CSV→LLM Raw" : m}
+            {m === "AIOSearch" ? "Live Search" : m === "Substrate" ? "Recall Search" : m === "Send" ? "Blind Dump AIO/HSL" : m === "PureLLM" ? "CSV→LLM Raw" : m}
           </button>
         ))}
         <div className="flex-1" />
@@ -2811,30 +2809,29 @@ export function SearchStatsPane() {
               <tr className="border-b border-border bg-background">
                 <td className="px-3 py-2 align-top"><span className="font-semibold text-amber-700">CSV→LLM Raw</span></td>
                 <td className="px-3 py-2 align-top">None — control case</td>
-                <td className="px-3 py-2 align-top">Up to 50 raw saved CSV files (capped ~30 KB each). No AIO bracket notation, no HSL, no MRO. Vanilla &quot;you are a data analyst&quot; system prompt.</td>
+                <td className="px-3 py-2 align-top">Claude receives up to 50 raw saved CSV files (~30 KB each) plus a generic &quot;you are a data analyst&quot; system prompt. No AIO bracket notation, no HSL traversal, no MRO priors — the apples-to-apples baseline against vanilla Claude.</td>
               </tr>
               <tr className="border-b border-border bg-muted/20">
                 <td className="px-3 py-2 align-top"><span className="font-semibold text-blue-700">Blind Dump AIO/HSL</span></td>
                 <td className="px-3 py-2 align-top">None — blind dump</td>
-                <td className="px-3 py-2 align-top">First 300 AIOs + 10 HSLs from the DB (no relevance filtering). ChatAIO system preamble instructing Claude to parse <code className="bg-muted px-1 rounded">[Key.Value]</code> notation, group/sum/count, show work.</td>
+                <td className="px-3 py-2 align-top">Claude receives the first 300 AIOs and 10 HSLs from the database with no relevance filtering, plus the ChatAIO preamble instructing it to parse <code className="bg-muted px-1 rounded">[Key.Value]</code> notation and show its work. Cheapest to implement, most token-wasteful — ships ~300 unrelated records per query.</td>
               </tr>
               <tr className="border-b border-border bg-background">
-                <td className="px-3 py-2 align-top"><span className="font-semibold text-green-700">AIO Search</span></td>
+                <td className="px-3 py-2 align-top"><span className="font-semibold text-green-700">Live Search <span className="text-muted-foreground font-normal">(formerly AIO Search)</span></span></td>
                 <td className="px-3 py-2 align-top">4-phase: parse → HSL match → AIO gather → synthesize</td>
-                <td className="px-3 py-2 align-top">Only the AIOs reached via HSL traversal of cues extracted from the query. Falls back to direct ILIKE if no HSL matches.</td>
+                <td className="px-3 py-2 align-top">Claude receives only the AIOs reached by HSL traversal of cues extracted from the query — a tightly bounded evidence set with full provenance. Falls back to direct ILIKE element search if no HSL matches. Stateless: no memory of prior queries.</td>
               </tr>
               <tr className="bg-muted/20">
-                <td className="px-3 py-2 align-top"><span className="font-semibold text-purple-700">Substrate</span></td>
-                <td className="px-3 py-2 align-top">Deterministic cue extraction + Jaccard ranking</td>
-                <td className="px-3 py-2 align-top">Pre-assembled tiered bundle: cues → neighborhood AIOs → MRO priors. Self-improving (each query persists a new MRO).</td>
+                <td className="px-3 py-2 align-top"><span className="font-semibold text-purple-700">Recall Search <span className="text-muted-foreground font-normal">(formerly Substrate)</span></span></td>
+                <td className="px-3 py-2 align-top">Deterministic cue extraction + Jaccard-ranked MRO priors</td>
+                <td className="px-3 py-2 align-top">Claude receives a pre-assembled tiered substrate bundle: extracted cues, neighborhood AIOs from HSL traversal, and ranked MRO priors from past retrieval episodes. Memory-augmented and self-improving — every query persists a new MRO that strengthens future retrievals on similar topics.</td>
               </tr>
             </tbody>
           </table>
         </div>
         <p className="text-xs text-muted-foreground">
-          <strong>Blind Dump AIO/HSL</strong> is the cheapest to implement but the most token-wasteful — it ships ~300 unrelated records every query.
-          <strong> CSV→LLM Raw</strong> is the apples-to-apples baseline against vanilla Claude — same data, no Information-Physics machinery.
-          <strong> AIO Search</strong> and <strong>Substrate</strong> are where the substrate earns its keep: bounded retrieval, real provenance, and (for Substrate) episodic memory across sessions.
+          <strong>Blind Dump AIO/HSL</strong> and <strong>CSV→LLM Raw</strong> are the controls — they show what Claude does without Information-Physics machinery.
+          <strong> Live Search</strong> and <strong>Recall Search</strong> are where the substrate earns its keep: bounded retrieval, real provenance, and (for Recall Search) episodic memory that compounds across sessions.
         </p>
       </div>
 
@@ -2844,13 +2841,13 @@ export function SearchStatsPane() {
       <Dialog open={pdfPreviewHtml !== null} onOpenChange={(o) => { if (!o) setPdfPreviewHtml(null) }}>
         <DialogContent className="max-w-5xl w-[95vw] h-[90vh] p-0 gap-0 flex flex-col">
           <DialogHeader className="px-5 py-3 border-b border-border">
-            <DialogTitle>PDF Preview — Search Stats</DialogTitle>
+            <DialogTitle>PDF Preview — Search Statistics Analytic</DialogTitle>
           </DialogHeader>
           <div className="flex-1 min-h-0 bg-muted/30">
             {pdfPreviewHtml && (
               <iframe
                 id="pdf-preview-frame"
-                title="Search Stats PDF Preview"
+                title="Search Statistics Analytic PDF Preview"
                 srcDoc={pdfPreviewHtml}
                 className="w-full h-full border-0 bg-white"
               />
@@ -3499,7 +3496,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
               { value: "hsl-data",      icon: <LayoutList className="w-4 h-4" />,      label: "HSL Data" },
               { value: "mro-data",      icon: <Brain className="w-4 h-4" />,           label: "MRO Data" },
               { value: "demo-reset",    icon: <ShieldAlert className="w-4 h-4" />,     label: "Demo Reset" },
-              { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Stats" },
+              { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Statistics Analytic" },
               { value: "apikey",        icon: <Key className="w-4 h-4" />,             label: "API Key" },
               { value: "csvs",          icon: <FileSpreadsheet className="w-4 h-4" />, label: "Saved CSVs" },
               { value: "aios",          icon: <FileText className="w-4 h-4" />,        label: "Saved AIOs" },
