@@ -31,7 +31,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
         <section className="space-y-4">
           <h2 className="text-2xl font-bold">Getting Started</h2>
           <p className="text-muted-foreground leading-relaxed">
-            AIO/HSL/MRO Demo System V4.3 adds the R &amp; D Compound HSL Builder and Information Elements tracking to the production platform. It converts CSV data into Associated Information Objects (AIOs),
+            AIO/HSL/MRO Demo System V4.4 builds on V4.3&apos;s R &amp; D Compound HSL Builder and Information Elements tracking with a substrate-retrieval performance pass, per-query quality logging, and the Live Search / Recall Search rename. It converts CSV data into Associated Information Objects (AIOs),
             stores them in a dedicated PostgreSQL database, and provides semantic search, ChatAIO (AI-powered Q&amp;A via Claude), HSL relationship tracking,
             compound multi-field HSL queries, an Information Elements directory, saved prompts for recurring queries, and full system administration — all deployed as a self-contained production service.
           </p>
@@ -258,23 +258,23 @@ export function UserGuide({ onBack }: UserGuideProps) {
 
               <h3 className="font-semibold text-lg mt-4">Four Search Modes</h3>
               <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Send (broad search):</span> Sends your question to Claude along with ALL stored AIO and HSL records as context (up to 500 records). Best for general questions like &quot;What vendors are in this data?&quot; or &quot;Total invoice amount by vendor.&quot;</p>
-              <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">AIO Search (targeted algebra):</span> Uses a four-phase search algebra for focused answers:</p>
+              <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Live Search <span className="text-muted-foreground font-normal">(formerly AIO Search — targeted algebra)</span>:</span> Uses a four-phase search algebra for focused answers:</p>
               <ol className="list-decimal list-inside space-y-1 text-muted-foreground ml-4">
                 <li><span className="font-semibold text-foreground">Parse:</span> Claude extracts key search terms from your prompt (names, projects, dates, etc.)</li>
                 <li><span className="font-semibold text-foreground">Match HSLs:</span> Searches the HSL library for records containing those terms</li>
                 <li><span className="font-semibold text-foreground">Gather AIOs:</span> Collects only the AIOs referenced in matching HSLs</li>
                 <li><span className="font-semibold text-foreground">Answer:</span> Responds using ONLY the focused AIO subset</li>
               </ol>
-              <p className="leading-relaxed text-muted-foreground">If no HSLs match, AIO Search falls back to direct element-level search across all AIOs. The response footer shows how many HSLs and AIOs were matched.</p>
-              <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Substrate Chat (precomputed substrate):</span> Runs the full Paper-III pipeline — cue extraction → HSL neighborhood traversal → MRO prior ranking → tiered context bundle. Uses ONLY the assembled substrate as context, no raw DB dump. Best for tightly-grounded analytical questions.</p>
+              <p className="leading-relaxed text-muted-foreground">If no HSLs match, Live Search falls back to direct element-level search across all AIOs. The response footer shows how many HSLs and AIOs were matched.</p>
+              <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Recall Search <span className="text-muted-foreground font-normal">(formerly Substrate Chat — precomputed substrate)</span>:</span> Runs the full Paper-III pipeline — cue extraction → HSL neighborhood traversal → MRO prior ranking → tiered context bundle. Uses ONLY the assembled substrate as context, no raw DB dump. Best for tightly-grounded analytical questions.</p>
               <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Pure LLM:</span> Sends raw saved CSVs to Claude with no AIO/HSL/MRO machinery — useful as a baseline to see what Information Physics adds.</p>
 
               <h3 className="font-semibold text-lg mt-6 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-amber-500" />
-                What AIO Search does under the hood (V4.3 upgrades)
+                What Live Search does under the hood (V4.3 upgrades)
               </h3>
               <p className="leading-relaxed text-muted-foreground">
-                AIO Search now applies a stack of cross-cutting layers in addition to the four-phase algebra. These layers run automatically — there is no UI to enable them — but the response metadata exposes what each one did so you can audit the answer.
+                Live Search now applies a stack of cross-cutting layers in addition to the four-phase algebra. These layers run automatically — there is no UI to enable them — but the response metadata exposes what each one did so you can audit the answer.
               </p>
               <ul className="list-disc list-inside space-y-2 text-muted-foreground ml-1">
                 <li><span className="font-semibold text-foreground">Field-aware re-rank:</span> when your prompt mentions a field name (e.g. &quot;by Department&quot;), HSLs that index that field are scored higher than untyped lexical matches.</li>
@@ -346,7 +346,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
               <div className="flex items-start gap-3 p-3 bg-violet-500/10 rounded-lg border border-violet-500/20">
                 <GitMerge className="w-5 h-5 text-violet-500 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-sm">Substrate Mode (Precomputed Substrate)</p>
+                  <p className="font-medium text-sm">Recall Search <span className="text-muted-foreground font-normal">(formerly Substrate Mode — Precomputed Substrate)</span></p>
                   <p className="text-sm text-muted-foreground">
                     Enable <span className="font-semibold text-foreground">Precomputed Substrate</span> in ChatAIO to run the full Paper-III pipeline: cue extraction → HSL neighborhood traversal N(K) → MRO prior ranking → bundle assembly → response capture. This mode uses only the assembled substrate bundle as context — no raw DB dump — and produces the most focused, evidence-grounded answers.
                   </p>
@@ -355,8 +355,8 @@ export function UserGuide({ onBack }: UserGuideProps) {
 
               <h3 className="font-semibold text-lg">Two MRO Sources</h3>
               <ul className="list-disc list-inside space-y-2 text-muted-foreground">
-                <li><span className="font-semibold text-foreground">AIO Search mode:</span> MRO is created from the matched HSL IDs and linked back to those exact HSLs immediately after the response.</li>
-                <li><span className="font-semibold text-foreground">Substrate (Precomputed) mode:</span> After MRO creation, <span className="font-mono text-xs bg-muted px-1 rounded">find-by-needles</span> locates all HSLs whose names match the extracted cue values, then links the MRO to each one.</li>
+                <li><span className="font-semibold text-foreground">Live Search <span className="text-muted-foreground font-normal">(formerly AIO Search)</span> mode:</span> MRO is created from the matched HSL IDs and linked back to those exact HSLs immediately after the response.</li>
+                <li><span className="font-semibold text-foreground">Recall Search <span className="text-muted-foreground font-normal">(formerly Substrate / Precomputed)</span> mode:</span> After MRO creation, <span className="font-mono text-xs bg-muted px-1 rounded">find-by-needles</span> locates all HSLs whose names match the extracted cue values, then links the MRO to each one.</li>
               </ul>
 
               <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
@@ -495,7 +495,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
                 Side-by-side Mode Comparison
               </h3>
               <p className="leading-relaxed text-muted-foreground">
-                <span className="font-mono text-xs bg-muted px-1 rounded">POST /v1/op/compare-modes</span> runs the same prompt through several modes in parallel — typically <span className="font-mono text-xs bg-muted px-1 rounded">chat</span>, <span className="font-mono text-xs bg-muted px-1 rounded">aio-search</span>, and <span className="font-mono text-xs bg-muted px-1 rounded">pure-llm</span>. The response is an array of per-mode results with reply text, latency, input/output token counts, matched-AIO counts, and (for AIO Search) the citation summary and cache flag. Use it as an A/B demo to show what AIO Search adds on top of broad chat or a pure LLM call. The endpoint enforces the budget guardrail per mode, so a single 429 from one mode does not kill the others.
+                <span className="font-mono text-xs bg-muted px-1 rounded">POST /v1/op/compare-modes</span> runs the same prompt through several modes in parallel — typically <span className="font-mono text-xs bg-muted px-1 rounded">chat</span>, <span className="font-mono text-xs bg-muted px-1 rounded">aio-search</span>, and <span className="font-mono text-xs bg-muted px-1 rounded">pure-llm</span>. The response is an array of per-mode results with reply text, latency, input/output token counts, matched-AIO counts, and (for Live Search) the citation summary and cache flag. Use it as an A/B demo to show what Live Search adds on top of broad chat or a pure LLM call. The endpoint enforces the budget guardrail per mode, so a single 429 from one mode does not kill the others.
               </p>
 
               <h3 className="font-semibold text-lg flex items-center gap-2">
@@ -517,7 +517,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
                 Per-Tenant Daily Token Budget
               </h3>
               <p className="leading-relaxed text-muted-foreground">
-                Every LLM call site (broad chat, AIO Search, Substrate Chat, Pure LLM) checks the tenant&apos;s daily budget <em>before</em> the round-trip and records actual usage afterwards. Spend at 80% of the limit logs a warning; at 100% the call short-circuits with HTTP 429 — the response body includes <span className="font-mono text-xs bg-muted px-1 rounded">used_today</span>, <span className="font-mono text-xs bg-muted px-1 rounded">limit</span>, and a human-readable message so the frontend can render &quot;daily token budget exhausted — used 502,431 of 500,000&quot;.
+                Every LLM call site (broad chat, Live Search, Recall Search, Pure LLM) checks the tenant&apos;s daily budget <em>before</em> the round-trip and records actual usage afterwards. Spend at 80% of the limit logs a warning; at 100% the call short-circuits with HTTP 429 — the response body includes <span className="font-mono text-xs bg-muted px-1 rounded">used_today</span>, <span className="font-mono text-xs bg-muted px-1 rounded">limit</span>, and a human-readable message so the frontend can render &quot;daily token budget exhausted — used 502,431 of 500,000&quot;.
               </p>
               <ul className="list-disc list-inside space-y-2 text-muted-foreground ml-1">
                 <li>Default: <span className="font-mono text-xs bg-muted px-1 rounded">daily_token_budget_per_tenant = 500000</span> in <span className="font-mono text-xs bg-muted px-1 rounded">system_settings</span>.</li>
@@ -543,13 +543,13 @@ export function UserGuide({ onBack }: UserGuideProps) {
               { term: "Information Elements", definition: "A directory of all unique field names found across AIOs, with counts of how many AIOs contain each field" },
               { term: "CSV", definition: "Comma-Separated Values - the input format for data conversion" },
               { term: "MRO", definition: "Memory Result Object — a persisted record of a ChatAIO retrieval episode, containing the query, cue set, context bundle, and answer. MROs are linked back into HSLs and reused as Tier-1 prior context in future queries." },
-              { term: "Substrate Mode", definition: "Precomputed Substrate — ChatAIO mode that runs the full Paper-III pipeline: cue extraction → HSL traversal → MRO prior ranking → bundle assembly. Produces the most focused, evidence-grounded answers." },
+              { term: "Recall Search (formerly Substrate Mode)", definition: "Precomputed Substrate — ChatAIO mode that runs the full Paper-III pipeline: cue extraction → HSL traversal → MRO prior ranking → bundle assembly. Produces the most focused, evidence-grounded answers." },
               { term: "MRO Priors", definition: "Previously saved MROs that are surfaced during retrieval by Jaccard similarity × freshness × confidence scoring, then injected as highest-priority context above raw AIO evidence." },
               { term: "Cue Set", definition: "The set of [Key.Value] pairs extracted from a natural-language query and used to traverse the HSL neighborhood N(K) for relevant AIOs." },
               { term: "Rebuild HSLs from All AIOs", definition: "R&D-pane operation that scans aio_data, groups elements by [Key.Value], and writes one HSL per group with ≥2 AIOs. Idempotent — existing HSLs are preserved, not overwritten." },
               { term: "Query Micro-cache", definition: "Exact-match (mode, normalized query, tenant) → MRO/answer cache that short-circuits the LLM round-trip. 24-hour TTL by default. Bypass with ?bypass_cache=true." },
               { term: "Citation Post-pass", definition: "After-the-fact scan of the answer text for distinctive tokens drawn from each shipped AIO. Reports 'sources used: N of M' so operators see what the model actually quoted." },
-              { term: "Compare Modes", definition: "POST /v1/op/compare-modes — runs the same prompt through chat, aio-search, and pure-llm in parallel for A/B demo and tuning." },
+              { term: "Compare Modes", definition: "POST /v1/op/compare-modes — runs the same prompt through chat, Live Search (aio-search), and pure-llm in parallel for A/B demo and tuning. Endpoint paths retain the original aio-search identifier." },
               { term: "MRO Compaction", definition: "POST /v1/op/mro-compact — clusters MROs by seed-HSL Jaccard ≥ 0.85 AND query-token Jaccard ≥ 0.60, then merges absorbed members into one canonical row. Dry-run by default." },
               { term: "Token Budget Guardrail", definition: "Per-tenant daily token-spend limit checked before every LLM call. 80% warns, 100% returns HTTP 429. Configurable via system_settings." },
               { term: "Field-aware Alias Expansion", definition: "Static acronyms.json + tenant entity_aliases table expand cues differently per field — e.g. 'Dr.' resolves to 'Drive' inside [Address.*] but to 'Doctor' inside [Employee.*]." },

@@ -219,8 +219,8 @@ export function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void
                 <ul className="list-disc list-inside space-y-1 ml-2">
                   <li><strong>CSV→LLM Raw (Control):</strong> Standard Claude prompt with the raw saved CSV files as context (up to 50 files, ~30 KB each). No AIO/HSL/MRO machinery. Use this to benchmark what a vanilla LLM does with the same data.</li>
                   <li><strong>Blind Dump AIO/HSL (Broad AIO/HSL Dump):</strong> Sends your question to Claude along with ALL stored AIO and HSL records as context (up to 500 records). Best for general exploratory questions.</li>
-                  <li><strong>AIO Search (Search Algebra):</strong> A four-phase targeted search: (1) Claude parses your prompt to extract key terms, (2) searches the HSL library for matching records, (3) gathers only the AIOs referenced in those HSLs, (4) answers using only that focused subset. Falls back to direct AIO element search if no HSLs match.</li>
-                  <li><strong>Substrate (Paper III Pipeline):</strong> Default. Deterministic cue extraction → HSL neighborhood traversal → Jaccard-ranked MRO pre-fetch → tiered bundle assembly → MRO capture. Self-improving over time.</li>
+                  <li><strong>Live Search</strong> <span className="text-muted-foreground">(formerly AIO Search — search algebra):</span> A four-phase targeted search: (1) Claude parses your prompt to extract key terms, (2) searches the HSL library for matching records, (3) gathers only the AIOs referenced in those HSLs, (4) answers using only that focused subset. Falls back to direct AIO element search if no HSLs match. Stateless — no memory of prior queries.</li>
+                  <li><strong>Recall Search</strong> <span className="text-muted-foreground">(formerly Substrate Mode — Paper III pipeline):</span> Default. Deterministic cue extraction → HSL neighborhood traversal → Jaccard-ranked MRO pre-fetch → tiered bundle assembly → MRO capture. Memory-augmented; self-improving as MROs accumulate.</li>
                 </ul>
                 <p className="mt-2">The header toolbar provides Chat download, PDF export, a built-in User Guide, and Close. Saved Prompts (bookmark icon) allow persisting frequently used queries to PostgreSQL for recall across sessions.</p>
               </CardContent></Card>
@@ -334,7 +334,7 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                     <p className="mt-1">Best for broad exploratory questions across all AIO/HSL data when no targeted filter is known yet. Slow and token-heavy.</p>
                   </div>
                   <div>
-                    <p className="font-medium text-foreground">AIO Search (Search Algebra) — <code className="bg-muted px-1 rounded">POST /api/op/aio-search</code> · streaming variant <code className="bg-muted px-1 rounded">/api/op/aio-search/stream</code></p>
+                    <p className="font-medium text-foreground">Live Search <span className="text-muted-foreground font-normal">(formerly AIO Search — search algebra)</span> — <code className="bg-muted px-1 rounded">POST /api/op/aio-search</code> · streaming variant <code className="bg-muted px-1 rounded">/api/op/aio-search/stream</code></p>
                     <ol className="list-decimal list-inside space-y-1 ml-2">
                       <li><strong>Parse:</strong> Claude extracts structured search terms from the prompt guided by the Information Elements field vocabulary (skipped for short field-free queries — local tokenization, saves ~200 ms + ~450 tokens)</li>
                       <li><strong>Match HSLs (inverted index):</strong> Phase 2 now uses the <code className="bg-muted px-1 rounded">information_element_refs</code> inverted index (migration 017) — every <code className="bg-muted px-1 rounded">[Key.Value]</code> token in the corpus is exploded into its own indexed row. The matcher first runs an exact-equality probe (<code className="bg-muted px-1 rounded">SELECT DISTINCT hsl_id FROM information_element_refs WHERE value_lower = ANY($1)</code>); if it under-fills, a trigram-backed substring probe runs against the same table. Falls back to the legacy <code className="bg-muted px-1 rounded">elements_text</code> trigram path for environments that have not yet applied 017. Triggers on <code className="bg-muted px-1 rounded">hsl_data</code>/<code className="bg-muted px-1 rounded">aio_data</code> keep the index in sync automatically.</li>
@@ -344,7 +344,7 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                     <p className="mt-1">Falls back to direct <code className="bg-muted px-1 rounded">ILIKE</code> search if no HSLs match. Streaming variant emits SSE <code className="bg-muted px-1 rounded">text</code> events as Claude writes; <code className="bg-muted px-1 rounded">meta</code> event at end carries match counts, search terms, and HSL UUIDs. Response footer shows HSL/AIO/MRO match counts.</p>
                   </div>
                   <div>
-                    <p className="font-medium text-foreground">Substrate Mode (Paper III Pipeline) — <code className="bg-muted px-1 rounded">POST /api/op/substrate-chat</code> · streaming variant <code className="bg-muted px-1 rounded">/api/op/substrate-chat/stream</code></p>
+                    <p className="font-medium text-foreground">Recall Search <span className="text-muted-foreground font-normal">(formerly Substrate Mode — Paper III pipeline)</span> — <code className="bg-muted px-1 rounded">POST /api/op/substrate-chat</code> · streaming variant <code className="bg-muted px-1 rounded">/api/op/substrate-chat/stream</code></p>
                     <ol className="list-decimal list-inside space-y-1 ml-2">
                       <li><strong>Cue extraction:</strong> Deterministic parse using field + value vocabulary from all stored AIOs (browser-side)</li>
                       <li><strong>HSL traversal N(K):</strong> Set-intersection of per-cue AIO sets via <code className="bg-muted px-1 rounded">find-by-needles</code>; bounded neighborhood of matching HSLs. Matched HSL IDs are captured in-memory (<code className="bg-muted px-1 rounded">getMatchedHslIds</code>) for reuse during back-link, eliminating a duplicate server scan.</li>
@@ -358,7 +358,7 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                 </div>
 
                 <h4 className="text-foreground font-medium mt-4">Recall vs. filter — the synthesis prompt applies user filters</h4>
-                <p>Both AIO Search and Substrate are tuned for <strong>recall</strong>: the retrieval phase surfaces a generous candidate set so nothing relevant is missed. The synthesis system prompt now explicitly tells Claude that the candidate set is <em>not</em> pre-filtered against the semantic intent of the question, and to apply numeric / categorical filters from the question before composing the answer:</p>
+                <p>Both Live Search and Recall Search are tuned for <strong>recall</strong> (in the IR sense): the retrieval phase surfaces a generous candidate set so nothing relevant is missed. The synthesis system prompt now explicitly tells Claude that the candidate set is <em>not</em> pre-filtered against the semantic intent of the question, and to apply numeric / categorical filters from the question before composing the answer:</p>
                 <ul className="list-disc list-inside space-y-1 ml-2">
                   <li>Numeric comparators (&quot;over $10M&quot;, &quot;after 2020&quot;, &quot;at least 5&quot;) are parsed from the prompt. Non-matching candidates are dropped — not listed with a red X or rejection annotation.</li>
                   <li>Categorical filters (&quot;completed projects&quot;, &quot;vendors in Texas&quot;) are applied the same way.</li>
@@ -452,11 +452,11 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                 <h4 className="text-foreground font-medium mt-4">Two back-linking paths</h4>
                 <div className="space-y-2 ml-2">
                   <div>
-                    <p className="font-medium text-foreground">AIO Search mode</p>
+                    <p className="font-medium text-foreground">Live Search <span className="text-muted-foreground font-normal">(formerly AIO Search)</span> mode</p>
                     <p>Matched HSL IDs are returned directly by the search endpoint (<code className="bg-muted px-1 rounded">matched_hsl_ids</code>). The MRO is created then <code className="bg-muted px-1 rounded">linkMroToHsl()</code> is called for each ID immediately.</p>
                   </div>
                   <div>
-                    <p className="font-medium text-foreground">Substrate (Precomputed) mode</p>
+                    <p className="font-medium text-foreground">Recall Search <span className="text-muted-foreground font-normal">(formerly Substrate / Precomputed)</span> mode</p>
                     <p>The HSL match set is captured in-memory during cue traversal (<code className="bg-muted px-1 rounded">getMatchedHslIds</code> in <code className="bg-muted px-1 rounded">lib/aio-math.ts</code>) and returned on the pipeline result as <code className="bg-muted px-1 rounded">matched_hsl_ids</code>. After MRO creation the dialog calls <code className="bg-muted px-1 rounded">linkMroToHsl()</code> directly for each ID — no duplicate server-side scan. <code className="bg-muted px-1 rounded">findHslsByNeedles(cueValues)</code> remains as a fallback when client-side HSL data is not loaded.</p>
                   </div>
                 </div>
