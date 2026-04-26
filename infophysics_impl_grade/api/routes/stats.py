@@ -165,21 +165,56 @@ def get_stat_mro(stat_id: str, x_tenant_id: Optional[str] = Header(default="tena
             query_text, stat_created, mro_saved = stat
             if not mro_saved:
                 raise HTTPException(status_code=404, detail="no MRO was saved for this stat")
-            cur.execute(
+            # Strategy: match by tenant and nearest timestamp.
+            # The MRO's query_text may be normalized/cleaned vs the raw stat
+            # query_text, so we don't require exact equality. We do a tiered
+            # lookup: (1) exact query_text match nearest-in-time; (2) trimmed
+            # case-insensitive match nearest-in-time; (3) any MRO within
+            # +/- 5 minutes of the stat (typical save latency is < 1 s).
+            r = None
+            for sql in (
                 """
                 SELECT mro_id, mro_key, query_text, intent, seed_hsls,
                        matched_aios_count, search_terms, result_text,
-                       confidence, trust_score, parent_mro_ids,
-                       context_bundle, model_used, derivation_method,
+                       confidence, COALESCE(trust_score, 0)::float,
+                       context_bundle, policy_scope,
                        created_at, updated_at
                 FROM mro_objects
                 WHERE tenant_id = %s AND query_text = %s
                 ORDER BY ABS(EXTRACT(EPOCH FROM (created_at - %s))) ASC
                 LIMIT 1
                 """,
-                (tenant, query_text, stat_created),
-            )
-            r = cur.fetchone()
+                """
+                SELECT mro_id, mro_key, query_text, intent, seed_hsls,
+                       matched_aios_count, search_terms, result_text,
+                       confidence, COALESCE(trust_score, 0)::float,
+                       context_bundle, policy_scope,
+                       created_at, updated_at
+                FROM mro_objects
+                WHERE tenant_id = %s AND LOWER(TRIM(query_text)) = LOWER(TRIM(%s))
+                ORDER BY ABS(EXTRACT(EPOCH FROM (created_at - %s))) ASC
+                LIMIT 1
+                """,
+                """
+                SELECT mro_id, mro_key, query_text, intent, seed_hsls,
+                       matched_aios_count, search_terms, result_text,
+                       confidence, COALESCE(trust_score, 0)::float,
+                       context_bundle, policy_scope,
+                       created_at, updated_at
+                FROM mro_objects
+                WHERE tenant_id = %s
+                  AND ABS(EXTRACT(EPOCH FROM (created_at - %s))) <= 300
+                ORDER BY ABS(EXTRACT(EPOCH FROM (created_at - %s))) ASC
+                LIMIT 1
+                """,
+            ):
+                if "ABS(EXTRACT(EPOCH FROM (created_at - %s))) <= 300" in sql:
+                    cur.execute(sql, (tenant, stat_created, stat_created))
+                else:
+                    cur.execute(sql, (tenant, query_text, stat_created))
+                r = cur.fetchone()
+                if r:
+                    break
             if not r:
                 raise HTTPException(status_code=404, detail="MRO not found for this stat")
             return {
@@ -193,12 +228,13 @@ def get_stat_mro(stat_id: str, x_tenant_id: Optional[str] = Header(default="tena
                 "result_text": r[7],
                 "confidence": r[8],
                 "trust_score": float(r[9]) if r[9] is not None else None,
-                "parent_mro_ids": r[10],
-                "context_bundle": r[11],
-                "model_used": r[12],
-                "derivation_method": r[13],
-                "created_at": str(r[14]),
-                "updated_at": str(r[15]) if r[15] else None,
+                "context_bundle": r[10],
+                "policy_scope": r[11],
+                "parent_mro_ids": None,
+                "model_used": None,
+                "derivation_method": None,
+                "created_at": str(r[12]),
+                "updated_at": str(r[13]) if r[13] else None,
             }
 
 
