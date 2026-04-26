@@ -7,7 +7,7 @@ import {
   Users, Key, Loader2, ShieldCheck, User, Lock, FileSpreadsheet, FileText,
   Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network, BarChart2, LayoutGrid,
   BookOpen, Cpu, Brain, Library, Printer, AlertTriangle,
-  RotateCcw, Archive, ShieldAlert, CheckCircle2,
+  RotateCcw, Archive, ShieldAlert, CheckCircle2, FileDown, Layers,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -3393,17 +3393,43 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         desc: "Advanced research paper on deterministic semantic substrate retrieval — the foundation of Substrate Chat mode.",
                         color: "border-emerald-300/50 hover:border-emerald-400",
                       },
-                    ].map(({ view, icon, title, desc, color }) => (
+                      {
+                        download: "/docs/Technical_Notes_Bulk_HSL_Build.docx",
+                        filename: "Technical_Notes_Bulk_HSL_Build.docx",
+                        icon: <Layers className="w-6 h-6 text-rose-700" />,
+                        title: "Technical Notes — Bulk HSL Build",
+                        desc: "Confidential / Trade-Secret engineering reference for the tenant-wide HSL reconstruction function (POST /v1/hsl-data/rebuild-from-aios). Subject to NDA on file.",
+                        color: "border-rose-300/50 hover:border-rose-400",
+                      },
+                    ].map(({ view, download, filename, icon, title, desc, color }) => (
                       <button
-                        key={view}
-                        onClick={() => onNavigate?.(view)}
-                        disabled={!onNavigate}
+                        key={view ?? download}
+                        onClick={() => {
+                          if (download) {
+                            const a = document.createElement("a")
+                            a.href = download
+                            a.download = filename ?? ""
+                            document.body.appendChild(a)
+                            a.click()
+                            document.body.removeChild(a)
+                          } else {
+                            onNavigate?.(view!)
+                          }
+                        }}
+                        disabled={!download && !onNavigate}
                         className={`text-left p-5 rounded-xl border-2 bg-card transition-colors duration-150 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-default ${color}`}
                       >
                         <div className="flex items-start gap-4">
                           <div className="shrink-0 mt-0.5">{icon}</div>
-                          <div>
-                            <p className="font-semibold text-foreground mb-1">{title}</p>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="font-semibold text-foreground">{title}</p>
+                              {download && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-rose-700 bg-rose-100 border border-rose-300 rounded px-1.5 py-0.5">
+                                  <FileDown className="w-3 h-3" />.docx
+                                </span>
+                              )}
+                            </div>
                             <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
                           </div>
                         </div>
