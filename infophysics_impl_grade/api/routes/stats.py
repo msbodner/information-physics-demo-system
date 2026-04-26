@@ -238,6 +238,175 @@ def get_stat_mro(stat_id: str, x_tenant_id: Optional[str] = Header(default="tena
             }
 
 
+# ── AIO Search quality readback (P14) ───────────────────────────────
+#
+# Reads from the per-query log written by api/search_quality.py
+# (migration 024). Returns aggregate timings + retrieval shape so the
+# next round of perf changes can be evaluated against real numbers
+# instead of gut feel. Tenant-scoped via RLS; returns zeros when the
+# table is empty or the migration hasn't run.
+
+@router.get("/v1/aio-search/stats")
+def aio_search_stats(
+    since_hours: int = Query(24, ge=1, le=24 * 30,
+                             description="Look back N hours (default 24, max 720)"),
+    mode: Optional[str] = Query(None,
+                                description="Filter by mode: 'aio-search' or 'aio-search-stream'"),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Aggregate AIO Search quality + timing stats over a time window.
+
+    Source: ``aio_search_quality`` table (migration 024), populated when
+    ``AIO_SEARCH_LOG_QUALITY=1`` is set on the API. Returns p50/p95/p99
+    of each timing phase, cache hit rates, and retrieval-shape averages.
+    """
+    tenant = x_tenant_id or "tenantA"
+
+    where = ["tenant_id = %s",
+             "created_at >= now() - (%s || ' hours')::interval"]
+    params: list = [tenant, str(since_hours)]
+    if mode:
+        where.append("mode = %s")
+        params.append(mode)
+    where_sql = " AND ".join(where)
+
+    empty = {
+        "window_hours": since_hours,
+        "tenant_id": tenant,
+        "mode_filter": mode,
+        "total_queries": 0,
+        "answer_cache_hit_rate": 0.0,
+        "parse_cache_hit_rate": 0.0,
+        "timings_ms": {
+            "parse":     {"p50": 0, "p95": 0, "p99": 0, "avg": 0},
+            "retrieval": {"p50": 0, "p95": 0, "p99": 0, "avg": 0},
+            "llm":       {"p50": 0, "p95": 0, "p99": 0, "avg": 0},
+            "total":     {"p50": 0, "p95": 0, "p99": 0, "avg": 0},
+        },
+        "retrieval_shape_avg": {
+            "num_cues": 0.0, "hsls_matched": 0.0,
+            "aios_matched": 0.0, "aios_shipped": 0.0,
+            "sources_cited": 0.0, "density_per_cue": 0.0,
+        },
+        "tokens_avg": {"input": 0.0, "output": 0.0},
+        "by_mode": [],
+    }
+
+    try:
+        with db() as conn:
+            set_tenant(conn, tenant)
+            with conn.cursor() as cur:
+                # Aggregate over the window. percentile_cont handles small
+                # samples gracefully (returns the only value).
+                cur.execute(
+                    f"""
+                    SELECT
+                      COUNT(*)::int                                  AS total,
+                      AVG(CASE WHEN served_from_cache THEN 1.0 ELSE 0.0 END)::float,
+                      AVG(CASE WHEN parse_cache_hit   THEN 1.0 ELSE 0.0 END)::float,
+
+                      percentile_cont(0.50) WITHIN GROUP (ORDER BY parse_ms),
+                      percentile_cont(0.95) WITHIN GROUP (ORDER BY parse_ms),
+                      percentile_cont(0.99) WITHIN GROUP (ORDER BY parse_ms),
+                      AVG(parse_ms)::float,
+
+                      percentile_cont(0.50) WITHIN GROUP (ORDER BY retrieval_ms),
+                      percentile_cont(0.95) WITHIN GROUP (ORDER BY retrieval_ms),
+                      percentile_cont(0.99) WITHIN GROUP (ORDER BY retrieval_ms),
+                      AVG(retrieval_ms)::float,
+
+                      percentile_cont(0.50) WITHIN GROUP (ORDER BY llm_ms),
+                      percentile_cont(0.95) WITHIN GROUP (ORDER BY llm_ms),
+                      percentile_cont(0.99) WITHIN GROUP (ORDER BY llm_ms),
+                      AVG(llm_ms)::float,
+
+                      percentile_cont(0.50) WITHIN GROUP (ORDER BY total_ms),
+                      percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms),
+                      percentile_cont(0.99) WITHIN GROUP (ORDER BY total_ms),
+                      AVG(total_ms)::float,
+
+                      AVG(num_cues)::float,
+                      AVG(hsls_matched)::float,
+                      AVG(aios_matched)::float,
+                      AVG(aios_shipped)::float,
+                      AVG(sources_cited)::float,
+                      AVG(density_per_cue)::float,
+
+                      AVG(input_tokens)::float,
+                      AVG(output_tokens)::float
+                    FROM aio_search_quality
+                    WHERE {where_sql}
+                    """,
+                    params,
+                )
+                row = cur.fetchone()
+                if not row or not row[0]:
+                    return empty
+
+                # Per-mode breakdown so dashboards can compare JSON vs stream.
+                cur.execute(
+                    f"""
+                    SELECT mode,
+                           COUNT(*)::int,
+                           AVG(total_ms)::float,
+                           percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms),
+                           AVG(CASE WHEN served_from_cache THEN 1.0 ELSE 0.0 END)::float
+                    FROM aio_search_quality
+                    WHERE {where_sql}
+                    GROUP BY mode
+                    ORDER BY mode
+                    """,
+                    params,
+                )
+                by_mode_rows = cur.fetchall()
+    except Exception:
+        logger.info("aio_search_quality not ready — returning empty stats", exc_info=True)
+        return empty
+
+    def _i(v):  # nullable -> int
+        return int(v) if v is not None else 0
+
+    def _f(v):  # nullable -> float
+        return float(v) if v is not None else 0.0
+
+    return {
+        "window_hours": since_hours,
+        "tenant_id": tenant,
+        "mode_filter": mode,
+        "total_queries": _i(row[0]),
+        "answer_cache_hit_rate": round(_f(row[1]), 4),
+        "parse_cache_hit_rate":  round(_f(row[2]), 4),
+        "timings_ms": {
+            "parse":     {"p50": _i(row[3]),  "p95": _i(row[4]),  "p99": _i(row[5]),  "avg": _i(row[6])},
+            "retrieval": {"p50": _i(row[7]),  "p95": _i(row[8]),  "p99": _i(row[9]),  "avg": _i(row[10])},
+            "llm":       {"p50": _i(row[11]), "p95": _i(row[12]), "p99": _i(row[13]), "avg": _i(row[14])},
+            "total":     {"p50": _i(row[15]), "p95": _i(row[16]), "p99": _i(row[17]), "avg": _i(row[18])},
+        },
+        "retrieval_shape_avg": {
+            "num_cues":        round(_f(row[19]), 2),
+            "hsls_matched":    round(_f(row[20]), 2),
+            "aios_matched":    round(_f(row[21]), 2),
+            "aios_shipped":    round(_f(row[22]), 2),
+            "sources_cited":   round(_f(row[23]), 2),
+            "density_per_cue": round(_f(row[24]), 2),
+        },
+        "tokens_avg": {
+            "input":  round(_f(row[25]), 1),
+            "output": round(_f(row[26]), 1),
+        },
+        "by_mode": [
+            {
+                "mode": r[0],
+                "count": _i(r[1]),
+                "total_ms_avg": _i(r[2]),
+                "total_ms_p95": _i(r[3]),
+                "answer_cache_hit_rate": round(_f(r[4]), 4),
+            }
+            for r in by_mode_rows
+        ],
+    }
+
+
 @router.delete("/v1/chat-stats/{stat_id}")
 def delete_chat_stat(stat_id: str):
     with db() as conn:
