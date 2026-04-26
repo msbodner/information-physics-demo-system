@@ -2965,6 +2965,236 @@ export function SearchStatsPane() {
   )
 }
 
+// ── Search Stats Pane (V4.4 P15) ───────────────────────────────────
+// Polls /v1/aio-search/stats every 30s. Source-of-truth is the
+// aio_search_quality table (migration 024); rows are written when the
+// API has AIO_SEARCH_LOG_QUALITY=1. The endpoint always returns a
+// well-formed empty payload, so the widget renders cleanly even on
+// deployments where the env flag is off.
+
+type AioSearchStats = {
+  window_hours: number
+  tenant_id: string
+  mode_filter: string | null
+  total_queries: number
+  answer_cache_hit_rate: number
+  parse_cache_hit_rate: number
+  timings_ms: Record<"parse" | "retrieval" | "llm" | "total",
+                     { p50: number; p95: number; p99: number; avg: number }>
+  retrieval_shape_avg: {
+    num_cues: number; hsls_matched: number;
+    aios_matched: number; aios_shipped: number;
+    sources_cited: number; density_per_cue: number;
+  }
+  tokens_avg: { input: number; output: number }
+  by_mode: Array<{
+    mode: string; count: number;
+    total_ms_avg: number; total_ms_p95: number;
+    answer_cache_hit_rate: number;
+  }>
+}
+
+function AioSearchStatsPane() {
+  const [stats, setStats] = useState<AioSearchStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [windowHours, setWindowHours] = useState(24)
+  const [lastFetched, setLastFetched] = useState<Date | null>(null)
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/aio-search/stats?since_hours=${windowHours}`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = (await res.json()) as AioSearchStats
+      setStats(data)
+      setError(null)
+      setLastFetched(new Date())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "fetch failed")
+    } finally {
+      setLoading(false)
+    }
+  }, [windowHours])
+
+  useEffect(() => {
+    setLoading(true)
+    fetchStats()
+    // Poll every 30s — cheap aggregate query, drift visible without manual refresh.
+    const id = setInterval(fetchStats, 30_000)
+    return () => clearInterval(id)
+  }, [fetchStats])
+
+  const fmtMs = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(2)}s` : `${n} ms`)
+  const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`
+
+  if (loading && !stats) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin" />Loading AIO Search stats…
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <p className="text-sm text-muted-foreground">
+            Live aggregate over the last <strong>{stats?.window_hours ?? windowHours}h</strong> from{" "}
+            <code className="text-xs">aio_search_quality</code> (migration 024). Logging is gated by{" "}
+            <code className="text-xs">AIO_SEARCH_LOG_QUALITY</code> on the API service — set to{" "}
+            <code className="text-xs">1</code> to populate.
+          </p>
+          {lastFetched && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Auto-refreshes every 30s · last fetched {lastFetched.toLocaleTimeString()}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="stats-window" className="text-xs text-muted-foreground">Window</Label>
+          <Select value={String(windowHours)} onValueChange={(v) => setWindowHours(Number(v))}>
+            <SelectTrigger id="stats-window" className="w-32 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">Last 1h</SelectItem>
+              <SelectItem value="6">Last 6h</SelectItem>
+              <SelectItem value="24">Last 24h</SelectItem>
+              <SelectItem value="168">Last 7d</SelectItem>
+              <SelectItem value="720">Last 30d</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={fetchStats} className="h-8 gap-1 text-xs">
+            <RefreshCw className="w-3 h-3" />Refresh
+          </Button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="p-3 rounded-md border border-destructive/50 bg-destructive/10 text-sm text-destructive">
+          Failed to load stats: {error}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Queries</p>
+          <p className="text-2xl font-semibold">{stats?.total_queries ?? 0}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Answer cache hit</p>
+          <p className="text-2xl font-semibold">{fmtPct(stats?.answer_cache_hit_rate ?? 0)}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Parse cache hit</p>
+          <p className="text-2xl font-semibold">{fmtPct(stats?.parse_cache_hit_rate ?? 0)}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Total p95</p>
+          <p className="text-2xl font-semibold">{fmtMs(stats?.timings_ms.total.p95 ?? 0)}</p>
+        </CardContent></Card>
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2">
+          <BarChart2 className="w-4 h-4" />Timing breakdown
+        </CardTitle></CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs text-muted-foreground uppercase">
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 px-2 font-medium">Phase</th>
+                  <th className="text-right py-2 px-2 font-medium">p50</th>
+                  <th className="text-right py-2 px-2 font-medium">p95</th>
+                  <th className="text-right py-2 px-2 font-medium">p99</th>
+                  <th className="text-right py-2 px-2 font-medium">avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(["parse", "retrieval", "llm", "total"] as const).map((phase) => {
+                  const t = stats?.timings_ms[phase]
+                  return (
+                    <tr key={phase} className="border-b border-border/50 last:border-0">
+                      <td className="py-2 px-2 font-medium capitalize">{phase}</td>
+                      <td className="py-2 px-2 text-right font-mono">{fmtMs(t?.p50 ?? 0)}</td>
+                      <td className="py-2 px-2 text-right font-mono">{fmtMs(t?.p95 ?? 0)}</td>
+                      <td className="py-2 px-2 text-right font-mono">{fmtMs(t?.p99 ?? 0)}</td>
+                      <td className="py-2 px-2 text-right font-mono text-muted-foreground">{fmtMs(t?.avg ?? 0)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader><CardTitle className="text-base">Retrieval shape (avg)</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {([
+              ["Cues per query",    stats?.retrieval_shape_avg.num_cues],
+              ["HSLs matched",      stats?.retrieval_shape_avg.hsls_matched],
+              ["AIOs matched",      stats?.retrieval_shape_avg.aios_matched],
+              ["AIOs shipped",      stats?.retrieval_shape_avg.aios_shipped],
+              ["Sources cited",     stats?.retrieval_shape_avg.sources_cited],
+              ["Density per cue",   stats?.retrieval_shape_avg.density_per_cue],
+            ] as const).map(([label, val]) => (
+              <div key={label} className="flex justify-between border-b border-border/50 pb-1.5 last:border-0">
+                <span className="text-muted-foreground">{label}</span>
+                <span className="font-mono">{(val ?? 0).toFixed(2)}</span>
+              </div>
+            ))}
+            <div className="pt-2 mt-2 border-t border-border text-xs text-muted-foreground">
+              Tokens avg: in {(stats?.tokens_avg.input ?? 0).toFixed(0)} ·
+              {" "}out {(stats?.tokens_avg.output ?? 0).toFixed(0)}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle className="text-base">By mode</CardTitle></CardHeader>
+          <CardContent>
+            {stats && stats.by_mode.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead className="text-xs text-muted-foreground uppercase">
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 px-2 font-medium">Mode</th>
+                    <th className="text-right py-2 px-2 font-medium">Count</th>
+                    <th className="text-right py-2 px-2 font-medium">avg</th>
+                    <th className="text-right py-2 px-2 font-medium">p95</th>
+                    <th className="text-right py-2 px-2 font-medium">cache</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.by_mode.map((m) => (
+                    <tr key={m.mode} className="border-b border-border/50 last:border-0">
+                      <td className="py-2 px-2 font-mono text-xs">{m.mode}</td>
+                      <td className="py-2 px-2 text-right font-mono">{m.count}</td>
+                      <td className="py-2 px-2 text-right font-mono">{fmtMs(m.total_ms_avg)}</td>
+                      <td className="py-2 px-2 text-right font-mono">{fmtMs(m.total_ms_p95)}</td>
+                      <td className="py-2 px-2 text-right font-mono">{fmtPct(m.answer_cache_hit_rate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="text-sm text-muted-foreground italic">
+                No queries logged in this window. Run a few AIO Searches, or verify
+                {" "}<code className="text-xs">AIO_SEARCH_LOG_QUALITY=1</code> on the API.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+
 // ── Architecture Pane ─────────────────────────────────────────────
 
 function ArchitecturePane() {
@@ -3242,6 +3472,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
               { value: "hsl-data",      icon: <LayoutList className="w-4 h-4" />,      label: "HSL Data" },
               { value: "mro-data",      icon: <Brain className="w-4 h-4" />,           label: "MRO Data" },
               { value: "demo-reset",    icon: <ShieldAlert className="w-4 h-4" />,     label: "Demo Reset" },
+              { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Stats" },
               { value: "apikey",        icon: <Key className="w-4 h-4" />,             label: "API Key" },
               { value: "csvs",          icon: <FileSpreadsheet className="w-4 h-4" />, label: "Saved CSVs" },
               { value: "aios",          icon: <FileText className="w-4 h-4" />,        label: "Saved AIOs" },
@@ -3317,6 +3548,11 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                 </CardHeader>
                 <CardContent><DemoResetPane /></CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="search-stats" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><BarChart2 className="w-5 h-5" />AIO Search Stats</CardTitle></CardHeader>
+                <CardContent><AioSearchStatsPane /></CardContent></Card>
             </TabsContent>
 
             <TabsContent value="apikey" className="mt-0">
