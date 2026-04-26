@@ -22,6 +22,7 @@ export type ViewKey =
   | "mro-paper"
   | "paper-iii"
   | "bulk-hsl-technote"
+  | "search-modes-technote"
   | "sysadmin"
 
 interface NavItem {

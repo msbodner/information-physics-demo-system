@@ -3663,6 +3663,13 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         desc: "Confidential / Trade-Secret engineering reference for the tenant-wide HSL reconstruction function (POST /v1/hsl-data/rebuild-from-aios). Subject to NDA on file.",
                         color: "border-rose-300/50 hover:border-rose-400",
                       },
+                      {
+                        view: "search-modes-technote",
+                        icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
+                        title: "Technical Notes — Live Search vs. Recall Search",
+                        desc: "Confidential / Trade-Secret reference comparing the two ChatAIO retrieval modes: architecture, performance characteristics, MRO behavior, observability, and a decision matrix for when to use which. Subject to NDA on file.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
                     ].map(({ view, download, filename, icon, title, desc, color }) => (
                       <button
                         key={view ?? download}
