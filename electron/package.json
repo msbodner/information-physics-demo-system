@@ -1,6 +1,6 @@
 {
   "name": "information-physics-demo-system",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "description": "Information Physics Demo System — InformationPhysics.ai Desktop Application",
   "author": "Michael Simon Bodner, Ph.D. <bodner.michael@gmail.com>",
   "main": "main.js",
