@@ -41,6 +41,7 @@ from api.search_helpers import (
 )
 from api import embeddings
 from api import query_cache as _qcache
+from api import search_quality as _quality
 from api import budget as _budget
 from api.aliases import expand_with_tenant
 from api.citations import cite_aios, summarize_citations
@@ -462,6 +463,9 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
     the assembled `answer_system` prompt plus all metadata that the
     response (or final SSE meta event) needs.
     """
+    import time
+    _t_prep_start = time.perf_counter()
+
     api_key = get_effective_api_key()
     if not api_key:
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
@@ -640,6 +644,11 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         logger.info("AIO Search: %d [Key.Value] cues from raw prompt", len(bracket_pairs))
 
     logger.info("AIO Search parsed terms: %s", search_terms)
+
+    _t_parse_end = time.perf_counter()
+    # cached_parse only exists on the LLM-parse branch; use locals() so
+    # the short-lookup path (which never opens the cache) reports false.
+    parse_cache_hit = bool(locals().get("cached_parse"))
 
     # ── Phase 2: Search HSL library ──
     needles: List[str] = []
@@ -1287,6 +1296,10 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         if matched_aio_lines else []
     )
 
+    _t_prep_end = time.perf_counter()
+    parse_ms     = int((_t_parse_end - _t_prep_start) * 1000)
+    retrieval_ms = int((_t_prep_end - _t_parse_end) * 1000)
+
     return {
         "api_key": api_key,
         "answer_system": answer_system,
@@ -1301,6 +1314,11 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         "shipped_records": shipped_records,
         "user_prompt": user_prompt,
         "tenant": tenant,
+        # V4.4 P13: timings + cache flags for the quality logger.
+        "parse_ms": parse_ms,
+        "retrieval_ms": retrieval_ms,
+        "parse_cache_hit": parse_cache_hit,
+        "num_cues": len(needles),
     }
 
 
@@ -1320,6 +1338,8 @@ def aio_search(
         shipped AIO records for distinctive tokens that appear in the
         reply and report ``sources_used: N of M``.
     """
+    import time
+    _t0 = time.perf_counter()
     tenant = x_tenant_id or "tenantA"
     _budget.check_budget(tenant)
     user_prompt = payload.messages[-1].content if payload.messages else ""
@@ -1331,6 +1351,14 @@ def aio_search(
             logger.info(
                 "aio-search cache HIT cache_id=%s mro=%s hits=%d (skipping LLM)",
                 hit.cache_id, hit.mro_id, hit.hit_count,
+            )
+            _quality.log(
+                tenant=tenant, mode="aio-search",
+                query_text=user_prompt,
+                num_cues=0, hsls_matched=0, aios_matched=0, aios_shipped=0,
+                parse_ms=0, retrieval_ms=0, llm_ms=0,
+                total_ms=int((time.perf_counter() - _t0) * 1000),
+                served_from_cache=True,
             )
             return AioSearchResponse(
                 reply=hit.answer_text,
@@ -1351,6 +1379,7 @@ def aio_search(
 
     # Prompt caching: marking the assembled system prompt as ephemeral
     # gives a 90% input-token discount on cache hits within ~5 min.
+    _t_llm_start = time.perf_counter()
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=prep["api_key"])
@@ -1400,6 +1429,25 @@ def aio_search(
         tenant,
         prep["parse_in_tok"] + ans_in_tok,
         prep["parse_out_tok"] + ans_out_tok,
+    )
+
+    # ── V4.4 P13: per-query quality + timing log ──
+    _quality.log(
+        tenant=tenant, mode="aio-search",
+        query_text=user_prompt,
+        num_cues=prep.get("num_cues", 0),
+        hsls_matched=prep["matched_hsl_count"],
+        aios_matched=prep["matched_aio_count"],
+        aios_shipped=len(shipped),
+        sources_cited=(citation_summary or {}).get("cited") if citation_summary else None,
+        parse_ms=prep.get("parse_ms", 0),
+        retrieval_ms=prep.get("retrieval_ms", 0),
+        llm_ms=int((time.perf_counter() - _t_llm_start) * 1000),
+        total_ms=int((time.perf_counter() - _t0) * 1000),
+        served_from_cache=False,
+        parse_cache_hit=prep.get("parse_cache_hit", False),
+        input_tokens=prep["parse_in_tok"] + ans_in_tok,
+        output_tokens=prep["parse_out_tok"] + ans_out_tok,
     )
 
     return AioSearchResponse(
@@ -1645,6 +1693,8 @@ def aio_search_stream(
     # behavior so re-asking the same question over the streaming wire
     # serves the cached reply as a single text frame + meta event with
     # served_from_cache=true. Phases 1–3 are skipped entirely on hit.
+    import time
+    _t0 = time.perf_counter()
     tenant = x_tenant_id or "tenantA"
     user_prompt = payload.messages[-1].content if payload.messages else ""
     if not bypass_cache and user_prompt:
@@ -1653,6 +1703,14 @@ def aio_search_stream(
             logger.info(
                 "aio-search-stream cache HIT cache_id=%s mro=%s hits=%d (skipping LLM)",
                 hit.cache_id, hit.mro_id, hit.hit_count,
+            )
+            _quality.log(
+                tenant=tenant, mode="aio-search-stream",
+                query_text=user_prompt,
+                num_cues=0, hsls_matched=0, aios_matched=0, aios_shipped=0,
+                parse_ms=0, retrieval_ms=0, llm_ms=0,
+                total_ms=int((time.perf_counter() - _t0) * 1000),
+                served_from_cache=True,
             )
             cached_text = hit.answer_text
             cached_meta = {
@@ -1682,6 +1740,7 @@ def aio_search_stream(
     # SSE stream lets us 502 cleanly on prep failure instead of having to
     # surface errors mid-stream.
     prep = _aio_search_prepare(payload, x_tenant_id)
+    _t_llm_start = time.perf_counter()
 
     def gen():
         try:
@@ -1727,6 +1786,26 @@ def aio_search_stream(
                         _qcache.store(tenant, "aio-search", user_prompt, "".join(collected), mro_id=None)
                     except Exception:
                         logger.info("aio-search-stream cache store failed", exc_info=True)
+                # V4.4 P13: per-query quality + timing log. Citations
+                # aren't computed on the streaming path so sources_cited
+                # stays None.
+                _quality.log(
+                    tenant=tenant, mode="aio-search-stream",
+                    query_text=user_prompt,
+                    num_cues=prep.get("num_cues", 0),
+                    hsls_matched=prep["matched_hsl_count"],
+                    aios_matched=prep["matched_aio_count"],
+                    aios_shipped=len(prep.get("shipped_records") or []),
+                    sources_cited=None,
+                    parse_ms=prep.get("parse_ms", 0),
+                    retrieval_ms=prep.get("retrieval_ms", 0),
+                    llm_ms=int((time.perf_counter() - _t_llm_start) * 1000),
+                    total_ms=int((time.perf_counter() - _t0) * 1000),
+                    served_from_cache=False,
+                    parse_cache_hit=prep.get("parse_cache_hit", False),
+                    input_tokens=prep["parse_in_tok"] + ans_in_tok,
+                    output_tokens=prep["parse_out_tok"] + ans_out_tok,
+                )
         except Exception as exc:
             logger.exception("Anthropic streaming error during aio-search")
             yield _sse("error", {"error": f"LLM error: {str(exc)}"})
