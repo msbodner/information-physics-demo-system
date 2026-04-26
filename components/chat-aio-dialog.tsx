@@ -395,7 +395,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const meta = metaCaptured
     const inTok = meta.input_tokens ?? 0
     const outTok = meta.output_tokens ?? 0
-    const footer = `\n\n---\n_AIO Search: ${meta.matched_hsls} HSLs matched · ${meta.matched_aios} AIOs in context · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
+    const footer = `\n\n---\n_Live Search: ${meta.matched_hsls} HSLs matched · ${meta.matched_aios} AIOs in context · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
     const finalText = acc + footer
     setChatMessages((prev) => {
       const last = prev[prev.length - 1]
@@ -692,7 +692,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                         <p className="text-sm text-muted-foreground">Sends your question to Claude along with ALL stored AIO and HSL records as context (up to 500 records). Best for general questions like &quot;What vendors are in this data?&quot; or &quot;Total invoice amount by vendor.&quot;</p>
                       </div>
                       <div>
-                        <p className="text-sm font-semibold">AIO Search (Targeted Search Algebra)</p>
+                        <p className="text-sm font-semibold">Live Search <span className="text-muted-foreground font-normal">(formerly AIO Search — targeted search algebra)</span></p>
                         <p className="text-sm text-muted-foreground">Uses a four-phase search algebra for focused, precise answers:</p>
                         <ol className="list-decimal list-inside text-sm text-muted-foreground ml-2 mt-1 space-y-1">
                           <li><span className="font-medium text-foreground">Parse:</span> Claude extracts key search terms from your prompt (names, projects, dates, amounts)</li>
@@ -703,7 +703,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                         <p className="text-sm text-muted-foreground mt-1">If no HSLs match, falls back to direct element-level search across all AIOs. The response footer shows how many HSLs and AIOs were matched.</p>
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-purple-600">🧠 Substrate Mode (Paper III Pipeline) — purple button</p>
+                        <p className="text-sm font-semibold text-purple-600">🧠 Recall Search <span className="text-muted-foreground font-normal">(formerly Substrate Mode — Paper III pipeline)</span> — purple button</p>
                         <p className="text-sm text-muted-foreground">The most precise retrieval mode. Implements the full 5-step Information Physics pipeline:</p>
                         <ol className="list-decimal list-inside text-sm text-muted-foreground ml-2 mt-1 space-y-1">
                           <li><span className="font-medium text-foreground">Cue Extraction:</span> Deterministically extracts semantic cues from your query</li>
@@ -744,7 +744,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                     <h3 className="font-semibold text-lg">Memory Result Objects (MROs)</h3>
                     <p className="text-sm text-muted-foreground">MROs are derived episodic objects that preserve the results of retrieval-and-inference events. Based on Information Physics theory, an MRO captures not just the answer, but the full context of how it was generated — the query, search terms, matched HSLs, contributing AIOs, and the synthesized result.</p>
                     <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
-                      <li>Click <span className="font-medium text-foreground">Save MRO</span> after receiving an AIO Search response to preserve the result as a Memory Result Object</li>
+                      <li>Click <span className="font-medium text-foreground">Save MRO</span> after receiving a Live Search response to preserve the result as a Memory Result Object</li>
                       <li>MROs are stored in bracket-notation format: [MROKey.key], [Query.text], [Result.text], [SearchTerms.json], [SeedHSLs.count], [MatchedAIOs.count], [Confidence.derived], [Timestamp.iso]</li>
                       <li>Click <span className="font-medium text-foreground">View MROs</span> to browse all saved Memory Result Objects</li>
                       <li>Each MRO records its provenance — the query cue, the HSL traversal path, the recovered context, and the AI-generated synthesis</li>
@@ -756,8 +756,8 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                   <div className="rounded-lg border p-4 space-y-2">
                     <h3 className="font-semibold text-lg">Tips</h3>
                     <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
-                      <li><span className="font-medium text-purple-600 font-semibold">Substrate</span> (purple, leftmost) is the default — press <span className="font-medium text-foreground">Enter</span> to run it. Fastest, cheapest, auto-saves MRO</li>
-                      <li>Use <span className="font-medium text-foreground">AIO Search</span> when asking about specific people, projects, or entities</li>
+                      <li><span className="font-medium text-purple-600 font-semibold">Recall</span> (purple, leftmost) is the default — press <span className="font-medium text-foreground">Enter</span> to run it. Memory-augmented (uses prior MROs), auto-saves a new MRO</li>
+                      <li>Use <span className="font-medium text-foreground">Live Search</span> when you want a fresh four-phase retrieval with no memory of prior queries — best for one-off lookups</li>
                       <li>Use <span className="font-medium text-foreground">CSV→LLM Raw</span> as the control case — standard Claude with the raw saved CSVs only (no AIO/HSL machinery)</li>
                       <li>Use <span className="font-medium text-foreground">Blind Dump AIO/HSL</span> only for exploratory questions — NO retrieval, just dumps the first 300 AIOs + 10 HSLs at Claude unfiltered (slow, token-heavy)</li>
                       <li>ChatAIO requires a valid Anthropic API key configured in System Admin → API Key</li>
@@ -888,11 +888,11 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
               <Button size="sm" onClick={handleSubstrateSearch}
                 disabled={!chatInput.trim() || isChatLoading || !substrateReady}
                 className="gap-2 shrink-0 h-9 bg-purple-600 hover:bg-purple-700 text-white"
-                title="Substrate Mode (default, Enter key): extract cues, traverse HSL neighborhoods, pre-fetch MRO priors, and persist the answer as a new MRO (Paper III pipeline)">
-                <Brain className="w-4 h-4" />Substrate
+                title="Recall Search (formerly Substrate Mode — default, Enter key): extract cues, traverse HSL neighborhoods, pre-fetch MRO priors from past episodes, and persist this answer as a new MRO. Memory-augmented — gets richer with use.">
+                <Brain className="w-4 h-4" />Recall
               </Button>
-              <Button size="sm" variant="outline" onClick={handleAioSearch} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Search HSL library first, then answer with matching AIOs only">
-                <Search className="w-4 h-4" />AIO Search
+              <Button size="sm" variant="outline" onClick={handleAioSearch} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Live Search (formerly AIO Search): fresh four-phase retrieval — parse cues, match HSLs, gather AIOs, synthesize. No memory of prior queries.">
+                <Search className="w-4 h-4" />Live Search
               </Button>
               <Button size="sm" variant="outline" onClick={handlePureLlm} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="CSV→LLM Raw: standard Claude prompt with the raw saved CSV files as context (no AIO/HSL/MRO machinery — control case)">
                 <Sparkles className="w-4 h-4" />CSV→LLM Raw
@@ -946,7 +946,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
             {mroLoading ? (
               <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
             ) : mroList.length === 0 ? (
-              <p className="text-center py-12 text-muted-foreground">No MROs saved yet. Use &quot;Save MRO&quot; after an AIO Search to create one.</p>
+              <p className="text-center py-12 text-muted-foreground">No MROs saved yet. Use &quot;Save MRO&quot; after a Live Search or Recall Search to create one.</p>
             ) : (
               <div className="rounded border border-border overflow-auto">
                 <table className="w-full text-sm">

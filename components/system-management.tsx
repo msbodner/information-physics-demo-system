@@ -3030,7 +3030,7 @@ function AioSearchStatsPane() {
   if (loading && !stats) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin" />Loading AIO Search stats…
+        <Loader2 className="w-4 h-4 animate-spin" />Loading Live Search stats…
       </div>
     )
   }
@@ -3038,15 +3038,42 @@ function AioSearchStatsPane() {
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between gap-4">
-        <div>
+        <div className="max-w-3xl space-y-3">
           <p className="text-sm text-muted-foreground">
             Live aggregate over the last <strong>{stats?.window_hours ?? windowHours}h</strong> from{" "}
             <code className="text-xs">aio_search_quality</code> (migration 024). Logging is gated by{" "}
             <code className="text-xs">AIO_SEARCH_LOG_QUALITY</code> on the API service — set to{" "}
-            <code className="text-xs">1</code> to populate.
+            <code className="text-xs">1</code> to populate. The endpoint always returns a
+            well-formed payload, so the panel renders cleanly even when logging is off.
           </p>
+
+          <div className="rounded-md border border-border bg-muted/30 p-3 text-sm space-y-2">
+            <p className="font-semibold text-foreground">What this measures</p>
+            <p className="text-muted-foreground">
+              Per-query telemetry from <strong>Live Search</strong> (formerly &ldquo;AIO Search&rdquo;) —
+              the four-phase pipeline that runs server-side on every query. Each row in the
+              source table is one user query; this view aggregates them.
+            </p>
+            <ul className="space-y-1 text-muted-foreground list-disc list-inside ml-1">
+              <li><strong className="text-foreground">Parse</strong> — Phase-1 LLM call that turns the question into bracket cues. Bypassed when the parse-cache hits.</li>
+              <li><strong className="text-foreground">Retrieval</strong> — Postgres lookup over HSLs and AIOs (index-driven; should stay sub-200&nbsp;ms p95).</li>
+              <li><strong className="text-foreground">LLM</strong> — Phase-3 answer synthesis. Currently dominates total latency.</li>
+              <li><strong className="text-foreground">Total</strong> — End-to-end including the post-pass citation scan.</li>
+            </ul>
+            <p className="text-muted-foreground">
+              <strong className="text-foreground">Cache hit rates</strong> climb as users repeat or rephrase queries —
+              the answer cache short-circuits the entire pipeline; the parse cache short-circuits Phase&nbsp;1 only.
+              <strong className="text-foreground"> Density per cue</strong> is <code className="text-xs">aios_matched / num_cues</code>;
+              when it climbs above ~200 the density-aware cap engages and tightens retrieval.
+            </p>
+            <p className="text-xs text-muted-foreground italic">
+              <strong>Recall Search</strong> (formerly &ldquo;Substrate Mode&rdquo;) — the memory-augmented mode
+              that uses MRO priors — runs on a different endpoint and is not yet logged here.
+            </p>
+          </div>
+
           {lastFetched && (
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground">
               Auto-refreshes every 30s · last fetched {lastFetched.toLocaleTimeString()}
             </p>
           )}
@@ -3183,7 +3210,7 @@ function AioSearchStatsPane() {
               </table>
             ) : (
               <p className="text-sm text-muted-foreground italic">
-                No queries logged in this window. Run a few AIO Searches, or verify
+                No queries logged in this window. Run a few Live Searches, or verify
                 {" "}<code className="text-xs">AIO_SEARCH_LOG_QUALITY=1</code> on the API.
               </p>
             )}
@@ -3551,7 +3578,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
             </TabsContent>
 
             <TabsContent value="search-stats" className="mt-0">
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><BarChart2 className="w-5 h-5" />AIO Search Stats</CardTitle></CardHeader>
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><BarChart2 className="w-5 h-5" />Live Search Stats <span className="text-sm font-normal text-muted-foreground">(formerly AIO Search)</span></CardTitle></CardHeader>
                 <CardContent><AioSearchStatsPane /></CardContent></Card>
             </TabsContent>
 
