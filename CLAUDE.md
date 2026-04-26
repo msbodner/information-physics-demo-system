@@ -13,12 +13,14 @@ AIO System App is a full-stack Information Physics platform that converts CSV/PD
 pnpm install          # Install dependencies
 pnpm dev              # Dev server with Turbopack (port 3000)
 pnpm build            # Production build (standalone output)
+pnpm test             # node --test --import tsx lib/__tests__/*.test.ts
 ```
 
 ### Backend (FastAPI + Python 3.10+)
 ```bash
 cd infophysics_impl_grade
 uvicorn api.main:app --reload --port 8080   # Dev server
+python3 -m pytest tests/ -q                 # Backend tests
 ```
 The backend requires PostgreSQL. Migrations auto-run via `start.sh`.
 
@@ -44,6 +46,9 @@ Requires `electron/resources/` populated by `bash scripts/build-resources.sh`.
 - **HSLs** (Relational): Precomputed pointer tables linking AIOs via shared elements. Stored in `hsl_data` table (100 element columns).
 - **MROs** (Layer 2): Persisted retrieval episodes from ChatAIO. Stored in `mro_objects` table with query, result, search_terms (JSONB), and lineage.
 
+### Substrate Mode (Paper III pipeline)
+Headline retrieval pipeline. Client assembles a JSON substrate envelope (HSL gating + MRO-assisted retrieval + needle-matched AIOs) and calls `/v1/op/substrate-chat` (or `/stream`). Find-by-needles endpoints (`/v1/aio-data/find-by-needles`, `/v1/hsl-data/find-by-needles`) and `/v1/op/mro-search` feed the substrate; `trust_score` on MROs ranks prior episodes.
+
 ### Frontend → Backend Communication
 All frontend API calls go through Next.js API routes in `app/api/` which proxy to the FastAPI backend. The backend URL is configured via `API_BASE` env var (default: `http://localhost:8080`).
 
@@ -56,12 +61,17 @@ Pattern: `app/api/{resource}/route.ts` → `${API_BASE}/v1/{resource}`
 - `lib/api-client.ts` — Typed fetch wrappers for all API endpoints
 
 ### Key Backend Files
-- `infophysics_impl_grade/api/main.py` — All FastAPI endpoints (~60KB). Key endpoints:
+- `infophysics_impl_grade/api/main.py` — App wiring + middleware only. Endpoints live in `api/routes/`.
+- `infophysics_impl_grade/api/routes/` — Per-resource routers: `aio.py`, `hsl.py`, `mro.py`, `chat.py`, `io.py`, `users.py`, `prompts.py`, `settings.py`, `stats.py`, `demo_reset.py`. Key endpoints:
   - `/v1/op/chat` — Broad search (all AIOs as context)
-  - `/v1/op/aio-search` — Four-phase search algebra (parse → match HSLs → gather AIOs → synthesize)
+  - `/v1/op/aio-search` (+ `/stream`) — Four-phase search algebra (parse → match HSLs → gather AIOs → synthesize)
+  - `/v1/op/substrate-chat` (+ `/stream`) — Substrate Mode: client-assembled JSON envelope to LLM
+  - `/v1/op/mro-search` — MRO-assisted retrieval over prior episodes
   - `/v1/op/pdf-extract` — PDF-to-CSV via Claude AI
+  - `/v1/aio-data/find-by-needles`, `/v1/hsl-data/find-by-needles` — Needle-keyed lookups feeding substrate
+  - `/v1/mro-objects/bump-trust`, `/v1/hsl-data/{id}/link-mro` — Trust scoring + HSL↔MRO lineage
   - CRUD for: `/v1/aio-data`, `/v1/hsl-data`, `/v1/mro-objects`, `/v1/information-elements`, `/v1/saved-prompts`, `/v1/io`, `/v1/users`, `/v1/roles`
-- `infophysics_impl_grade/migrations/` — 11 SQL migration files (000-011), applied in order by `start.sh`
+- `infophysics_impl_grade/migrations/` — Numbered SQL migrations (000–023, latest: `023_hsl_member_and_uniqueness.sql`), applied in order by `start.sh`
 
 ### Database
 PostgreSQL 15 with Row-Level Security for tenant isolation. Tenant set via `X-Tenant-Id` header (default: `tenantA`). Key tables: `aio_data`, `hsl_data`, `mro_objects`, `information_elements`, `information_objects`, `saved_prompts`, `users`, `roles`, `system_settings`.
@@ -89,8 +99,8 @@ railway service status --all
 
 ## Important Patterns
 
-- **Version string**: Currently V4.0. Update in: `app/layout.tsx`, `app/page.tsx`, `components/chat-aio-dialog.tsx`, `components/user-guide.tsx`, `components/system-management.tsx`, `components/splash-screen.tsx`, `components/dashboard.tsx`, `components/app-sidebar.tsx`, `package.json`, `electron/package.json`, `electron/preload.js`, `electron/splash.html`
-- **Adding a new API endpoint**: Create FastAPI route in `api/main.py` → create Next.js proxy in `app/api/{name}/route.ts` → add typed client function in `lib/api-client.ts`
+- **Version string**: Currently V4.3 (`package.json` is source of truth; V4.4 features in flight). Grep the repo before bumping — known hardcoded sites include: `app/layout.tsx`, `app/page.tsx`, `components/chat-aio-dialog.tsx`, `components/user-guide.tsx`, `components/system-management.tsx`, `components/splash-screen.tsx`, `components/dashboard.tsx`, `components/app-sidebar.tsx`, `package.json`, `electron/package.json`, `electron/preload.js`, `electron/splash.html`.
+- **Adding a new API endpoint**: Create FastAPI route in the appropriate `api/routes/*.py` (or add a new router and include it in `api/main.py`) → create Next.js proxy in `app/api/{name}/route.ts` → add typed client function in `lib/api-client.ts`
 - **Adding a System Admin tab**: Add `TabsTrigger` + `TabsContent` in `components/system-management.tsx`, create a new pane function
 - **SQL migrations**: Add numbered file in `infophysics_impl_grade/migrations/` (e.g., `012_new_table.sql`). Migrations run automatically on backend startup. Use `IF NOT EXISTS` for idempotency.
 - **Backend Dockerfile**: pip dependencies are hardcoded in the Dockerfile `RUN pip install` line, not read from `pyproject.toml`. Update both when adding Python packages.

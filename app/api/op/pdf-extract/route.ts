@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 
 const API_BASE = process.env.API_BASE ?? "http://localhost:8000"
+const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "tenantA"
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
     const res = await fetch(`${API_BASE}/v1/op/pdf-extract`, {
       method: "POST",
+      headers: { "X-Tenant-Id": TENANT_ID },
       body: formData,
     })
     const data = await res.json()

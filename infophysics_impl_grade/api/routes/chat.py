@@ -48,6 +48,45 @@ logger = logging.getLogger("infophysics.api.chat")
 router = APIRouter()
 
 
+# V4.4 P1b — Substrate-mode system prompt.
+#
+# Taught to consume the compact JSON envelope produced by serializeBundle
+# (lib/aio-math.ts). The legacy tier-banner prose was ~25 lines; this is
+# under half that. Every cut line is one fewer thing the cache has to
+# revalidate on token edits and one less template the model has to
+# pattern-match before answering.
+#
+# Wire format contract (do NOT rename fields without updating
+# serializeBundle):
+#
+#   {
+#     "cues": ["[Key.Value]", ...],
+#     "traversal_cost": <int>,
+#     "priors":  [{ id, score, relevance, freshness, query, finding }, ...],
+#     "hsl_neighborhoods": ["[Key.Value]", ...],
+#     "aios":    [{ file, raw }, ...]
+#   }
+_SUBSTRATE_SYSTEM_PROMPT = (
+    "You are ChatAIO, an analyst for Information Physics data.\n"
+    "You receive a JSON SUBSTRATE assembled by the Paper III pipeline:\n"
+    "  cues: extracted [Key.Value] cues\n"
+    "  priors: similar past episodes — framing only, never ground truth\n"
+    "  hsl_neighborhoods: HSLs traversed\n"
+    "  aios: direct evidence — each {file, raw}; ground every claim here\n"
+    "Cite the `file` field when referencing a record.\n"
+    "If `aios` is insufficient to answer, say so clearly.\n\n"
+    "RECALL, NOT FILTER: `aios` is a candidate neighborhood; it is not "
+    "pre-filtered against the question's semantics. Apply the user's filter "
+    "criteria and DROP non-matching records — do not list them with a red X, "
+    "❌, or other rejection annotation. Parse numeric thresholds (\"over "
+    "$10M\", \"after 2020\") and exclude records that fail. Treat records "
+    "missing the needed field as non-matching. Counts, totals, and "
+    "percentages must reflect only surviving records. State the filter "
+    "applied in one short sentence and the qualifying count.\n\n"
+    "SUBSTRATE:\n"
+)
+
+
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
@@ -1315,32 +1354,7 @@ def substrate_chat(
     tenant = x_tenant_id or "tenantA"
     _budget.check_budget(tenant)
 
-    system = (
-        "You are ChatAIO, an intelligent analyst for Information Physics data. "
-        "You have been given a PRECOMPUTED SEMANTIC SUBSTRATE assembled by the "
-        "Paper III pipeline: deterministic cue extraction, bounded HSL neighborhood "
-        "traversal, and Jaccard-ranked MRO pre-fetch. "
-        "The substrate contains three evidence tiers:\n"
-        "  TIER 1 — Prior retrieval episodes (MRO priors): use as framing only\n"
-        "  TIER 2 — HSL neighborhoods traversed\n"
-        "  TIER 3 — Direct AIO evidence: use this to ground every claim\n\n"
-        "Rules: Re-ground every claim in Tier 3 AIO evidence. "
-        "Cite AIO filenames when referencing a record. "
-        "If the evidence is insufficient, say so clearly.\n\n"
-        "CRITICAL — SUBSTRATE IS RECALL, NOT FILTER:\n"
-        "Tier 3 AIO evidence is a *candidate neighborhood* surfaced by deterministic "
-        "cue traversal. It is NOT pre-filtered against the semantic intent of the "
-        "question. Before answering, apply the user's filter criteria and EXCLUDE "
-        "records that do not satisfy them. For numeric comparators (\"over $10M\", "
-        "\"after 2020\", \"at least 5\"), parse the threshold and the candidate's "
-        "value and DROP non-matching records — do not list them with a red X, ❌, "
-        "or other rejection annotation. For categorical filters, drop records whose "
-        "category doesn't match. If a record is missing the field needed to evaluate "
-        "the filter, treat it as non-matching. Counts, totals, and percentages must "
-        "reflect ONLY surviving records. State the filter applied in one short "
-        "sentence and the qualifying count.\n\n"
-        + payload.context_bundle
-    )
+    system = _SUBSTRATE_SYSTEM_PROMPT + payload.context_bundle
 
     try:
         import anthropic
@@ -1411,32 +1425,7 @@ def substrate_chat_stream(
     if not payload.messages:
         raise HTTPException(status_code=400, detail="messages must not be empty")
 
-    system = (
-        "You are ChatAIO, an intelligent analyst for Information Physics data. "
-        "You have been given a PRECOMPUTED SEMANTIC SUBSTRATE assembled by the "
-        "Paper III pipeline: deterministic cue extraction, bounded HSL neighborhood "
-        "traversal, and Jaccard-ranked MRO pre-fetch. "
-        "The substrate contains three evidence tiers:\n"
-        "  TIER 1 — Prior retrieval episodes (MRO priors): use as framing only\n"
-        "  TIER 2 — HSL neighborhoods traversed\n"
-        "  TIER 3 — Direct AIO evidence: use this to ground every claim\n\n"
-        "Rules: Re-ground every claim in Tier 3 AIO evidence. "
-        "Cite AIO filenames when referencing a record. "
-        "If the evidence is insufficient, say so clearly.\n\n"
-        "CRITICAL — SUBSTRATE IS RECALL, NOT FILTER:\n"
-        "Tier 3 AIO evidence is a *candidate neighborhood* surfaced by deterministic "
-        "cue traversal. It is NOT pre-filtered against the semantic intent of the "
-        "question. Before answering, apply the user's filter criteria and EXCLUDE "
-        "records that do not satisfy them. For numeric comparators (\"over $10M\", "
-        "\"after 2020\", \"at least 5\"), parse the threshold and the candidate's "
-        "value and DROP non-matching records — do not list them with a red X, ❌, "
-        "or other rejection annotation. For categorical filters, drop records whose "
-        "category doesn't match. If a record is missing the field needed to evaluate "
-        "the filter, treat it as non-matching. Counts, totals, and percentages must "
-        "reflect ONLY surviving records. State the filter applied in one short "
-        "sentence and the qualifying count.\n\n"
-        + payload.context_bundle
-    )
+    system = _SUBSTRATE_SYSTEM_PROMPT + payload.context_bundle
 
     def gen():
         try:

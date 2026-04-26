@@ -180,6 +180,16 @@ export function extractCues(
   query: string,
   fieldNames: string[],
   valueVocabulary: Set<string>,
+  /**
+   * V4.4 P2a — optional catalog of known (Key, Value) pairs sourced from
+   * the HSL topology. When provided, vocabulary matches that also appear
+   * in the catalog are emitted with their concrete key (rather than the
+   * `*` wildcard). This converts "value seen somewhere in some AIO" into
+   * "value seen on this specific field in this HSL", which lets
+   * traverseHSL prune to the intended field rather than scoring every
+   * field whose value happens to contain the substring.
+   */
+  hslKeyValuePairs?: Array<{ key: string; value: string }>,
 ): ElementCue[] {
   const q = query.toLowerCase().trim()
   if (!q) return []
@@ -209,6 +219,25 @@ export function extractCues(
     else push(field)   // key-only cue (wildcard)
   }
 
+  // 1b'. HSL catalog match — when we have a list of known (Key, Value)
+  // pairs from the HSL topology, emit precise cues for any catalog entry
+  // whose value appears in the query (forward or reverse word match).
+  // This is more selective than the vocab fallback below because it
+  // carries the original key rather than collapsing to `*`.
+  const catalogValues = new Set<string>()
+  if (hslKeyValuePairs && hslKeyValuePairs.length > 0) {
+    const qWordsLocal = q.split(/[\s,;:?!()\[\]]+/).filter((w) => w.length >= 3)
+    for (const pair of hslKeyValuePairs) {
+      const v = (pair.value ?? "").toLowerCase()
+      if (v.length < 3) continue
+      const forward = q.includes(v)
+      const reverse = !forward && qWordsLocal.some((w) => v.includes(w))
+      if (!forward && !reverse) continue
+      push(pair.key, pair.value)
+      catalogValues.add(v)
+    }
+  }
+
   // 1c. Match values from the vocabulary against individual query tokens.
   //
   //     The original check (q.includes(v)) only works when the full vocabulary
@@ -221,6 +250,10 @@ export function extractCues(
   for (const value of valueVocabulary) {
     if (value.length < 3) continue
     const v = value.toLowerCase()
+    // Skip values already captured by the HSL catalog with a precise key —
+    // we don't want to add a `[*.value]` wildcard that duplicates the
+    // already-emitted `[Key.value]` cue.
+    if (catalogValues.has(v)) continue
     // Forward: full value appears in the query
     if (q.includes(v)) {
       push("*", value)
@@ -465,9 +498,19 @@ export function assembleBundle(
     minPriorRelevance?: number
     halfLifeDays?: number
     /** Optional HSL coverage map from computeHslBoost — used as a
-     *  ranking booster on top of the traversal score. Non-gating:
-     *  AIOs with no HSL coverage still pass through. */
+     *  ranking booster on top of the traversal score. Non-gating
+     *  by default; pass `hslGate: true` to also filter out AIOs with
+     *  zero HSL coverage. */
     hslBoost?: Map<string, number>
+    /**
+     * V4.4 P0b — when true and `hslBoost` is supplied, AIOs whose HSL
+     * coverage is zero are dropped from the bundle. Promotes HSL
+     * membership from a soft ranking signal to a hard recall filter.
+     * Falls back gracefully: if the gate would empty the neighborhood,
+     * the original boosted-but-unfiltered set is returned so the model
+     * still has *some* evidence to work with.
+     */
+    hslGate?: boolean
     /** Original natural-language query — threaded through to rankMROs so
      *  the text-similarity feature lights up on paraphrases. */
     queryText?: string
@@ -493,6 +536,14 @@ export function assembleBundle(
       .map((a, i) => ({ a, b: boostOf(a), i }))
       .sort((x, y) => (y.b - x.b) || (x.i - y.i))
       .map((x) => x.a)
+    // P0b — promote HSL coverage from boost to gate. Drop zero-coverage
+    // AIOs; if that would empty the neighborhood, keep the boosted set
+    // so the model still has evidence (graceful fallback over silent
+    // false-zero recall on tenants with sparse HSL topology).
+    if (options.hslGate) {
+      const gated = ranked.filter((a) => boostOf(a) > 0)
+      if (gated.length > 0) ranked = gated
+    }
   }
 
   // Step 3 — MRO pre-fetch
@@ -516,53 +567,48 @@ export function assembleBundle(
 }
 
 /**
- * Serialize a context bundle into a text block suitable for injection
- * into an LLM system/user prompt. The tiered headers are explicit so
- * the model can distinguish evidence types.
+ * V4.4 P2b — short slice cap for prior-episode result text in the bundle.
+ * The verbose tier banners and 400-char prior excerpts of the legacy
+ * format burned tokens without lifting answer quality. 200 chars carries
+ * enough framing for the model to recognize a similar past finding while
+ * keeping the prior section under ~half the size it used to be.
+ */
+const PRIOR_RESULT_TRUNCATE_CHARS = 200
+
+/**
+ * Serialize a context bundle into a compact JSON envelope.
+ *
+ * V4.4 P1a — Replaces the old tier-banner format ("=== CONTEXT BUNDLE ===",
+ * "--- TIER N ---", per-AIO "[file line N]" prefix lines) with a single
+ * JSON object the substrate-chat system prompt is taught to consume. Wins:
+ *
+ *   - drops ~250 tokens of fixed overhead per bundle
+ *   - removes redundant per-AIO header lines (filename is in the field)
+ *   - lets the model parse the structure once instead of pattern-matching
+ *     ASCII banners on every turn
+ *
+ * The shape is documented in the substrate-chat system prompt so it stays
+ * a contract — don't rename fields without updating ``api/routes/chat.py``.
  */
 export function serializeBundle(bundle: ContextBundle): string {
-  const lines: string[] = []
-
-  lines.push("=== CONTEXT BUNDLE ===")
-  lines.push(`Cues: ${bundle.cue_set.map((c) => c.raw).join(" ∩ ") || "(none)"}`)
-  lines.push(`Traversal neighborhood: ${bundle.traversal_cost} AIOs`)
-  lines.push("")
-
-  if (bundle.mro_priors.length > 0) {
-    lines.push("--- TIER 1: PRIOR RETRIEVAL EPISODES (MRO priors) ---")
-    lines.push("Treat these as framing, not as ground truth. Re-ground any")
-    lines.push("claims in the AIO evidence below when answering.")
-    lines.push("")
-    for (const s of bundle.mro_priors) {
-      lines.push(
-        `[MRO ${s.mro.mro_id.slice(0, 8)} — ` +
-          `relevance ${s.relevance.toFixed(2)} × ` +
-          `freshness ${s.freshness.toFixed(2)} = ` +
-          `score ${s.score.toFixed(3)}]`,
-      )
-      lines.push(`Query: ${s.mro.query_text}`)
-      lines.push(`Finding: ${s.mro.result_text.slice(0, 400)}`)
-      lines.push("")
-    }
+  const envelope = {
+    cues: bundle.cue_set.map((c) => c.raw),
+    traversal_cost: bundle.traversal_cost,
+    priors: bundle.mro_priors.map((s) => ({
+      id: s.mro.mro_id.slice(0, 8),
+      score: Number(s.score.toFixed(3)),
+      relevance: Number(s.relevance.toFixed(2)),
+      freshness: Number(s.freshness.toFixed(2)),
+      query: s.mro.query_text,
+      finding: (s.mro.result_text ?? "").slice(0, PRIOR_RESULT_TRUNCATE_CHARS),
+    })),
+    hsl_neighborhoods: bundle.hsl_neighborhoods,
+    aios: bundle.seed_aios.map((a) => ({
+      file: a.fileName,
+      raw: a.raw,
+    })),
   }
-
-  if (bundle.hsl_neighborhoods.length > 0) {
-    lines.push("--- TIER 2: HSL NEIGHBORHOODS TRAVERSED ---")
-    lines.push(bundle.hsl_neighborhoods.join(", "))
-    lines.push("")
-  }
-
-  if (bundle.seed_aios.length > 0) {
-    lines.push("--- TIER 3: DIRECT EVIDENCE (AIOs) ---")
-    for (const aio of bundle.seed_aios) {
-      lines.push(`[${aio.fileName} line ${aio.lineNumber}]`)
-      lines.push(aio.raw)
-      lines.push("")
-    }
-  }
-
-  lines.push("=== END CONTEXT BUNDLE ===")
-  return lines.join("\n")
+  return JSON.stringify(envelope)
 }
 
 // ── 7. MRO construction helper ───────────────────────────────────────

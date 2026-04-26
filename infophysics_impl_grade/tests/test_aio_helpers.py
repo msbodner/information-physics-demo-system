@@ -61,10 +61,13 @@ def test_mro_from_row_shape():
     from api.routes.mro import _mro_from_row
     now = datetime.now(timezone.utc)
     mro_id = uuid4()
+    # Row layout matches _MRO_SELECT in api/routes/mro.py — 15 columns,
+    # with trust_score added in migration 018 between tenant_id and
+    # created_at. Keep this fixture in sync if _MRO_SELECT changes.
     row = (
         mro_id, "mro.key", "what is X?", "intent.lookup", "seed.hsl",
         3, '["term"]', "result body", "bundle text",
-        "derived", "tenantA", "tenantA", now, now,
+        "derived", "tenantA", "tenantA", 0.0, now, now,
     )
     out = _mro_from_row(row)
     assert out.mro_id == mro_id

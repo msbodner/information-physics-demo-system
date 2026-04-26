@@ -204,6 +204,53 @@ def update_aio_data(
     return _aio_row_to_out(row)
 
 
+class AioFindByNeedlesRequest(BaseModel):
+    needles: List[str]
+    limit: int = 200
+
+
+@router.post("/v1/aio-data/find-by-needles")
+def find_aios_by_needles(
+    payload: AioFindByNeedlesRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Return AIO names whose ``elements_text`` contains any of the needles.
+
+    Mirrors ``find_hsls_by_needles`` (routes/hsl.py): single indexed LIKE
+    against the lowercased generated ``elements_text`` column (pg_trgm GIN,
+    migration 016). Replaces the client-side ``traverseHSL`` scan in the
+    Substrate pipeline by pushing the candidate-neighborhood filter into
+    Postgres.
+
+    Returns aio_names (not ids/rows) because the Substrate pipeline's
+    in-memory ``substrateAios: ParsedAio[]`` is keyed by ``fileName ==
+    aio_name``. The client uses the returned set to filter its already-
+    loaded AIO array down to the candidate neighborhood, then runs the
+    deterministic intersection-then-union scoring on that subset.
+    """
+    if not payload.needles:
+        return {"aio_names": []}
+    tenant = x_tenant_id or "tenantA"
+    needles = [n.lower().strip() for n in payload.needles if n.strip()]
+    if not needles:
+        return {"aio_names": []}
+    matched: List[str] = []
+    try:
+        with db() as conn:
+            set_tenant(conn, tenant)
+            with conn.cursor() as cur:
+                or_clause = " OR ".join(["elements_text LIKE %s"] * len(needles))
+                params = [f"%{n}%" for n in needles] + [payload.limit]
+                cur.execute(
+                    f"SELECT aio_name FROM aio_data WHERE {or_clause} LIMIT %s",
+                    params,
+                )
+                matched = [r[0] for r in cur.fetchall() if r[0]]
+    except Exception:
+        logger.warning("find_aios_by_needles failed")
+    return {"aio_names": matched}
+
+
 @router.delete("/v1/aio-data/{aio_id}")
 def delete_aio_data(
     aio_id: str,

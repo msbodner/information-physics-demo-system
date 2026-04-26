@@ -776,6 +776,57 @@ export async function deleteMroObject(id: string): Promise<boolean> {
   return result !== null
 }
 
+// V4.4 — MRO-assisted retrieval (first slice).
+// Used by the substrate pipeline before extracting cues, to (a) potentially
+// short-circuit on a near-duplicate prior, (b) seed cue extraction with
+// search_terms from similar past queries, and (c) augment the bundle with
+// the top prior's result_summary.
+
+export interface MroSearchHit {
+  mro_id: string
+  mro_key: string
+  query_text: string
+  similarity: number              // pg_trgm trigram similarity (0..1)
+  ts_rank: number                 // tsvector ts_rank (0..~1)
+  score: number                   // GREATEST(similarity, ts_rank)
+  trust_weighted_score: number    // score * (1 + ln(1 + trust_score))
+  search_terms: unknown | null    // JSONB cue list from the prior episode
+  seed_hsls: string | null        // pipe-separated lineage hint
+  result_summary: string          // first ~500 chars of result_text
+  result_full_available: boolean  // true when result_text was non-empty
+  confidence: string
+  trust_score: number
+  created_at: string
+}
+
+export interface MroSearchResponse {
+  query: string
+  k: number
+  matches: MroSearchHit[]
+}
+
+/**
+ * Find prior MROs similar to the given query. Combines pg_trgm trigram
+ * similarity with tsvector ts_rank, weighted by trust_score. Returns a
+ * lightweight projection — full ``result_text`` is truncated to
+ * ``summaryChars`` (default 500) on the server.
+ *
+ * Returns ``null`` on backend unavailability so the caller can fall
+ * through to the normal pipeline.
+ */
+export async function mroSearch(
+  query: string,
+  opts: { k?: number; minScore?: number; summaryChars?: number } = {},
+): Promise<MroSearchResponse | null> {
+  const q = (query ?? "").trim()
+  if (!q) return null
+  const qs = new URLSearchParams({ query: q })
+  if (opts.k !== undefined) qs.set("k", String(opts.k))
+  if (opts.minScore !== undefined) qs.set("min_score", String(opts.minScore))
+  if (opts.summaryChars !== undefined) qs.set("summary_chars", String(opts.summaryChars))
+  return safeFetch<MroSearchResponse>(`/api/op/mro-search?${qs.toString()}`)
+}
+
 /**
  * Increment trust_score on a list of parent MROs.
  * Called by the Substrate pipeline whenever a new MRO is saved that used
@@ -817,6 +868,31 @@ export async function findHslsByNeedles(needles: string[]): Promise<string[]> {
     body: JSON.stringify({ needles, limit: 20 }),
   })
   return result?.hsl_ids ?? []
+}
+
+/**
+ * Find AIO names whose ``elements_text`` contains any of the given needles.
+ * Backed by the pg_trgm GIN index on ``aio_data.elements_text``.
+ *
+ * Used by the Substrate pipeline to filter the in-memory AIO array down
+ * to a candidate neighborhood before running the deterministic
+ * ``traverseHSL`` scoring — pushes the O(|cues|×|aios|) scan into Postgres.
+ *
+ * Returns ``null`` on backend unavailability so the caller can fall
+ * back to the original full-corpus client-side scan.
+ */
+export async function findAiosByNeedles(
+  needles: string[],
+  limit: number = 200,
+): Promise<string[] | null> {
+  if (!needles || needles.length === 0) return []
+  const result = await safeFetch<{ aio_names: string[] }>("/api/aio-data/find-by-needles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ needles, limit }),
+  })
+  if (!result) return null
+  return result.aio_names ?? []
 }
 
 // PDF extraction

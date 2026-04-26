@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import uuid
 from datetime import datetime, timezone
 from typing import Any, List, Optional
@@ -401,3 +402,140 @@ def mro_compact_endpoint(
             union_seed_count=p.union_seed_count,
         ) for p in report.plans],
     )
+
+
+# ---------------------------------------------------------------------------
+# V4.4 — MRO-assisted retrieval (first slice of MRO-as-prior pipeline)
+#
+# /v1/op/mro-search powers three behaviors in the Substrate chat pipeline:
+#
+#   1. Cache short-circuit. When the top hit's combined similarity score
+#      crosses ~0.85 AND its lineage AIOs/HSLs still resolve in the corpus,
+#      the caller may serve the prior result_text without ever calling
+#      Claude.
+#
+#   2. Cue seeding. The top-K hits' ``search_terms`` are unioned into the
+#      cue set extracted from the new query — converts "guess from value
+#      vocabulary" into "what cues did similar past queries actually need".
+#
+#   3. Bundle augmentation. The top-1 hit's ``result_summary`` (first
+#      ~500 chars) is appended to the substrate bundle as a prior episode
+#      — pulls Claude toward consistent answers across sessions.
+#
+# Combines two signals so paraphrases score above zero even when their
+# tokens don't overlap exactly:
+#   * ``similarity(query_text, q)`` — pg_trgm trigram similarity (lexical).
+#   * ``ts_rank(query_tsv, plainto_tsquery(q))`` — tsvector relevance.
+# Final ordering is GREATEST(both) * (1 + ln(1 + trust_score)) so MROs
+# that have been useful before drift up.
+# ---------------------------------------------------------------------------
+
+
+class MroSearchHit(BaseModel):
+    mro_id: str
+    mro_key: str
+    query_text: str
+    similarity: float           # trigram similarity (0..1)
+    ts_rank: float              # tsvector rank (0..~1, typically <0.5)
+    score: float                # GREATEST(similarity, ts_rank) — primary signal
+    trust_weighted_score: float # score * (1 + ln(1 + trust_score)) — final ranking
+    search_terms: Optional[Any] = None
+    seed_hsls: Optional[str] = None  # pipe-separated lineage hint (HSL/AIO names)
+    result_summary: str         # first ~500 chars of result_text
+    result_full_available: bool # true when result_text was non-empty (i.e. hydratable)
+    confidence: str
+    trust_score: float
+    created_at: datetime
+
+
+class MroSearchResponse(BaseModel):
+    query: str
+    k: int
+    matches: List[MroSearchHit]
+
+
+@router.get("/v1/op/mro-search", response_model=MroSearchResponse)
+def mro_search(
+    query: str = Query(..., min_length=1, description="Natural-language query to match against prior MROs"),
+    k: int = Query(5, ge=1, le=50, description="Maximum hits to return"),
+    min_score: float = Query(0.10, ge=0.0, le=1.0, description="Floor on GREATEST(similarity, ts_rank). Hits below this are dropped."),
+    summary_chars: int = Query(500, ge=0, le=4000, description="Truncate result_text to this many characters in result_summary."),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Fast similarity search over prior MROs for the substrate pipeline.
+
+    Combines pg_trgm trigram similarity with tsvector ts_rank so both
+    surface-form matches and paraphrases score. Returns a lightweight
+    projection — full ``result_text`` is truncated to ``summary_chars``.
+    Callers that need the full episode hydrate via /v1/mro-objects/{id}.
+    """
+    tenant = x_tenant_id or "tenantA"
+
+    # Empty / whitespace-only queries: short-circuit. Trigram and tsquery
+    # both behave oddly on empty strings.
+    q = query.strip()
+    if not q:
+        return MroSearchResponse(query=query, k=k, matches=[])
+
+    sql = """
+        SELECT
+            mro_id::text,
+            mro_key,
+            query_text,
+            search_terms,
+            seed_hsls,
+            result_text,
+            confidence,
+            COALESCE(trust_score, 0)::float AS trust_score,
+            created_at,
+            similarity(query_text, %s) AS sim,
+            COALESCE(ts_rank(query_tsv, plainto_tsquery('english', %s)), 0) AS tsr
+          FROM mro_objects
+         WHERE
+            similarity(query_text, %s) >= %s
+            OR query_tsv @@ plainto_tsquery('english', %s)
+         ORDER BY
+            GREATEST(
+                similarity(query_text, %s),
+                COALESCE(ts_rank(query_tsv, plainto_tsquery('english', %s)), 0)
+            ) * (1 + ln(1 + COALESCE(trust_score, 0))) DESC,
+            updated_at DESC
+         LIMIT %s
+    """
+    params = (q, q, q, float(min_score), q, q, q, int(k))
+
+    matches: List[MroSearchHit] = []
+    with db() as conn:
+        set_tenant(conn, tenant)
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+
+    for r in rows:
+        (mro_id, mro_key, query_text, search_terms, seed_hsls,
+         result_text, confidence, trust_score, created_at,
+         sim, tsr) = r
+        sim_f = float(sim or 0.0)
+        tsr_f = float(tsr or 0.0)
+        score = max(sim_f, tsr_f)
+        twscore = score * (1.0 + (math.log1p(trust_score) if trust_score and trust_score > 0 else 0.0))
+        full = result_text or ""
+        summary = full[:summary_chars] if summary_chars > 0 else ""
+        matches.append(MroSearchHit(
+            mro_id=str(mro_id),
+            mro_key=mro_key,
+            query_text=query_text,
+            similarity=round(sim_f, 4),
+            ts_rank=round(tsr_f, 4),
+            score=round(score, 4),
+            trust_weighted_score=round(twscore, 4),
+            search_terms=search_terms,
+            seed_hsls=seed_hsls,
+            result_summary=summary,
+            result_full_available=bool(full),
+            confidence=confidence or "derived",
+            trust_score=float(trust_score or 0.0),
+            created_at=created_at,
+        ))
+
+    return MroSearchResponse(query=query, k=k, matches=matches)

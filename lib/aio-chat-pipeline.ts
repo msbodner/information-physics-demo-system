@@ -31,7 +31,10 @@ import {
   listMroObjects,
   getMroObject,
   bumpMroTrust,
+  mroSearch,
+  findAiosByNeedles,
   type ChatMessage,
+  type MroSearchHit,
 } from "./api-client"
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -88,6 +91,119 @@ function mroObjectToMRO(obj: any): MRO | null {
   }
 }
 
+// ── V4.4 — MRO-assisted retrieval thresholds ─────────────────────────
+// These are deliberately conservative for the first slice. Tune via
+// telemetry once we have hit-rate data per tenant. Exported so callers
+// (and tests) can reason about the gating decisions.
+//
+//   SHORT_CIRCUIT_THRESHOLD: top hit score ≥ this skips the LLM entirely.
+//                            0.85 keeps false-positive cache hits low.
+//   BUNDLE_AUGMENT_THRESHOLD: top hit score ≥ this gets injected into
+//                            the bundle as a "prior episode" hint.
+//   CUE_SEED_THRESHOLD:      hits ≥ this contribute their search_terms
+//                            to the cue set (cheap, broad).
+//   CUE_SEED_TOPK:           how many hits to pull cues from (after threshold).
+export const MRO_SHORT_CIRCUIT_THRESHOLD = 0.85
+export const MRO_BUNDLE_AUGMENT_THRESHOLD = 0.50
+export const MRO_CUE_SEED_THRESHOLD = 0.30
+export const MRO_CUE_SEED_TOPK = 3
+
+/** Coerce a stored MRO search_terms blob back into ElementCue[].
+ *
+ * Tolerant by design — search_terms can arrive as:
+ *   - a JSON-stringified array (older writes)
+ *   - an array of cue objects (current writes)
+ *   - null/undefined/garbage (corrupt or missing)
+ * Anything that isn't a `{key, value?, raw?}` shape is skipped.
+ *
+ * Exported for unit-testability (see lib/__tests__/aio-chat-pipeline.test.ts).
+ */
+export function searchTermsToCues(raw: unknown): import("./aio-math").ElementCue[] {
+  if (!raw) return []
+  const arr = Array.isArray(raw)
+    ? raw
+    : (typeof raw === "string"
+        ? (() => { try { return JSON.parse(raw) } catch { return [] } })()
+        : [])
+  if (!Array.isArray(arr)) return []
+  const out: import("./aio-math").ElementCue[] = []
+  for (const item of arr) {
+    if (!item || typeof item !== "object") continue
+    const key = typeof (item as any).key === "string" ? (item as any).key : null
+    if (!key) continue
+    const value = typeof (item as any).value === "string" ? (item as any).value : undefined
+    const rawCue = typeof (item as any).raw === "string"
+      ? (item as any).raw
+      : (value ? `[${key}.${value}]` : `[${key}.*]`)
+    out.push({ key, value, raw: rawCue })
+  }
+  return out
+}
+
+// ── Pure gating helpers (extracted for unit testability) ─────────────
+
+/** Minimal shape we need from MroSearchHit for gating decisions. Lets
+ *  the helpers below be tested without dragging in the full api-client
+ *  dependency tree. */
+export interface MroGatingHit {
+  score: number
+  result_full_available: boolean
+  result_summary?: string
+  query_text?: string
+  search_terms?: unknown
+}
+
+/** Whether the top hit clears the cache short-circuit bar. Pure. */
+export function shouldShortCircuitOnMro(
+  topHit: MroGatingHit | undefined,
+  threshold: number = MRO_SHORT_CIRCUIT_THRESHOLD,
+): boolean {
+  if (!topHit) return false
+  if (!topHit.result_full_available) return false
+  return topHit.score >= threshold
+}
+
+/** Union extracted cues with cues from the top-K MRO hits whose score
+ *  clears the seed threshold. Dedup is by canonical `[Key.Value]` raw
+ *  form so cue-extraction collisions don't double-count. Pure. */
+export function seedCuesWithMroHits(
+  extractedCues: import("./aio-math").ElementCue[],
+  mroHits: MroGatingHit[],
+  threshold: number = MRO_CUE_SEED_THRESHOLD,
+  topK: number = MRO_CUE_SEED_TOPK,
+): import("./aio-math").ElementCue[] {
+  const seen = new Set(extractedCues.map((c) => c.raw))
+  const out = [...extractedCues]
+  const eligible = mroHits.filter((h) => h.score >= threshold).slice(0, topK)
+  for (const h of eligible) {
+    for (const c of searchTermsToCues(h.search_terms)) {
+      if (!seen.has(c.raw)) {
+        seen.add(c.raw)
+        out.push(c)
+      }
+    }
+  }
+  return out
+}
+
+/** Build the "PRIOR EPISODE" block that's prepended to the bundle when
+ *  the top hit clears the augment threshold but not the short-circuit
+ *  threshold. Returns null when the hit doesn't qualify. Pure. */
+export function buildPriorEpisodeBlock(
+  topHit: MroGatingHit | undefined,
+  threshold: number = MRO_BUNDLE_AUGMENT_THRESHOLD,
+): string | null {
+  if (!topHit) return null
+  if (topHit.score < threshold) return null
+  if (!topHit.result_summary) return null
+  return (
+    `=== PRIOR EPISODE (similar past query, score=${topHit.score.toFixed(2)}) ===\n` +
+    `Past question: ${topHit.query_text ?? ""}\n` +
+    `Past answer (truncated): ${topHit.result_summary}\n` +
+    `=== END PRIOR EPISODE ===\n\n`
+  )
+}
+
 function mroToCreatePayload(mro: Omit<MRO, "mro_id" | "created_at">) {
   return {
     mro_key: `mro-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -137,10 +253,120 @@ export async function runChatPipeline(
     onChunk?: (chunk: string) => void
   } = {},
 ): Promise<PipelineResult | { error: string }> {
+  // ── V4.4 Step 0 — MRO-assisted retrieval (first slice) ────────────
+  // Look up similar prior episodes BEFORE we extract cues, so we can:
+  //   (a) short-circuit on a near-duplicate and skip the LLM entirely
+  //   (b) seed cue extraction with what worked last time
+  //   (c) augment the bundle with the top prior's result_summary
+  // Best-effort: a backend-unavailable miss falls through to the
+  // original pipeline with no behavioral change.
+  const mroAssist = await mroSearch(query, { k: 5, summaryChars: 500 })
+    .catch(() => null)
+  const mroHits: MroSearchHit[] = mroAssist?.matches ?? []
+  const topMroHit: MroSearchHit | undefined = mroHits[0]
+
+  // (a) Cache short-circuit. We only fire when the prior is strong AND
+  // the result is hydratable. We deliberately don't double-save: when
+  // the cache hits, we bump trust on the source MRO and return its
+  // result text. Callers that need a guaranteed fresh save can pass
+  // saveMRO:false to indicate "I'll handle persistence" — but the
+  // common case (ChatAIO) wants the cache.
+  if (shouldShortCircuitOnMro(topMroHit)) {
+    const fullPrior = await getMroObject(topMroHit.mro_id).catch(() => null)
+    const replyText = fullPrior?.result_text || topMroHit.result_summary
+    if (replyText) {
+      // Stream parity: emit the cached reply once for streaming UIs.
+      options.onChunk?.(replyText)
+      // Reinforcement: bump trust on the MRO we just reused. Best-effort.
+      bumpMroTrust([topMroHit.mro_id], 1.0).catch(() => {})
+      return {
+        reply: replyText,
+        bundle: {
+          mro_priors: [],
+          hsl_neighborhoods: [],
+          seed_aios: [],
+          cue_set: [],
+          traversal_cost: 0,
+        },
+        priors_used: [],
+        mro_saved: false,
+        mro_id: topMroHit.mro_id,
+        cue_values: [],
+        matched_hsl_ids: [],
+        model_ref: "mro-cache",
+        input_tokens: 0,
+        output_tokens: 0,
+        cost: { cues: 0, neighborhood: 0, priors: 1 },
+      }
+    }
+  }
+
   // Step 1 — cue extraction
   const fields = buildFieldVocabulary(aios)
   const vocab = buildValueVocabulary(aios)
-  const cues = extractCues(query, fields, vocab)
+
+  // V4.4 P2a — derive an HSL [Key.Value] catalog from the supplied HSL
+  // records. HSL names follow the convention "[Key.Value].hsl", so a
+  // single regex pass over the names gives extractCues a precise-key
+  // catalog to prefer over the value-vocabulary wildcard fallback.
+  const hslCatalog: Array<{ key: string; value: string }> = []
+  if (options.hsls && options.hsls.length > 0) {
+    const seenKv = new Set<string>()
+    const nameRe = /\[([^\].]+)\.([^\]]+)\]/
+    for (const hsl of options.hsls) {
+      const m = (hsl.hsl_name || "").match(nameRe)
+      if (!m) continue
+      const k = m[1].trim()
+      const v = m[2].trim()
+      if (!k || !v) continue
+      const kv = `${k.toLowerCase()}\u0000${v.toLowerCase()}`
+      if (seenKv.has(kv)) continue
+      seenKv.add(kv)
+      hslCatalog.push({ key: k, value: v })
+    }
+  }
+
+  const extractedCues = extractCues(query, fields, vocab, hslCatalog)
+
+  // (b) Cue seeding — union extracted cues with cues from the top-K
+  // similar prior MROs. Dedup by canonical raw form ("[Key.Value]").
+  // Converts "guess from value vocab" into "what cues did similar past
+  // queries actually need."
+  const cues = seedCuesWithMroHits(extractedCues, mroHits)
+
+  // V4.4 P0a — Push the candidate-neighborhood scan into Postgres.
+  // We send the cue values (and key.value brackets) as needles to the
+  // pg_trgm-indexed find-by-needles endpoint, then filter the in-memory
+  // AIO array to the returned name set. This replaces the O(|cues|×|aios|)
+  // JS scan inside traverseHSL with an O(|matches|) one — the first big
+  // win when the corpus grows past a few hundred AIOs.
+  //
+  // Falls back to the original full-corpus aios on backend miss or when
+  // no value-bearing cues are present (key-only wildcards aren't useful
+  // needles — they'd match every element of that key).
+  let scopedAios: ParsedAio[] = aios
+  const needleStrings = cues
+    .flatMap((c) =>
+      c.value && c.value !== "*" && c.value.length >= 2
+        ? [c.value, `[${c.key}.${c.value}`]
+        : [],
+    )
+    .filter((s, i, a) => a.indexOf(s) === i)
+  if (needleStrings.length > 0 && aios.length > 0) {
+    const matchedNames = await findAiosByNeedles(needleStrings, 500).catch(
+      () => null,
+    )
+    if (matchedNames && matchedNames.length > 0) {
+      const nameSet = new Set(matchedNames)
+      const filtered = aios.filter((a) => nameSet.has(a.fileName))
+      if (filtered.length > 0) scopedAios = filtered
+    }
+    // matchedNames === null  → backend unavailable, keep full aios
+    // matchedNames === []    → no candidates; keep full aios so traverseHSL
+    //                          can still apply its ranked-union fallback
+    //                          (matches existing behavior for truly empty
+    //                          neighborhoods rather than silently zeroing out)
+  }
 
   // Step 2-3 — use cached MROs if provided, otherwise fetch.
   // The cached payload is expected to be in summary mode (no result_text /
@@ -162,10 +388,14 @@ export async function runChatPipeline(
     ? getMatchedHslIds(cues, options.hsls)
     : []
 
-  const bundle = assembleBundle(cues, aios, priorMROs, {
+  const bundle = assembleBundle(cues, scopedAios, priorMROs, {
     maxPriors: options.maxPriors ?? 3,
     maxAios: options.maxAios ?? 50,
     hslBoost,
+    // P0b — when we have HSL coverage, treat membership as a hard filter,
+    // not just a soft boost. assembleBundle falls back gracefully when
+    // gating would empty the neighborhood.
+    hslGate: !!hslBoost,
     queryText: query,
   })
 
@@ -189,7 +419,17 @@ export async function runChatPipeline(
 
   // Step 4 — serialize the bundle; it becomes the SOLE system context via
   // /v1/op/substrate-chat (which does NOT add a raw DB dump — unlike /v1/op/chat)
-  const bundleText = serializeBundle(bundle)
+  let bundleText = serializeBundle(bundle)
+
+  // (c) Bundle augmentation — when the top MRO hit clears the augment
+  // threshold but is below the short-circuit threshold, prepend its
+  // result_summary as a "PRIOR EPISODE" hint. Pulls Claude toward
+  // consistent answers across sessions without trusting the prior
+  // verbatim. Cheap (≤500 chars) and high signal.
+  const priorBlock = buildPriorEpisodeBlock(topMroHit)
+  if (priorBlock) {
+    bundleText = priorBlock + bundleText
+  }
 
   // Only send conversation history + the current query as messages.
   // The bundle is passed separately as context_bundle to the substrate endpoint.
