@@ -1780,13 +1780,11 @@ function ApiKeyPane() {
           Save API Key
         </Button>
       </div>
-
-      <ModelSelector />
     </div>
   )
 }
 
-// ── Model Selector ────────────────────────────────────────────────
+// ── Models Pane ───────────────────────────────────────────────────
 //
 // Lets operators pick the Anthropic model used by every LLM call site
 // (default_model) and optionally a separate model for the AIO-search
@@ -1797,7 +1795,7 @@ function ApiKeyPane() {
 // "Use default" for parse_model writes an empty string, which the
 // backend interprets as "clear the override; fall through to default".
 
-function ModelSelector() {
+function ModelsPane() {
   const [defaultModel, setDefaultModel] = useState<string>("")
   const [parseModel, setParseModel] = useState<string>("")
   const [available, setAvailable] = useState<string[]>([])
@@ -1839,11 +1837,7 @@ function ModelSelector() {
   }
 
   if (isLoading) {
-    return (
-      <div className="pt-6 border-t border-border">
-        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-      </div>
-    )
+    return <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
   }
 
   // Allow operators to save a model that isn't in AVAILABLE_MODELS (e.g.
@@ -1852,14 +1846,11 @@ function ModelSelector() {
   const dropdownOptions = Array.from(new Set([...available, defaultModel])).filter(Boolean)
 
   return (
-    <div className="pt-6 border-t border-border space-y-4">
-      <div>
-        <h3 className="text-sm font-semibold mb-1">LLM Model</h3>
-        <p className="text-xs text-muted-foreground">
-          Selects which Anthropic Claude model is used for all ChatAIO modes (Recall, Live, Broad, Raw),
-          summarize, and entity-resolution. Takes effect on the next request.
-        </p>
-      </div>
+    <div className="max-w-lg space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Selects which Anthropic Claude model is used for all ChatAIO modes (Recall, Live, Broad, Raw),
+        summarize, and entity-resolution. Takes effect on the next request — no redeploy required.
+      </p>
 
       <div className="space-y-2">
         <Label htmlFor="default-model">Default model</Label>
@@ -3641,6 +3632,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
               { value: "demo-reset",    icon: <ShieldAlert className="w-4 h-4" />,     label: "Demo Reset" },
               { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Statistics Analytics" },
               { value: "apikey",        icon: <Key className="w-4 h-4" />,             label: "API Key" },
+              { value: "models",        icon: <Cpu className="w-4 h-4" />,             label: "Models" },
               { value: "csvs",          icon: <FileSpreadsheet className="w-4 h-4" />, label: "Saved CSVs" },
               { value: "aios",          icon: <FileText className="w-4 h-4" />,        label: "Saved AIOs" },
               { value: "saved-prompts", icon: <Bookmark className="w-4 h-4" />,        label: "Saved Prompts" },
@@ -3725,6 +3717,11 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
             <TabsContent value="apikey" className="mt-0">
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Key className="w-5 h-5" />API Key Settings</CardTitle></CardHeader>
                 <CardContent><ApiKeyPane /></CardContent></Card>
+            </TabsContent>
+
+            <TabsContent value="models" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Cpu className="w-5 h-5" />LLM Model Selection</CardTitle></CardHeader>
+                <CardContent><ModelsPane /></CardContent></Card>
             </TabsContent>
 
             <TabsContent value="csvs" className="mt-0">
