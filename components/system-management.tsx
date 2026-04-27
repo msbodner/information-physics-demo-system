@@ -3688,6 +3688,14 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         desc: "Single-run measurement against the Railway production deployment with cache bypassed on both paths. Reports measured tokens, latency, and DB scope on a representative named-entity query. Reproducible via scripts/measure_modes.ts.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
+                      {
+                        download: "/docs/Four_Mode_ChatAIO_Comparison_Technical_Report.docx",
+                        filename: "Four_Mode_ChatAIO_Comparison_Technical_Report.docx",
+                        icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
+                        title: "Technical Report — Four-Mode Comparison (Measured)",
+                        desc: "Version 2 of the measurement report extended to all four ChatAIO modes: Recall, Live, Broad, and Raw. Includes per-mode pipeline traces, master side-by-side, cost modeling at Anthropic list prices (38.6× spread Recall→Broad), and a decision matrix.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
                     ].map(({ view, download, filename, icon, title, desc, color }) => (
                       <button
                         key={view ?? download}
