@@ -13,7 +13,7 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
     { id: "csv-converter", label: "CSV Converter", icon: FileText },
     { id: "hsp", label: "Hyper-Semantic Processor", icon: Cpu },
     { id: "hsl", label: "HSL — Creating & Viewing", icon: Layers },
-    { id: "substrate", label: "Substrate Mode (V4.3)", icon: Brain },
+    { id: "substrate", label: "Recall Search (V4.3)", icon: Brain },
     { id: "aio-hsl-structure", label: "AIO Body & HSL String", icon: GitMerge },
     { id: "mro-topology", label: "MRO Topology Diagram", icon: Network },
     { id: "system-admin", label: "System Admin", icon: Settings },
@@ -54,7 +54,7 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Globe className="w-5 h-5" />Overview — AIO/HSL/MRO Demo System V4.4</CardTitle></CardHeader>
               <CardContent className="space-y-4 text-sm text-muted-foreground leading-relaxed">
                 <p>AIO/HSL/MRO Demo System V4.4 converts CSV files into <strong>Associated Information Objects (AIOs)</strong> — the fundamental unit of the Information Physics Standard Model. Each CSV row becomes a single self-describing AIO string, stored in a PostgreSQL database and searchable through the Hyper-Semantic Processor.</p>
-                <p><strong>What V4.4 changes:</strong> the HSL substrate is now self-maintaining. Every AIO insert or update grows the HSL topology in place via <code className="bg-muted px-1 rounded">synth_hsls_for_aio</code>; a new dual function <code className="bg-muted px-1 rounded">prune_hsls</code> removes HSLs that have fallen below the 2-AIO floor; and <code className="bg-muted px-1 rounded">Bulk HSL Build</code> is now a recovery / forensic tool rather than a routine action. The 100-element width cap on HSLs has been lifted via a new side table. See the <strong>Substrate Mode</strong> section for retrieval; see the updated <strong>Technical Notes — Bulk HSL Build</strong> reference paper for the full V4.4 substrate refactor.</p>
+                <p><strong>What V4.4 changes:</strong> the HSL substrate is now self-maintaining. Every AIO insert or update grows the HSL topology in place via <code className="bg-muted px-1 rounded">synth_hsls_for_aio</code>; a new dual function <code className="bg-muted px-1 rounded">prune_hsls</code> removes HSLs that have fallen below the 2-AIO floor; and <code className="bg-muted px-1 rounded">Bulk HSL Build</code> is now a recovery / forensic tool rather than a routine action. The 100-element width cap on HSLs has been lifted via a new side table. See the <strong>Recall Search</strong> section for retrieval; see the updated <strong>Technical Notes — Bulk HSL Build</strong> reference paper for the full V4.4 substrate refactor.</p>
                 <h4 className="text-foreground font-medium mt-4">What&apos;s New in V4.4</h4>
                 <ul className="list-disc list-inside space-y-1">
                   <li><strong>Prune HSLs button on the home page</strong> — sits immediately right of <strong>Bulk HSL Build</strong>. One click (after a confirmation prompt) calls <code className="bg-muted px-1 rounded">POST /v1/hsl-data/prune</code>, which removes every HSL whose surviving live-AIO member count has dropped below 2. MRO references do not count toward the floor. The toast reports the count and the first five pruned <code className="bg-muted px-1 rounded">hsl_name</code>s.</li>
@@ -70,7 +70,7 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
                   <li><strong>Store</strong> — AIOs are saved to two backend tables: <code className="bg-muted px-1 rounded">aio_data</code> (parsed elements) and <code className="bg-muted px-1 rounded">information_objects</code> (full encoded URI).</li>
                   <li><strong>Search</strong> — The Hyper-Semantic Processor lets you click any element value to find every AIO that shares it — across all files and sessions.</li>
                   <li><strong>Link</strong> — Create HSL (Hyper-Semantic Layer) records that capture which AIOs share a common element, forming a provenance-chain of semantic relationships.</li>
-                  <li><strong>Ground</strong> — Substrate Mode in ChatAIO uses the AIO/HSL/MRO topology directly as Claude&apos;s retrieval substrate, replacing embedding-based RAG with exact graph traversal.</li>
+                  <li><strong>Ground</strong> — Recall Search in ChatAIO uses the AIO/HSL/MRO topology directly as Claude&apos;s retrieval substrate, replacing embedding-based RAG with exact graph traversal.</li>
                   <li><strong>Administer</strong> — Manage users, roles, AIO data, HSL data, and MRO records via the System Admin panel.</li>
                 </ol>
                 <h4 className="text-foreground font-medium mt-4">Key Benefits</h4>
@@ -79,7 +79,7 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
                   <li><strong>Self-describing</strong> — Every AIO carries its own semantic metadata.</li>
                   <li><strong>Cross-file matching</strong> — Find relationships across any number of source CSVs.</li>
                   <li><strong>Persistent</strong> — All data survives browser refresh; reload from the backend at any time.</li>
-                  <li><strong>Self-improving</strong> — Substrate Mode persists every query as an MRO, so repeated questions get richer priors over time.</li>
+                  <li><strong>Self-improving</strong> — Recall Search persists every query as an MRO, so repeated questions get richer priors over time.</li>
                 </ul>
               </CardContent></Card>
             )}
@@ -103,7 +103,7 @@ export function UserGuide({ onBack, onSysAdmin }: { onBack: () => void; onSysAdm
                   <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Create New HSLs</p><p>Loads all previously saved AIOs from the backend database into memory, then navigates directly to the Hyper-Semantic Processor so you can create new HSL records without re-uploading any CSVs.</p></div>
                   <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Bulk HSL Build (V4.3, refactored in V4.4)</p><p>Sits to the left of <strong>ChatAIO</strong> on the home page. One click triggers a tenant-wide <code className="bg-muted px-1 rounded">POST /v1/hsl-data/rebuild-from-aios</code> — every saved AIO is scanned, all element-pair anchors are reanchored, and the <code className="bg-muted px-1 rounded">hsl_data</code> + <code className="bg-muted px-1 rounded">hsl_member</code> tables are rebuilt in place. A toast reports <em>created</em>, <em>already existed</em>, <em>skipped (single-AIO)</em>, and <em>total AIOs scanned</em>. <strong>In V4.4 this is a recovery tool, not a routine action</strong> — every AIO insert/update now grows the substrate inline via <code className="bg-muted px-1 rounded">synth_hsls_for_aio</code>. Click Bulk HSL Build only when the substrate has somehow diverged (bulk import without going through the API, manual <code className="bg-muted px-1 rounded">hsl_data</code> edits, schema upgrade). See the updated <strong>Technical Notes — Bulk HSL Build</strong> reference paper for full V4.4 algorithm details and the <code className="bg-muted px-1 rounded">as_of</code> point-in-time parameter.</p></div>
                   <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">Prune HSLs (V4.4)</p><p>Sits immediately right of <strong>Bulk HSL Build</strong>, with a scissors icon. Calls <code className="bg-muted px-1 rounded">POST /v1/hsl-data/prune</code> — a single CTE DELETE that removes every HSL whose surviving live-AIO member count has dropped below 2. MRO references do not count toward the floor. <strong>Destructive</strong>, so the click goes through a <code className="bg-muted px-1 rounded">window.confirm</code> guard before reaching the backend. The toast reports the count and the first five pruned <code className="bg-muted px-1 rounded">hsl_name</code>s, or &ldquo;nothing to prune&rdquo; when the substrate is already coherent. Use this after a bulk AIO delete or after editing AIOs in System Admin in a way that drops elements below the 2-AIO floor.</p></div>
-                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">ChatAIO</p><p>Opens the full-screen ChatAIO dialog directly from the home page. See the <strong>Substrate Mode</strong> section for the four retrieval modes available inside.</p></div>
+                  <div><p className="text-foreground font-medium text-xs uppercase tracking-wide mb-1">ChatAIO</p><p>Opens the full-screen ChatAIO dialog directly from the home page. See the <strong>Recall Search</strong> section for the four retrieval modes available inside.</p></div>
                 </div>
 
                 <h4 className="text-foreground font-medium mt-2">Navigation buttons</h4>
@@ -235,18 +235,18 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
 
             {/* ── SUBSTRATE MODE (V4.3) ── */}
             {activeSection === "substrate" && (
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Brain className="w-5 h-5 text-purple-600" />Substrate Mode — Claude Answers Grounded in the AIO/HSL/MRO Substrate</CardTitle></CardHeader>
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Brain className="w-5 h-5 text-purple-600" />Recall Search — Claude Answers Grounded in the AIO/HSL/MRO Substrate</CardTitle></CardHeader>
               <CardContent className="space-y-5 text-sm text-muted-foreground leading-relaxed">
-                <p>V4.3 introduces <strong>Substrate Mode</strong> in the ChatAIO dialog — one of four retrieval modes alongside <strong>Raw Search</strong> (raw CSVs, no IP machinery), <strong>Broad Search</strong> (broad AIO/HSL dump), and <strong>AIO Search</strong> (HSL-guided four-phase). It implements the full five-step pipeline from <em>Paper III: Precomputed Semantic Substrates for Large Language Models</em>, using your stored AIOs, HSL neighborhoods, and prior Memory Result Objects (MROs) as a direct replacement for traditional Retrieval-Augmented Generation.</p>
+                <p>V4.3 introduces <strong>Recall Search</strong> in the ChatAIO dialog — one of four retrieval modes alongside <strong>Raw Search</strong> (raw CSVs, no IP machinery), <strong>Broad Search</strong> (broad AIO/HSL dump), and <strong>AIO Search</strong> (HSL-guided four-phase). It implements the full five-step pipeline from <em>Paper III: Precomputed Semantic Substrates for Large Language Models</em>, using your stored AIOs, HSL neighborhoods, and prior Memory Result Objects (MROs) as a direct replacement for traditional Retrieval-Augmented Generation.</p>
 
                 <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800">
                   <p className="text-purple-800 dark:text-purple-200 text-xs leading-relaxed">
-                    <strong>Where to find it:</strong> Click <strong>ChatAIO</strong> on the home page. In the input bar at the bottom you will see four buttons: <strong>Substrate</strong> (purple, default — Enter key), <strong>AIO Search</strong> (HSL-guided), <strong>Raw Search</strong> (raw CSV control case), and <strong>Broad Search</strong> (broad AIO/HSL dump).
+                    <strong>Where to find it:</strong> Click <strong>ChatAIO</strong> on the home page. In the input bar at the bottom you will see four buttons: <strong>Recall Search</strong> (purple, default — Enter key, formerly Substrate), <strong>AIO Search</strong> (HSL-guided), <strong>Raw Search</strong> (raw CSV control case), and <strong>Broad Search</strong> (broad AIO/HSL dump).
                   </p>
                 </div>
 
-                <h4 className="text-foreground font-medium mt-4">What happens when you click Substrate</h4>
-                <p>Unlike Broad Search, which ships up to 500 raw records to Claude as context, Substrate runs a precomputed-topology traversal before calling the model:</p>
+                <h4 className="text-foreground font-medium mt-4">What happens when you click Recall Search</h4>
+                <p>Unlike Broad Search, which ships up to 500 raw records to Claude as context, Recall Search runs a precomputed-topology traversal before calling the model:</p>
                 <ol className="list-decimal list-inside space-y-2 ml-2">
                   <li><strong>Cue extraction</strong> — your question is parsed against the Information Elements directory and the full AIO value vocabulary to extract a cue set <code className="bg-muted px-1 rounded">K</code> of <code className="bg-muted px-1 rounded">[Key.Value]</code> pairs. This is deterministic and happens in the browser.</li>
                   <li><strong>HSL traversal</strong> — the neighborhood <code className="bg-muted px-1 rounded">N(K) = ⋂ H(k)</code> is computed as the set intersection of per-cue AIO sets. Only the AIOs that match all cues are retrieved.</li>
@@ -256,13 +256,14 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                 </ol>
 
                 <h4 className="text-foreground font-medium mt-4">Reading the response metadata</h4>
-                <p>Every Substrate response ends with an italic metadata line:</p>
+                <p>Every Recall Search response ends with an italic metadata line:</p>
                 <div className="p-3 rounded-lg bg-muted font-mono text-xs italic">
-                  Substrate pipeline: 3 cues → 17 AIOs in neighborhood · 2 MRO priors used · MRO saved
+                  Recall Search: 3 cues → 2 HSL families (Vendors, Invoices) → 17 AIOs in neighborhood · 2 MRO priors used · MRO saved
                 </div>
                 <ul className="list-disc list-inside space-y-1 mt-2">
                   <li><strong>cues</strong> — how many element-cues were extracted from your question</li>
-                  <li><strong>AIOs in neighborhood</strong> — the exact size of <code className="bg-muted px-1 rounded">N(K)</code>; this is how many records Claude saw, not the corpus size</li>
+                  <li><strong>HSL families</strong> — the count of distinct HSLs whose names matched at least one cue value; this is the multi-family fan-out across the topology, with the contributing HSL names shown in parentheses (truncated after eight)</li>
+                  <li><strong>AIOs in neighborhood</strong> — the exact size of <code className="bg-muted px-1 rounded">N(K)</code> after the multi-family union; this is how many records Claude saw, not the corpus size</li>
                   <li><strong>MRO priors used</strong> — how many prior retrieval episodes were surfaced as framing</li>
                   <li><strong>MRO saved</strong> — whether this answer was persisted for future reuse</li>
                 </ul>
@@ -282,21 +283,21 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                     <p>Targeted questions where an HSL library already exists. Backend parses the query, matches HSLs by element overlap, gathers only the AIOs reached via those HSLs, and synthesizes an answer. Cost: one round-trip for HSL search, dramatically smaller token footprint than Broad Search.</p>
                   </div>
                   <div className="pl-3 border-l-2 border-purple-500/50">
-                    <p className="text-foreground font-medium text-xs">Substrate — Paper III Pipeline</p>
+                    <p className="text-foreground font-medium text-xs">Recall Search — Paper III Pipeline (formerly Substrate)</p>
                     <p>Repeated or recurring questions. Deterministic cue extraction, bounded neighborhood traversal, MRO reuse, and auditable provenance. Cost: grows with neighborhood size, not corpus size. Gets faster and richer over time as MROs accumulate. This is the default — press Enter to run it.</p>
                   </div>
                 </div>
 
-                <h4 className="text-foreground font-medium mt-4">Why Substrate gets better over time</h4>
-                <p>Each Substrate query persists an MRO containing the cue set, the traversal path, and the answer. When you (or any user) ask a similar question later, the Jaccard-ranked MRO priors are injected into the new prompt as framing — the system literally remembers its prior successful retrievals. Traditional RAG has no equivalent mechanism; its Gold layer is static.</p>
+                <h4 className="text-foreground font-medium mt-4">Why Recall Search gets better over time</h4>
+                <p>Each Recall Search query persists an MRO containing the cue set, the traversal path, and the answer. When you (or any user) ask a similar question later, the Jaccard-ranked MRO priors are injected into the new prompt as framing — the system literally remembers its prior successful retrievals. Traditional RAG has no equivalent mechanism; its Gold layer is static.</p>
 
                 <h4 className="text-foreground font-medium mt-4">V4.3 Performance &amp; Quality Enhancements</h4>
                 <p>The latest iteration of the search pipeline ships four optimizations that are visible to you as a faster, cheaper, more accurate experience without changing how you ask questions:</p>
                 <ul className="list-disc list-inside space-y-2 ml-2">
-                  <li><strong>Streaming responses (SSE)</strong> — both Substrate and AIO Search now stream tokens to the dialog as Claude generates them, so the answer begins appearing within roughly a second instead of after the full reply is composed. The footer (token counts, MRO save, perf metrics) is appended on stream completion. Implementation: <code className="bg-muted px-1 rounded">/v1/op/substrate-chat/stream</code> and <code className="bg-muted px-1 rounded">/v1/op/aio-search/stream</code> over Server-Sent Events.</li>
+                  <li><strong>Streaming responses (SSE)</strong> — both Recall Search and AIO Search now stream tokens to the dialog as Claude generates them, so the answer begins appearing within roughly a second instead of after the full reply is composed. The footer (token counts, MRO save, perf metrics) is appended on stream completion. Implementation: <code className="bg-muted px-1 rounded">/v1/op/substrate-chat/stream</code> and <code className="bg-muted px-1 rounded">/v1/op/aio-search/stream</code> over Server-Sent Events.</li>
                   <li><strong>Prompt caching</strong> — the assembled system prompt (HSL neighborhood, MRO priors, AIO evidence) is marked with Anthropic&apos;s <code className="bg-muted px-1 rounded">cache_control: ephemeral</code>. Repeat or follow-up questions within roughly five minutes are served at a 90% input-token discount. Cache hits are logged server-side as <code className="bg-muted px-1 rounded">cache_read</code>/<code className="bg-muted px-1 rounded">cache_create</code> token counts.</li>
                   <li><strong>Summary-mode MRO list</strong> — when the dialog opens it now fetches MROs in summary projection (no <code className="bg-muted px-1 rounded">result_text</code>, no <code className="bg-muted px-1 rounded">context_bundle</code>) — about 80% smaller payload. Only the top-K priors that survive Jaccard ranking are hydrated on demand via <code className="bg-muted px-1 rounded">GET /v1/mro-objects/{`{id}`}</code>, in parallel.</li>
-                  <li><strong>In-memory HSL back-link</strong> — when a Substrate response is saved as a new MRO, the contributing HSLs are linked using the cue/HSL match set already computed client-side (<code className="bg-muted px-1 rounded">getMatchedHslIds</code>). This eliminates a duplicate server-side <code className="bg-muted px-1 rounded">ILIKE</code> scan and one network round-trip per query.</li>
+                  <li><strong>In-memory HSL back-link</strong> — when a Recall Search response is saved as a new MRO, the contributing HSLs are linked using the cue/HSL match set already computed client-side (<code className="bg-muted px-1 rounded">getMatchedHslIds</code>). This eliminates a duplicate server-side <code className="bg-muted px-1 rounded">ILIKE</code> scan and one network round-trip per query.</li>
                   <li><strong>Inverted-index HSL retrieval</strong> — migration <code className="bg-muted px-1 rounded">017_information_element_refs.sql</code> explodes every <code className="bg-muted px-1 rounded">[Key.Value]</code> token in the corpus into its own indexed row. AIO Search Phase 2 now collapses the previous N&times;100-column ILIKE storm into a single B-tree probe (<code className="bg-muted px-1 rounded">SELECT DISTINCT hsl_id FROM information_element_refs WHERE value_lower = ANY($1)</code>). Triggers on <code className="bg-muted px-1 rounded">hsl_data</code> and <code className="bg-muted px-1 rounded">aio_data</code> keep the index in sync automatically. Order-of-magnitude latency improvement once the corpus exceeds a few thousand HSLs.</li>
                 </ul>
 
@@ -309,7 +310,7 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                 </ul>
 
                 <h4 className="text-foreground font-medium mt-4">Recall vs. filter — semantic filtering of the candidate set</h4>
-                <p>Both Substrate and AIO Search are tuned for <strong>recall</strong> — the retrieval step surfaces a generous candidate set so nothing relevant is missed. The synthesis prompt now explicitly instructs Claude that this candidate set is <em>not pre-filtered</em> against the semantic intent of the question, and to apply numeric and categorical filters from the question before answering:</p>
+                <p>Both Recall Search and AIO Search are tuned for <strong>recall</strong> — the retrieval step surfaces a generous candidate set so nothing relevant is missed. The synthesis prompt now explicitly instructs Claude that this candidate set is <em>not pre-filtered</em> against the semantic intent of the question, and to apply numeric and categorical filters from the question before answering:</p>
                 <ul className="list-disc list-inside space-y-1 ml-2">
                   <li>Numeric comparators (&quot;over $10M&quot;, &quot;after 2020&quot;, &quot;at least 5&quot;) are parsed from the prompt; non-matching candidates are dropped from the answer rather than listed with a red X or rejection annotation.</li>
                   <li>Categorical filters (&quot;completed projects&quot;, &quot;vendors in Texas&quot;) are applied the same way.</li>
@@ -588,7 +589,7 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                     <li><strong>Information Physics Reference</strong> — theoretical overview.</li>
                     <li><strong>AIO Reference Paper</strong> — the AIO as the quantum particle of Information Physics.</li>
                     <li><strong>MRO Reference Paper</strong> — the Memory Result Object as governed episodic memory.</li>
-                    <li><strong>Paper III — Precomputed Substrates for LLMs</strong> — the foundation of Substrate Chat mode.</li>
+                    <li><strong>Paper III — Precomputed Substrates for LLMs</strong> — the foundation of Recall Search mode.</li>
                     <li><strong>Technical Notes — Bulk HSL Build (V4.3, Confidential / Trade Secret)</strong> — engineering reference for the tenant-wide HSL reconstruction function. Subject to the NDA on file.</li>
                   </ul>
                 </div>
@@ -699,9 +700,9 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                 <ul className="list-disc list-inside space-y-2">
                   <li><strong>You usually don&apos;t need to click Bulk HSL Build any more.</strong> Every AIO insert and update now grows the HSL topology inline via <code className="bg-muted px-1 rounded">synth_hsls_for_aio</code>. Click Bulk HSL Build only as a recovery action — after a bulk import that bypassed the API, after manual edits to <code className="bg-muted px-1 rounded">hsl_data</code> in System Admin, or after a schema upgrade.</li>
                   <li><strong>Click Prune HSLs after deleting AIOs.</strong> Bulk AIO deletes leave behind orphan HSLs whose surviving member count has dropped below 2. The Prune HSLs button (right of Bulk HSL Build) is the dual function — it sweeps them in a single CTE DELETE. The confirmation prompt is intentional; prune is destructive and not idempotent against subsequent AIO writes.</li>
-                  <li><strong>Audit any ChatAIO answer.</strong> Open System Admin → Search Stats, find the row for the query, and click the ✅ in the MRO column. The popup shows the full saved MRO — the same evidence Substrate Mode used to answer — without leaving the stats screen.</li>
-                  <li><strong>Substrate vs. AIO Search.</strong> Substrate is the default and reuses prior MROs as priors; AIO Search is the original four-phase HSL-guided synthesizer. Keep Substrate on for repeat-question workloads where MRO accumulation pays off.</li>
-                  <li><strong>Forensic / regression rebuilds.</strong> The rebuild endpoint accepts an optional <code className="bg-muted px-1 rounded">?as_of=&lt;ISO8601&gt;</code> to reconstruct the substrate against a frozen AIO snapshot. Use this to reproduce historical Substrate-mode retrievals or to bisect a regression introduced by a substrate change. Reachable via the API client; not yet a UI surface.</li>
+                  <li><strong>Audit any ChatAIO answer.</strong> Open System Admin → Search Stats, find the row for the query, and click the ✅ in the MRO column. The popup shows the full saved MRO — the same evidence Recall Search used to answer — without leaving the stats screen.</li>
+                  <li><strong>Recall Search vs. AIO Search.</strong> Recall Search is the default and reuses prior MROs as priors; AIO Search is the original four-phase HSL-guided synthesizer. Keep Recall Search on for repeat-question workloads where MRO accumulation pays off.</li>
+                  <li><strong>Forensic / regression rebuilds.</strong> The rebuild endpoint accepts an optional <code className="bg-muted px-1 rounded">?as_of=&lt;ISO8601&gt;</code> to reconstruct the substrate against a frozen AIO snapshot. Use this to reproduce historical Recall Search retrievals or to bisect a regression introduced by a substrate change. Reachable via the API client; not yet a UI surface.</li>
                 </ul>
               </CardContent></Card>
             )}
