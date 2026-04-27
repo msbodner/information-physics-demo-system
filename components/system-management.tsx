@@ -3585,6 +3585,11 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
     setAuthedUser(null)
   }, [])
 
+  // Embedded-document viewer state. When set, renders the .docx at this
+  // URL inline as HTML in a modal, instead of triggering a browser
+  // download. Cleared when the dialog closes.
+  const [embedDoc, setEmbedDoc] = useState<{ url: string; title: string } | null>(null)
+
   if (!authedUser) {
     return <LoginGateScreen onLogin={handleLogin} onBack={onBack} />
   }
@@ -3808,27 +3813,17 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
                       {
-                        download: "/docs/Live_vs_Recall_Search_Technical_Report.docx",
-                        filename: "Live_vs_Recall_Search_Technical_Report.docx",
+                        embed: "/docs/Live_vs_Recall_Search_Technical_Report.docx",
                         icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
                         title: "Technical Report — Live vs. Recall (Measured)",
                         desc: "Single-run measurement against the Railway production deployment with cache bypassed on both paths. Reports measured tokens, latency, and DB scope on a representative named-entity query. Reproducible via scripts/measure_modes.ts.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
                       {
-                        download: "/docs/Four_Mode_ChatAIO_Comparison_Technical_Report.docx",
-                        filename: "Four_Mode_ChatAIO_Comparison_Technical_Report.docx",
+                        embed: "/docs/Four_Mode_ChatAIO_Comparison_Technical_Report.docx",
                         icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
                         title: "Technical Report — Four-Mode Comparison (Measured)",
                         desc: "Version 2 of the measurement report extended to all four ChatAIO modes: Recall, Live, Broad, and Raw. Includes per-mode pipeline traces, master side-by-side, cost modeling at Anthropic list prices (38.6× spread Recall→Broad), and a decision matrix.",
-                        color: "border-indigo-300/50 hover:border-indigo-400",
-                      },
-                      {
-                        download: "/docs/Recall_Search_Trace_SarahMitchell.docx",
-                        filename: "Recall_Search_Trace_SarahMitchell.docx",
-                        icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
-                        title: "Recall Trace — Sarah Mitchell Query (End-to-End)",
-                        desc: "Single-query Recall Search trace against the Railway production deployment with the MRO short-circuit bypassed. Documents every MRO probe hit, every cue extracted, every HSL probed, and every AIO sent to the LLM, plus the verbatim final reply.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
                       {
@@ -3836,14 +3831,16 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         filename: "Recall_Search_Trace_JamesOkafor.docx",
                         icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
                         title: "Recall Trace — James Okafor Query (End-to-End)",
-                        desc: "Companion to the Sarah Mitchell trace. Same query shape applied to a different person, run against Railway production. Useful as a side-by-side: MRO probe scores drop to 0.621 (no short-circuit), but the pipeline still resolves 149 cues and finds the answer in 40 AIOs.",
+                        desc: "Single-query Recall Search trace against the Railway production deployment with the MRO short-circuit bypassed. Documents every MRO probe hit, every cue extracted, every HSL probed, and every AIO sent to the LLM, plus the verbatim final reply.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
-                    ].map(({ view, download, filename, icon, title, desc, color }) => (
+                    ].map(({ view, download, embed, filename, icon, title, desc, color }) => (
                       <button
-                        key={view ?? download}
+                        key={view ?? download ?? embed}
                         onClick={() => {
-                          if (download) {
+                          if (embed) {
+                            setEmbedDoc({ url: embed, title })
+                          } else if (download) {
                             const a = document.createElement("a")
                             a.href = download
                             a.download = filename ?? ""
@@ -3854,7 +3851,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                             onNavigate?.(view!)
                           }
                         }}
-                        disabled={!download && !onNavigate}
+                        disabled={!download && !embed && !onNavigate}
                         className={`text-left p-5 rounded-xl border-2 bg-card transition-colors duration-150 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-default ${color}`}
                       >
                         <div className="flex items-start gap-4">
@@ -3865,6 +3862,11 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                               {download && (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-rose-700 bg-rose-100 border border-rose-300 rounded px-1.5 py-0.5">
                                   <FileDown className="w-3 h-3" />.docx
+                                </span>
+                              )}
+                              {embed && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 bg-indigo-100 border border-indigo-300 rounded px-1.5 py-0.5">
+                                  <BookOpen className="w-3 h-3" />view
                                 </span>
                               )}
                             </div>
@@ -3881,6 +3883,71 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
 
         </Tabs>
       </div>
+
+      {embedDoc && (
+        <EmbeddedDocViewer
+          url={embedDoc.url}
+          title={embedDoc.title}
+          onClose={() => setEmbedDoc(null)}
+        />
+      )}
     </div>
+  )
+}
+
+// ── Embedded Document Viewer ──────────────────────────────────────────
+//
+// Fetches a .docx from the given URL, converts it to HTML in the browser
+// via mammoth, and renders the result in a scrollable modal. No download
+// is triggered. The .docx file still lives in /public/docs/ for tooling
+// that wants the original.
+
+function EmbeddedDocViewer({ url, title, onClose }: { url: string; title: string; onClose: () => void }) {
+  const [html, setHtml] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setHtml(null)
+    setError(null)
+    ;(async () => {
+      try {
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`Fetch failed: ${res.status}`)
+        const buf = await res.arrayBuffer()
+        // Lazy-load mammoth so it isn't in the main bundle for users who
+        // never open a report.
+        const mammoth = await import("mammoth/mammoth.browser")
+        const result = await mammoth.convertToHtml({ arrayBuffer: buf })
+        if (!cancelled) setHtml(result.value || "<p><em>(empty document)</em></p>")
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message ?? String(e))
+      }
+    })()
+    return () => { cancelled = true }
+  }, [url])
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="max-w-5xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="px-6 py-4 border-b shrink-0">
+          <DialogTitle className="text-lg">{title}</DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 overflow-auto px-8 py-6 bg-muted/20">
+          {error ? (
+            <p className="text-sm text-destructive">Could not render document: {error}</p>
+          ) : !html ? (
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div
+              className="docx-rendered prose prose-sm max-w-none bg-card rounded-lg shadow-sm border border-border p-8"
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
