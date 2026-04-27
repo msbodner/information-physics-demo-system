@@ -3831,6 +3831,14 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         desc: "Single-query Recall Search trace against the Railway production deployment with the MRO short-circuit bypassed. Documents every MRO probe hit, every cue extracted, every HSL probed, and every AIO sent to the LLM, plus the verbatim final reply.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
+                      {
+                        download: "/docs/Recall_Search_Trace_JamesOkafor.docx",
+                        filename: "Recall_Search_Trace_JamesOkafor.docx",
+                        icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
+                        title: "Recall Trace — James Okafor Query (End-to-End)",
+                        desc: "Companion to the Sarah Mitchell trace. Same query shape applied to a different person, run against Railway production. Useful as a side-by-side: MRO probe scores drop to 0.621 (no short-circuit), but the pipeline still resolves 149 cues and finds the answer in 40 AIOs.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
                     ].map(({ view, download, filename, icon, title, desc, color }) => (
                       <button
                         key={view ?? download}

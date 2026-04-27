@@ -16,7 +16,9 @@
 const FRONTEND_BASE = process.env.IP_FRONTEND_BASE ?? "https://informationphysicsdemo.up.railway.app"
 const TENANT_ID = process.env.IP_TENANT_ID ?? "tenantA"
 const SALT = Math.random().toString(36).slice(2, 8)
-const QUERY = `What roles does Sarah Mitchell hold. List projects and financials for each. (run ${SALT})`
+const BASE_QUERY = process.env.IP_QUERY
+  ?? "What roles does Sarah Mitchell hold. List projects and financials for each."
+const QUERY = `${BASE_QUERY} (run ${SALT})`
 
 // Fetch shim: rewrite /api/* to Railway, inject tenant header.
 //
