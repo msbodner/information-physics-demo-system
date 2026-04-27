@@ -165,7 +165,10 @@ async function runRecall(query: string): Promise<ModeResult> {
 async function runLive(query: string): Promise<ModeResult> {
   const t0 = Date.now()
   try {
-    const r = await aioSearchChat([{ role: "user", content: query }])
+    // bypassCache=true: benchmarks always want measured tokens, not a
+    // cached prior reply. The salt suffix on the query already defeats
+    // the cache key, but this is belt-and-braces.
+    const r = await aioSearchChat([{ role: "user", content: query }], { bypassCache: true })
     const latency_ms = Date.now() - t0
     if (!r || "error" in (r as any)) {
       return { mode: "Live", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms, error: asErrorString(r ?? "no_response") }

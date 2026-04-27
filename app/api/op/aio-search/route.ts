@@ -9,7 +9,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
-    const res = await fetch(`${API_BASE}/v1/op/aio-search`, {
+    // Forward the query string so client-supplied flags like
+    // ?bypass_cache=true reach the backend's aio-search route.
+    const qs = request.nextUrl.search ?? ""
+    const res = await fetch(`${API_BASE}/v1/op/aio-search${qs}`, {
       method: "POST",
       signal: controller.signal,
       headers: {

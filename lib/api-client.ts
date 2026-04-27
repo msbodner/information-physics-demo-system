@@ -171,9 +171,21 @@ export interface AioSearchResponse {
   output_tokens: number
 }
 
-export async function aioSearchChat(messages: ChatMessage[]): Promise<AioSearchResponse | { error: string } | null> {
+export async function aioSearchChat(
+  messages: ChatMessage[],
+  opts: { bypassCache?: boolean } = {},
+): Promise<AioSearchResponse | { error: string } | null> {
+  // bypassCache=true appends ?bypass_cache=true so the server-side
+  // query_cache short-circuit is skipped. Default false to preserve
+  // existing caller behavior; chat-aio-dialog and benchmarks pass true
+  // because users iterating through the UI expect fresh retrieval (and
+  // because stale cache entries from before a backend retrieval fix
+  // will otherwise mask the new behavior).
+  const url = opts.bypassCache
+    ? "/api/op/aio-search?bypass_cache=true"
+    : "/api/op/aio-search"
   try {
-    const res = await fetch("/api/op/aio-search", {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages }),
@@ -268,8 +280,12 @@ export interface AioSearchStreamMeta {
 export async function aioSearchChatStream(
   messages: ChatMessage[],
   cb: SSECallbacks<AioSearchStreamMeta>,
+  opts: { bypassCache?: boolean } = {},
 ): Promise<void> {
-  await consumeSSE<AioSearchStreamMeta>("/api/op/aio-search/stream", { messages }, cb)
+  const url = opts.bypassCache
+    ? "/api/op/aio-search/stream?bypass_cache=true"
+    : "/api/op/aio-search/stream"
+  await consumeSSE<AioSearchStreamMeta>(url, { messages }, cb)
 }
 
 interface SubstrateStreamMeta {

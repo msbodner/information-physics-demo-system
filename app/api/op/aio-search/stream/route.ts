@@ -9,7 +9,9 @@ const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "tenantA"
 export async function POST(request: NextRequest) {
   try {
     const body = await request.text()
-    const upstream = await fetch(`${API_BASE}/v1/op/aio-search/stream`, {
+    // Forward the query string so ?bypass_cache=true reaches the backend.
+    const qs = request.nextUrl.search ?? ""
+    const upstream = await fetch(`${API_BASE}/v1/op/aio-search/stream${qs}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -434,7 +434,13 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       },
       onMeta: (m) => { metaCaptured = m },
       onError: (e) => { errMsg = e },
-    }).catch((e) => { errMsg = String(e) })
+      // bypassCache=true: in-app users iterating through the dialog
+      // expect fresh retrieval. The server-side query_cache is intended
+      // for repeated identical API calls in production, not interactive
+      // sessions where stale cached entries (especially from before
+      // retrieval-pipeline changes) cause confusing "this should work"
+      // failures.
+    }, { bypassCache: true }).catch((e) => { errMsg = String(e) })
     const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
     if (errMsg && !acc) {
