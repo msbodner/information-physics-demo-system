@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useMemo, useEffect } from "react"
-import { ArrowLeft, Search, X, Download, Database, Layers, FileText, Atom, Settings, FileSpreadsheet, Eye, Upload, MessageSquare } from "lucide-react"
+import { ArrowLeft, Search, X, Download, Database, Layers, FileText, Atom, Settings, FileSpreadsheet, Eye, Upload, MessageSquare, Gauge } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -10,6 +10,8 @@ import { toast } from "sonner"
 import { parseAioLine, parseCSV, csvToAio, downloadBlob, type ConvertedFile, type ParsedAio, type ParsedElement } from "@/lib/aio-utils"
 import { summarizeAIOs, resolveEntities, listHslData, createIO, createHslData, listAioData, listInformationElements, createInformationElement, type IORecord, type EntityItem, type HslDataRecord, type AioDataRecord, type InformationElement } from "@/lib/api-client"
 import { ChatAioDialog } from "@/components/chat-aio-dialog"
+import { BenchmarkRunner } from "@/components/benchmark-runner"
+import { BENCHMARKS, type Benchmark } from "@/lib/benchmarks"
 
 export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: { onBack: () => void; backendIsOnline: boolean; onSysAdmin: () => void }) {
   const [aioRecords, setAioRecords] = useState<AioDataRecord[]>([])
@@ -23,6 +25,7 @@ export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: 
   const [compoundHslData, setCompoundHslData] = useState<{ labels: string[]; fileName: string; rows: { aioName: string; csvRoot: string; lineNumber: number; createdAt: string }[]; content: string; matchingAioDetails: ParsedAio[] } | null>(null)
   const [showFileViewer, setShowFileViewer] = useState(false)
   const [showDetailsAio, setShowDetailsAio] = useState<ParsedAio | null>(null)
+  const [activeBenchmark, setActiveBenchmark] = useState<Benchmark | null>(null)
 
   // Load AIOs and Information Elements
   useEffect(() => {
@@ -167,14 +170,33 @@ export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: 
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" onClick={onBack} className="gap-2"><ArrowLeft className="w-4 h-4" />Back</Button>
             <h1 className="text-lg font-bold text-foreground">R &amp; D — Compound HSL Builder</h1>
           </div>
-          <Button variant="outline" size="sm" onClick={onSysAdmin} className="gap-2"><Settings className="w-4 h-4" />System Admin</Button>
+          <div className="flex items-center gap-2">
+            {BENCHMARKS.map((bm, i) => (
+              <Button
+                key={bm.id}
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveBenchmark(bm)}
+                disabled={!backendIsOnline}
+                className="gap-2"
+                title={bm.description}
+              >
+                <Gauge className="w-4 h-4" />Benchmark {i + 1}
+              </Button>
+            ))}
+            <Button variant="outline" size="sm" onClick={onSysAdmin} className="gap-2"><Settings className="w-4 h-4" />System Admin</Button>
+          </div>
         </div>
       </header>
+
+      {activeBenchmark && (
+        <BenchmarkRunner benchmark={activeBenchmark} onClose={() => setActiveBenchmark(null)} />
+      )}
 
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
         <div className="grid lg:grid-cols-3 gap-6">

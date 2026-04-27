@@ -17,11 +17,14 @@ import {
   assembleBundle,
   serializeBundle,
   computeHslBoost,
+  diversifyByCSV,
+  traverseHSL,
   type ContextBundle,
   type HslLite,
   type MRO,
 } from "../aio-math"
 import { aioFromRaw } from "../aio-math"
+import { canonicalField } from "../hsl-aliases"
 
 // ── extractCues: HSL catalog promotion ──────────────────────────────
 
@@ -121,6 +124,89 @@ test("serializeBundle: emits valid JSON with the expected fields", () => {
   // Compactness: no banner strings.
   assert.ok(!text.includes("=== CONTEXT BUNDLE"))
   assert.ok(!text.includes("TIER 1"))
+})
+
+// ── diversifyByCSV: per-CSV cap ─────────────────────────────────────
+
+test("diversifyByCSV: takes a fair share from each CSV before backfilling", () => {
+  // 10 items: 7 from A, 2 from B, 1 from C. cap=6, numCsvs=3 → perBucket=2.
+  // Expect 2 from A, 2 from B (only 2 anyway), 1 from C, then 1 backfill from A.
+  const items = [
+    { id: "a1", csv: "A" }, { id: "a2", csv: "A" }, { id: "a3", csv: "A" },
+    { id: "a4", csv: "A" }, { id: "a5", csv: "A" }, { id: "a6", csv: "A" },
+    { id: "a7", csv: "A" },
+    { id: "b1", csv: "B" }, { id: "b2", csv: "B" },
+    { id: "c1", csv: "C" },
+  ]
+  const out = diversifyByCSV(items, (x) => x.csv, 6)
+  assert.equal(out.length, 6)
+  const csvs = out.map((x) => x.csv).sort()
+  // Every CSV must be represented at least once
+  assert.ok(csvs.includes("A") && csvs.includes("B") && csvs.includes("C"))
+  // B and C must contribute (Bug 1: AIA305 was crowding out single-row CSVs)
+  assert.equal(out.filter((x) => x.csv === "B").length, 2)
+  assert.equal(out.filter((x) => x.csv === "C").length, 1)
+})
+
+test("diversifyByCSV: returns input unchanged when items <= total", () => {
+  const items = [{ csv: "A" }, { csv: "B" }]
+  const out = diversifyByCSV(items, (x) => x.csv, 10)
+  assert.deepEqual(out, items)
+})
+
+test("diversifyByCSV: dominant CSV cannot crowd out a single-row CSV", () => {
+  // Mirrors the PRJ-003 benchmark profile: 30 AIA305 rows + 1 row from
+  // each of 4 operational CSVs. cap=10 → AIA305 must yield 4 slots.
+  const items: Array<{ csv: string }> = []
+  for (let i = 0; i < 30; i++) items.push({ csv: "AIA305" })
+  for (const c of ["acc_rfis", "acc_issues", "acc_submittals", "acc_vendors"]) {
+    items.push({ csv: c })
+  }
+  const out = diversifyByCSV(items, (x) => x.csv, 10)
+  const seen = new Set(out.map((x) => x.csv))
+  assert.ok(seen.has("acc_rfis"))
+  assert.ok(seen.has("acc_issues"))
+  assert.ok(seen.has("acc_submittals"))
+  assert.ok(seen.has("acc_vendors"))
+  assert.ok(out.length <= 10)
+})
+
+// ── HSL field aliasing ──────────────────────────────────────────────
+
+test("canonicalField: folds Project ID variants onto Project", () => {
+  assert.equal(canonicalField("Project_ID"), "Project")
+  assert.equal(canonicalField("Project ID"), "Project")
+  assert.equal(canonicalField("Projects Assigned"), "Project")
+  assert.equal(canonicalField("Applicable Projects"), "Project")
+  assert.equal(canonicalField("ProjectID"), "Project")
+})
+
+test("canonicalField: leaves unrelated fields unchanged", () => {
+  assert.equal(canonicalField("Vendor Name"), "Vendor Name")
+  assert.equal(canonicalField("Status"), "Status")
+})
+
+test("traverseHSL: cue [Project.PRJ-003] matches AIOs across alias shapes", () => {
+  const aia = aioFromRaw("[OriginalCSV.AIA305.csv][Project_ID.PRJ-003]", "AIA305.csv")
+  const rfi = aioFromRaw("[OriginalCSV.acc_rfis.csv][Project ID.PRJ-003]", "acc_rfis.csv")
+  const ven = aioFromRaw("[OriginalCSV.acc_vendors.csv][Projects Assigned.PRJ-003]", "acc_vendors.csv")
+  const cost = aioFromRaw("[OriginalCSV.acc_cost_codes.csv][Applicable Projects.PRJ-003]", "acc_cost_codes.csv")
+  const noise = aioFromRaw("[OriginalCSV.other.csv][Project_ID.PRJ-099]", "other.csv")
+  const cues = [{ key: "Project", value: "PRJ-003", raw: "[Project.PRJ-003]" }]
+  const { matches } = traverseHSL(cues, [aia, rfi, ven, cost, noise])
+  const files = matches.map((m) => m.fileName).sort()
+  assert.deepEqual(files, ["AIA305.csv", "acc_cost_codes.csv", "acc_rfis.csv", "acc_vendors.csv"])
+})
+
+test("extractCues: catalog key Project_ID is normalized to Project in emitted cue", () => {
+  const cues = extractCues(
+    "report on PRJ-003",
+    [],
+    new Set(["PRJ-003"]),
+    [{ key: "Project_ID", value: "PRJ-003" }],
+  )
+  const raws = cues.map((c) => c.raw)
+  assert.ok(raws.includes("[Project.PRJ-003]"), `expected [Project.PRJ-003] in ${raws.join(",")}`)
 })
 
 test("serializeBundle: priors are truncated to ~200 chars", () => {

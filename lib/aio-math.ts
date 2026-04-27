@@ -21,6 +21,7 @@
 
 import type { ParsedAio, ParsedElement } from "./aio-utils"
 import { parseAioLine } from "./aio-utils"
+import { canonicalField } from "./hsl-aliases"
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -198,10 +199,16 @@ export function extractCues(
   const seen = new Set<string>()
 
   const push = (key: string, value?: string) => {
-    const raw = value ? `[${key}.${value}]` : `[${key}.*]`
+    // Fold equivalent field names onto their canonical form (see
+    // lib/hsl-aliases.ts). Lets a single `[Project.PRJ-003]` cue match
+    // AIO elements stored as `[Project ID.…]`, `[Project_ID.…]`,
+    // `[Projects Assigned.…]`, etc. — without that, cross-CSV joins
+    // fragment by field-name shape.
+    const canonKey = canonicalField(key)
+    const raw = value ? `[${canonKey}.${value}]` : `[${canonKey}.*]`
     if (seen.has(raw)) return
     seen.add(raw)
-    cues.push({ key, value, raw })
+    cues.push({ key: canonKey, value, raw })
   }
 
   // 1a. Match exact [Key.Value] phrases in the query.
@@ -301,13 +308,15 @@ export function traverseHSL(
 
   for (const cue of cues) {
     hslNames.push(cue.raw)
-    const cueKey = cue.key.toLowerCase()
+    // Canonicalize the cue key so element-side aliases (`Project ID`,
+    // `Projects Assigned`, …) collapse onto the same comparison axis.
+    const cueKey = canonicalField(cue.key).toLowerCase()
     const cueVal = cue.value?.toLowerCase()
 
     for (const aio of aios) {
       let hit = false
       for (const el of aio.elements) {
-        const elKey = el.key.toLowerCase()
+        const elKey = canonicalField(el.key).toLowerCase()
         const elVal = el.value.toLowerCase()
 
         if (cue.key === "*" && cueVal !== undefined) {
@@ -340,6 +349,81 @@ export function traverseHSL(
     .filter((a) => (scores.get(a.raw) ?? 0) > 0)
     .sort((a, b) => (scores.get(b.raw) ?? 0) - (scores.get(a.raw) ?? 0))
   return { matches: union, hslNames }
+}
+
+// ── 2b. Per-CSV diversity cap ────────────────────────────────────────
+
+/**
+ * Read the `OriginalCSV` element from a parsed AIO. Falls back to the
+ * fileName's CSV stem so AIOs missing the meta element (legacy / hand-
+ * built fixtures) still get bucketed sensibly instead of all collapsing
+ * to the same "unknown" bucket.
+ */
+function getOriginalCSV(a: ParsedAio): string {
+  for (const el of a.elements) {
+    if (el.key === "OriginalCSV") return el.value
+  }
+  // fileName is shaped like "acc_rfis.csv - Row 162"; strip the row tail.
+  const stripped = (a.fileName || "").replace(/\s*-\s*Row\s*\d+$/i, "")
+  return stripped || "unknown"
+}
+
+/**
+ * Diversity-aware cap: take up to `floor(total / numCsvs)` from each
+ * unique CSV bucket (preserving input order so traversal/boost rank is
+ * respected), then fill remaining slots from the highest-ranked leftovers.
+ *
+ * Properties:
+ *   - never exceeds `total`
+ *   - if a bucket has only 1 candidate, that 1 still makes it in
+ *   - input order within a bucket is preserved (stable)
+ *   - no CSV is arbitrarily penalized — every bucket competes for the
+ *     same per-bucket share, then leftovers fill in by rank
+ */
+export function diversifyByCSV<T>(
+  items: T[],
+  getCSV: (t: T) => string,
+  total: number,
+): T[] {
+  if (total <= 0 || items.length === 0) return []
+  if (items.length <= total) return items.slice()
+
+  // Group preserving order
+  const buckets = new Map<string, T[]>()
+  const order: string[] = []
+  for (const it of items) {
+    const k = getCSV(it) || "unknown"
+    let b = buckets.get(k)
+    if (!b) { b = []; buckets.set(k, b); order.push(k) }
+    b.push(it)
+  }
+
+  const numCsvs = order.length
+  if (numCsvs === 1) return items.slice(0, total)
+
+  const perBucket = Math.max(1, Math.floor(total / numCsvs))
+  const picked: T[] = []
+  const pickedSet = new Set<T>()
+  for (const k of order) {
+    const b = buckets.get(k)!
+    for (let i = 0; i < b.length && i < perBucket && picked.length < total; i++) {
+      picked.push(b[i])
+      pickedSet.add(b[i])
+    }
+  }
+
+  // Backfill from leftovers in original (rank) order
+  if (picked.length < total) {
+    for (const it of items) {
+      if (picked.length >= total) break
+      if (!pickedSet.has(it)) {
+        picked.push(it)
+        pickedSet.add(it)
+      }
+    }
+  }
+
+  return picked
 }
 
 // ── 3. MRO similarity (Jaccard) ──────────────────────────────────────
@@ -554,8 +638,13 @@ export function assembleBundle(
   })
   const priors = rankedMros.slice(0, maxPriors)
 
-  // Step 4 — cap seed AIOs to fit the prompt window
-  const seedAios = ranked.slice(0, maxAios)
+  // Step 4 — cap seed AIOs to fit the prompt window.
+  // A flat top-N cap lets a numerically dominant CSV (e.g. AIA305 at 80%
+  // of the corpus) crowd out the operational CSVs that actually answer
+  // multi-CSV join queries. diversifyByCSV takes a fair share from each
+  // unique OriginalCSV first, then backfills with the highest-scored
+  // leftovers to reach the cap.
+  const seedAios = diversifyByCSV(ranked, getOriginalCSV, maxAios)
 
   return {
     mro_priors: priors,
