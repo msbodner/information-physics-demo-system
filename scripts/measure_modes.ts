@@ -48,6 +48,8 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
 // Imports must come AFTER the fetch shim so the api-client picks it up.
 import {
   aioSearchChat,
+  chatWithAIO,
+  pureLlmChat,
   listAioData,
   listHslKeyValuePairs,
   findHslsByNeedlesFull,
@@ -137,28 +139,64 @@ async function main() {
     ;(globalThis as any).__recall = { ...result, latency_ms: recallT1 - recallT0, prefetch_ms: aiosT1 - aiosT0 }
   }
 
+  // ── Broad Search (/v1/op/chat) ───────────────────────────────────────
+  console.log("\n▶ BROAD SEARCH (/v1/op/chat)")
+  const broadT0 = ms()
+  const broad = await chatWithAIO([{ role: "user", content: QUERY }])
+  const broadT1 = ms()
+  if (!broad || "error" in (broad as any)) {
+    console.error("  Broad Search failed:", broad)
+  } else {
+    const r = broad as any
+    console.log(`  latency_ms      : ${fmt(broadT1 - broadT0)}`)
+    console.log(`  model_ref       : ${r.model_ref}`)
+    console.log(`  input_tokens    : ${fmt(r.input_tokens ?? 0)}`)
+    console.log(`  output_tokens   : ${fmt(r.output_tokens ?? 0)}`)
+    console.log(`  context_records : ${r.context_records}`)
+    console.log(`  reply (first 240 chars): ${(r.reply ?? "").slice(0, 240).replace(/\n/g, " ")}`)
+    ;(globalThis as any).__broad = { ...r, latency_ms: broadT1 - broadT0 }
+  }
+
+  // ── Raw Search (/v1/op/pure-llm) ─────────────────────────────────────
+  console.log("\n▶ RAW SEARCH (/v1/op/pure-llm)")
+  const rawT0 = ms()
+  const raw = await pureLlmChat([{ role: "user", content: QUERY }])
+  const rawT1 = ms()
+  if (!raw || "error" in (raw as any)) {
+    console.error("  Raw Search failed:", raw)
+  } else {
+    const r = raw as any
+    console.log(`  latency_ms      : ${fmt(rawT1 - rawT0)}`)
+    console.log(`  model_ref       : ${r.model_ref}`)
+    console.log(`  input_tokens    : ${fmt(r.input_tokens ?? 0)}`)
+    console.log(`  output_tokens   : ${fmt(r.output_tokens ?? 0)}`)
+    console.log(`  context_records : ${r.context_records}`)
+    console.log(`  reply (first 240 chars): ${(r.reply ?? "").slice(0, 240).replace(/\n/g, " ")}`)
+    ;(globalThis as any).__raw = { ...r, latency_ms: rawT1 - rawT0 }
+  }
+
   // ── Summary table ────────────────────────────────────────────────────
   const L = (globalThis as any).__live
   const R = (globalThis as any).__recall
-  if (L && R) {
+  const B = (globalThis as any).__broad
+  const X = (globalThis as any).__raw
+  if (L && R && B && X) {
     console.log("\n══════════════════════════════════════════════════════════════")
-    console.log("  Side-by-Side")
+    console.log("  Four-Mode Side-by-Side")
     console.log("══════════════════════════════════════════════════════════════")
-    const rows: Array<[string, string, string, string]> = [
-      ["Metric", "Live", "Recall", "Δ"],
-      ["latency_ms", fmt(L.latency_ms), fmt(R.latency_ms), `${(((R.latency_ms - L.latency_ms) / L.latency_ms) * 100).toFixed(1)}%`],
-      ["input_tokens", fmt(L.input_tokens ?? 0), fmt(R.input_tokens), `${((((R.input_tokens) - (L.input_tokens ?? 0)) / Math.max(1, (L.input_tokens ?? 1))) * 100).toFixed(1)}%`],
-      ["output_tokens", fmt(L.output_tokens ?? 0), fmt(R.output_tokens), `${((((R.output_tokens) - (L.output_tokens ?? 0)) / Math.max(1, (L.output_tokens ?? 1))) * 100).toFixed(1)}%`],
-      ["matched_hsls", String(L.matched_hsls), String(R.matched_hsl_ids.length), ""],
-      ["matched_aios", String(L.matched_aios), String(R.cost.neighborhood), ""],
+    const rows: Array<string[]> = [
+      ["Metric", "Recall", "Live", "Broad", "Raw"],
+      ["latency_ms", fmt(R.latency_ms), fmt(L.latency_ms), fmt(B.latency_ms), fmt(X.latency_ms)],
+      ["input_tokens", fmt(R.input_tokens), fmt(L.input_tokens ?? 0), fmt(B.input_tokens ?? 0), fmt(X.input_tokens ?? 0)],
+      ["output_tokens", fmt(R.output_tokens), fmt(L.output_tokens ?? 0), fmt(B.output_tokens ?? 0), fmt(X.output_tokens ?? 0)],
+      ["context_records", String(R.cost.neighborhood), String(L.context_records ?? 0), String(B.context_records ?? 0), String(X.context_records ?? 0)],
     ]
-    const w = [16, 14, 14, 10]
+    const w = [16, 12, 12, 12, 12]
     for (const r of rows) {
       console.log(r.map((c, i) => c.padEnd(w[i])).join(" │ "))
     }
-    // Emit JSON for downstream consumption.
     console.log("\n--- JSON ---")
-    console.log(JSON.stringify({ live: L, recall: R, query: QUERY, ts: new Date().toISOString() }, null, 2))
+    console.log(JSON.stringify({ recall: R, live: L, broad: B, raw: X, query: QUERY, ts: new Date().toISOString() }, null, 2))
   }
 }
 

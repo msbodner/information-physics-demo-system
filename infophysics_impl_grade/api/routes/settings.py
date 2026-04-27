@@ -5,13 +5,18 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from api.db import db
-from api.llm import get_effective_api_key
+from api.llm import (
+    AVAILABLE_MODELS,
+    get_default_model,
+    get_effective_api_key,
+    get_parse_model,
+)
 
 logger = logging.getLogger("infophysics.api.settings")
 
@@ -20,6 +25,11 @@ router = APIRouter()
 
 class ApiKeyRequest(BaseModel):
     api_key: str
+
+
+class ModelSettingsRequest(BaseModel):
+    default_model: Optional[str] = None
+    parse_model: Optional[str] = None  # empty string clears the override
 
 
 # ---------------------------------------------------------------------------
@@ -114,3 +124,56 @@ def update_api_key_setting(payload: ApiKeyRequest):
     # Update current process env so it takes effect immediately
     os.environ["ANTHROPIC_API_KEY"] = payload.api_key
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Model selection
+# ---------------------------------------------------------------------------
+
+@router.get("/v1/settings/models")
+def get_model_settings():
+    """Return the currently effective default + parse models and the dropdown list."""
+    return {
+        "default_model": get_default_model(),
+        "parse_model": get_parse_model(),
+        "available": AVAILABLE_MODELS,
+    }
+
+
+@router.put("/v1/settings/models")
+def update_model_settings(payload: ModelSettingsRequest):
+    """Upsert default_model and/or parse_model in system_settings.
+
+    An empty string for parse_model clears the override (parse_model then
+    falls back to default_model). Pass None (omit) to leave a setting alone.
+    """
+    now = datetime.now(timezone.utc)
+    with db() as conn:
+        with conn.cursor() as cur:
+            if payload.default_model is not None:
+                if not payload.default_model.strip():
+                    raise HTTPException(status_code=400, detail="default_model cannot be empty")
+                cur.execute(
+                    """
+                    INSERT INTO system_settings (key, value, updated_at)
+                    VALUES ('default_model', %s, %s)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+                    """,
+                    (payload.default_model.strip(), now),
+                )
+            if payload.parse_model is not None:
+                # Empty string => clear override
+                cur.execute(
+                    """
+                    INSERT INTO system_settings (key, value, updated_at)
+                    VALUES ('parse_model', %s, %s)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+                    """,
+                    (payload.parse_model.strip(), now),
+                )
+        conn.commit()
+    return {
+        "ok": True,
+        "default_model": get_default_model(),
+        "parse_model": get_parse_model(),
+    }

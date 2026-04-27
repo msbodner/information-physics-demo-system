@@ -38,6 +38,63 @@ def get_effective_api_key() -> Optional[str]:
     return db_key or os.environ.get("ANTHROPIC_API_KEY")
 
 
+# ---------------------------------------------------------------------------
+# Model selection
+# ---------------------------------------------------------------------------
+#
+# Resolution order (highest precedence first):
+#   1. system_settings.{key}  (DB, set via System Management UI)
+#   2. environment variable
+#   3. hardcoded fallback
+#
+# Two settings are honored:
+#   - default_model: used by every Anthropic call site unless overridden
+#   - parse_model:   used only by the AIO-search parse phase; falls back
+#                    to default_model when unset
+#
+# The available_models list is what the UI offers in its dropdown. It is
+# advisory only — operators can save any string they want via the API.
+
+AVAILABLE_MODELS = [
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
+]
+FALLBACK_MODEL = "claude-sonnet-4-6"
+
+
+def _get_setting(key: str) -> Optional[str]:
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT value FROM system_settings WHERE key = %s", (key,))
+                row = cur.fetchone()
+                return row[0] if row and row[0] else None
+    except Exception:
+        return None
+
+
+def get_default_model() -> str:
+    """Return the model used by every Anthropic call site (unless overridden).
+
+    Resolution: system_settings.default_model → ANTHROPIC_DEFAULT_MODEL → fallback.
+    """
+    return (
+        _get_setting("default_model")
+        or os.environ.get("ANTHROPIC_DEFAULT_MODEL")
+        or FALLBACK_MODEL
+    )
+
+
+def get_parse_model() -> str:
+    """Model for the AIO-search parse phase. Falls back to the default model."""
+    return (
+        _get_setting("parse_model")
+        or os.environ.get("AIO_SEARCH_PARSE_MODEL")
+        or get_default_model()
+    )
+
+
 def get_anthropic_client():
     """Construct an anthropic.Anthropic client from the effective key.
 

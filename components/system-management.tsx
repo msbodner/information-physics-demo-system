@@ -24,7 +24,7 @@ import {
   listHslData, createHslData, updateHslData, deleteHslData,
   listSavedPrompts, createSavedPrompt, updateSavedPrompt, deleteSavedPrompt,
   listInformationElements, createInformationElement, updateInformationElement, deleteInformationElement, rebuildInformationElements,
-  getApiKeySetting, updateApiKeySetting, loginUser, listIOs,
+  getApiKeySetting, updateApiKeySetting, getModelSettings, updateModelSettings, loginUser, listIOs,
   listChatStats, deleteChatStat, getMroForStat, type MroForStat,
   listMroObjects, getMroObject, updateMroObject, deleteMroObject,
   listDemoBackups, createDemoBackup, deleteDemoBackup, resetDemoData, restoreDemoBackup,
@@ -1780,6 +1780,136 @@ function ApiKeyPane() {
           Save API Key
         </Button>
       </div>
+
+      <ModelSelector />
+    </div>
+  )
+}
+
+// ── Model Selector ────────────────────────────────────────────────
+//
+// Lets operators pick the Anthropic model used by every LLM call site
+// (default_model) and optionally a separate model for the AIO-search
+// parse phase (parse_model). Backed by /v1/settings/models, which reads
+// and writes system_settings rows. Resolution order on the backend is
+// system_settings → env var → fallback ("claude-sonnet-4-6").
+//
+// "Use default" for parse_model writes an empty string, which the
+// backend interprets as "clear the override; fall through to default".
+
+function ModelSelector() {
+  const [defaultModel, setDefaultModel] = useState<string>("")
+  const [parseModel, setParseModel] = useState<string>("")
+  const [available, setAvailable] = useState<string[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  // Tracks whether the user has explicitly chosen a parse model. When
+  // false the backend's effective parse_model is just default_model and
+  // we render the "Use default" option as selected.
+  const [parseOverridden, setParseOverridden] = useState(false)
+
+  useEffect(() => {
+    getModelSettings().then((r) => {
+      if (r) {
+        setDefaultModel(r.default_model)
+        setParseModel(r.parse_model)
+        setParseOverridden(r.parse_model !== r.default_model)
+        setAvailable(r.available)
+      }
+      setIsLoading(false)
+    })
+  }, [])
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    const result = await updateModelSettings({
+      default_model: defaultModel,
+      // Empty string signals the backend to clear the parse_model override.
+      parse_model: parseOverridden ? parseModel : "",
+    })
+    if (result?.ok) {
+      toast.success("Model settings saved.")
+      setDefaultModel(result.default_model)
+      setParseModel(result.parse_model)
+      setParseOverridden(result.parse_model !== result.default_model)
+    } else {
+      toast.error("Failed to save model settings.")
+    }
+    setIsSaving(false)
+  }
+
+  if (isLoading) {
+    return (
+      <div className="pt-6 border-t border-border">
+        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  // Allow operators to save a model that isn't in AVAILABLE_MODELS (e.g.
+  // a brand-new SKU released after our last release). We surface the
+  // current value in the dropdown even if it's off-list.
+  const dropdownOptions = Array.from(new Set([...available, defaultModel])).filter(Boolean)
+
+  return (
+    <div className="pt-6 border-t border-border space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold mb-1">LLM Model</h3>
+        <p className="text-xs text-muted-foreground">
+          Selects which Anthropic Claude model is used for all ChatAIO modes (Recall, Live, Broad, Raw),
+          summarize, and entity-resolution. Takes effect on the next request.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="default-model">Default model</Label>
+        <Select value={defaultModel} onValueChange={setDefaultModel}>
+          <SelectTrigger id="default-model" className="w-full max-w-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {dropdownOptions.map((m) => (
+              <SelectItem key={m} value={m}>{m}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="parse-model">
+          Parse-phase model
+          <span className="ml-2 text-xs font-normal text-muted-foreground">(Live Search query parsing only)</span>
+        </Label>
+        <Select
+          value={parseOverridden ? parseModel : "__default__"}
+          onValueChange={(v) => {
+            if (v === "__default__") {
+              setParseOverridden(false)
+            } else {
+              setParseOverridden(true)
+              setParseModel(v)
+            }
+          }}
+        >
+          <SelectTrigger id="parse-model" className="w-full max-w-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__default__">Use default ({defaultModel})</SelectItem>
+            {dropdownOptions.map((m) => (
+              <SelectItem key={m} value={m}>{m}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Tip: setting this to <code>claude-haiku-4-5</code> reduces parse cost ~5× with negligible quality loss on simple queries.
+        </p>
+      </div>
+
+      <Button onClick={handleSave} disabled={isSaving || !defaultModel} className="gap-2">
+        {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+        Save Model Settings
+      </Button>
     </div>
   )
 }

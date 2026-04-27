@@ -27,7 +27,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.db import db, set_tenant
-from api.llm import get_effective_api_key
+from api.llm import get_default_model, get_effective_api_key, get_parse_model
 from api.routes.aio import _AIO_COLS
 from api.routes.hsl import _HSL_COLS
 from api.search_helpers import (
@@ -222,7 +222,7 @@ def summarize(payload: SummarizeRequest, x_tenant_id: Optional[str] = Header(Non
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=get_default_model(),
             max_tokens=1024,
             system=(
                 "You are an Information Physics analyst specializing in Associated Information Objects (AIOs). "
@@ -239,7 +239,7 @@ def summarize(payload: SummarizeRequest, x_tenant_id: Optional[str] = Header(Non
 
     return SummarizeResponse(
         summary=summary_text,
-        model_ref="claude-sonnet-4-6",
+        model_ref=get_default_model(),
         aio_count=len(texts),
     )
 
@@ -260,7 +260,7 @@ def resolve_entities(payload: ResolveEntitiesRequest, x_tenant_id: Optional[str]
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=get_default_model(),
             max_tokens=800,
             system=(
                 "You are an entity extractor for AIO (Associated Information Object) data. "
@@ -285,7 +285,7 @@ def resolve_entities(payload: ResolveEntitiesRequest, x_tenant_id: Optional[str]
         logger.exception("Anthropic API error during resolve_entities")
         raise HTTPException(status_code=502, detail=f"LLM error: {str(exc)}")
 
-    return ResolveEntitiesResponse(entities=entities, model_ref="claude-sonnet-4-6")
+    return ResolveEntitiesResponse(entities=entities, model_ref=get_default_model())
 
 
 @router.post("/v1/op/chat", response_model=ChatResponse)
@@ -376,7 +376,7 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=get_default_model(),
             max_tokens=2048,
             system=system,
             messages=[{"role": m.role, "content": m.content} for m in payload.messages],
@@ -391,7 +391,7 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
     _budget.record_usage(tenant, in_tok, out_tok)
     return ChatResponse(
         reply=reply_text,
-        model_ref="claude-sonnet-4-6",
+        model_ref=get_default_model(),
         context_records=len(aio_lines) + len(hsl_blocks),
         input_tokens=in_tok,
         output_tokens=out_tok,
@@ -458,7 +458,7 @@ def pure_llm(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, ali
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=get_default_model(),
             max_tokens=2048,
             system=system,
             messages=[{"role": m.role, "content": m.content} for m in payload.messages],
@@ -473,7 +473,7 @@ def pure_llm(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, ali
     _budget.record_usage(tenant, in_tok, out_tok)
     return ChatResponse(
         reply=reply_text,
-        model_ref="claude-sonnet-4-6",
+        model_ref=get_default_model(),
         context_records=len(csv_blocks),
         input_tokens=in_tok,
         output_tokens=out_tok,
@@ -606,7 +606,7 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
             # claude-sonnet-4-6 (zero behavior change). Operators can opt
             # into Haiku via AIO_SEARCH_PARSE_MODEL=claude-haiku-4-5 for
             # faster/cheaper parses once they've verified parse quality.
-            parse_model = os.environ.get("AIO_SEARCH_PARSE_MODEL", "claude-sonnet-4-6")
+            parse_model = get_parse_model()
             try:
                 # V4.4 P11: mark parse_system as ephemeral so the
                 # tenant-scoped known_fields list (which can be 50 tokens
@@ -1387,7 +1387,7 @@ def aio_search(
             )
             return AioSearchResponse(
                 reply=hit.answer_text,
-                model_ref="claude-sonnet-4-6",
+                model_ref=get_default_model(),
                 context_records=0,
                 matched_hsls=0,
                 matched_aios=0,
@@ -1409,7 +1409,7 @@ def aio_search(
         import anthropic
         client = anthropic.Anthropic(api_key=prep["api_key"])
         answer_response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=get_default_model(),
             max_tokens=2048,
             system=[{
                 "type": "text",
@@ -1477,7 +1477,7 @@ def aio_search(
 
     return AioSearchResponse(
         reply=reply_text,
-        model_ref="claude-sonnet-4-6",
+        model_ref=get_default_model(),
         context_records=prep["matched_aio_count"],
         matched_hsls=prep["matched_hsl_count"],
         matched_aios=prep["matched_aio_count"],
@@ -1526,7 +1526,7 @@ async def pdf_extract(file: UploadFile = File(...)):
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=get_default_model(),
             max_tokens=8192,
             system=system_prompt,
             messages=[{
@@ -1596,7 +1596,7 @@ def substrate_chat(
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=get_default_model(),
             max_tokens=2048,
             system=[{
                 "type": "text",
@@ -1619,7 +1619,7 @@ def substrate_chat(
     _budget.record_usage(tenant, in_tok, out_tok)
     return ChatResponse(
         reply=reply_text,
-        model_ref="claude-sonnet-4-6",
+        model_ref=get_default_model(),
         context_records=0,
         input_tokens=in_tok,
         output_tokens=out_tok,
@@ -1668,7 +1668,7 @@ def substrate_chat_stream(
             import anthropic
             client = anthropic.Anthropic(api_key=api_key)
             with client.messages.stream(
-                model="claude-sonnet-4-6",
+                model=get_default_model(),
                 max_tokens=2048,
                 system=[{
                     "type": "text",
@@ -1688,7 +1688,7 @@ def substrate_chat_stream(
                 if cache_read or cache_create:
                     logger.info("substrate-chat-stream cache: read=%d create=%d", cache_read, cache_create)
                 yield _sse("meta", {
-                    "model_ref": "claude-sonnet-4-6",
+                    "model_ref": get_default_model(),
                     "context_records": 0,
                     "input_tokens": in_tok,
                     "output_tokens": out_tok,
@@ -1739,7 +1739,7 @@ def aio_search_stream(
             )
             cached_text = hit.answer_text
             cached_meta = {
-                "model_ref": "claude-sonnet-4-6",
+                "model_ref": get_default_model(),
                 "context_records": 0,
                 "matched_hsls": 0,
                 "matched_aios": 0,
@@ -1773,7 +1773,7 @@ def aio_search_stream(
             client = anthropic.Anthropic(api_key=prep["api_key"])
             collected: List[str] = []
             with client.messages.stream(
-                model="claude-sonnet-4-6",
+                model=get_default_model(),
                 max_tokens=2048,
                 system=[{
                     "type": "text",
@@ -1794,7 +1794,7 @@ def aio_search_stream(
                 if cache_read or cache_create:
                     logger.info("aio-search-stream cache: read=%d create=%d", cache_read, cache_create)
                 yield _sse("meta", {
-                    "model_ref": "claude-sonnet-4-6",
+                    "model_ref": get_default_model(),
                     "context_records": prep["matched_aio_count"],
                     "matched_hsls": prep["matched_hsl_count"],
                     "matched_aios": prep["matched_aio_count"],

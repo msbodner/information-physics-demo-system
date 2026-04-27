@@ -722,6 +722,28 @@ export async function updateApiKeySetting(apiKey: string): Promise<{ ok: boolean
   })
 }
 
+// Model settings
+export interface ModelSettings {
+  default_model: string
+  parse_model: string
+  available: string[]
+}
+
+export async function getModelSettings(): Promise<ModelSettings | null> {
+  return safeFetch("/api/settings/models")
+}
+
+export async function updateModelSettings(payload: {
+  default_model?: string
+  parse_model?: string
+}): Promise<{ ok: boolean; default_model: string; parse_model: string } | null> {
+  return safeFetch("/api/settings/models", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+}
+
 // Information Elements
 export interface InformationElement {
   element_id: string
