@@ -3827,8 +3827,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
                       {
-                        download: "/docs/Recall_Search_Trace_JamesOkafor.docx",
-                        filename: "Recall_Search_Trace_JamesOkafor.docx",
+                        embed: "/docs/Recall_Search_Trace_JamesOkafor.docx",
                         icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
                         title: "Recall Trace — James Okafor Query (End-to-End)",
                         desc: "Single-query Recall Search trace against the Railway production deployment with the MRO short-circuit bypassed. Documents every MRO probe hit, every cue extracted, every HSL probed, and every AIO sent to the LLM, plus the verbatim final reply.",
