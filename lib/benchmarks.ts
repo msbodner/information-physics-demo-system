@@ -102,6 +102,25 @@ function salt(): string {
   return Math.random().toString(36).slice(2, 8)
 }
 
+// Normalize any error shape (string, plain Error, or backend JSON
+// envelope like the budget-exceeded {error, tenant_id, used_today,
+// limit, percent_used, message}) into a single human-readable string.
+// Never returns an object — we render this directly into JSX, and a
+// raw object trips React error #31.
+function asErrorString(e: unknown): string {
+  if (e == null) return "unknown_error"
+  if (typeof e === "string") return e
+  if (e instanceof Error) return e.message || String(e)
+  if (typeof e === "object") {
+    const o = e as Record<string, unknown>
+    // Prefer a human message field, then the error code, then the JSON.
+    if (typeof o.message === "string" && o.message) return String(o.message)
+    if (typeof o.error === "string" && o.error) return String(o.error)
+    try { return JSON.stringify(o) } catch { return String(o) }
+  }
+  return String(e)
+}
+
 async function runRecall(query: string): Promise<ModeResult> {
   const t0 = Date.now()
   try {
@@ -126,7 +145,7 @@ async function runRecall(query: string): Promise<ModeResult> {
     })
     const latency_ms = Date.now() - t0
     if ("error" in result) {
-      return { mode: "Recall", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms, error: result.error }
+      return { mode: "Recall", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms, error: asErrorString(result.error) }
     }
     return {
       mode: "Recall",
@@ -139,7 +158,7 @@ async function runRecall(query: string): Promise<ModeResult> {
       latency_ms,
     }
   } catch (e: any) {
-    return { mode: "Recall", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms: Date.now() - t0, error: e?.message ?? String(e) }
+    return { mode: "Recall", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms: Date.now() - t0, error: asErrorString(e) }
   }
 }
 
@@ -149,7 +168,7 @@ async function runLive(query: string): Promise<ModeResult> {
     const r = await aioSearchChat([{ role: "user", content: query }])
     const latency_ms = Date.now() - t0
     if (!r || "error" in (r as any)) {
-      return { mode: "Live", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms, error: (r as any)?.error ?? "no_response" }
+      return { mode: "Live", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms, error: asErrorString(r ?? "no_response") }
     }
     const x = r as AioSearchResponse
     return {
@@ -163,7 +182,7 @@ async function runLive(query: string): Promise<ModeResult> {
       latency_ms,
     }
   } catch (e: any) {
-    return { mode: "Live", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms: Date.now() - t0, error: e?.message ?? String(e) }
+    return { mode: "Live", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms: Date.now() - t0, error: asErrorString(e) }
   }
 }
 
@@ -173,7 +192,7 @@ async function runBroad(query: string): Promise<ModeResult> {
     const r = await chatWithAIO([{ role: "user", content: query }])
     const latency_ms = Date.now() - t0
     if (!r || "error" in (r as any)) {
-      return { mode: "Broad", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms, error: (r as any)?.error ?? "no_response" }
+      return { mode: "Broad", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms, error: asErrorString(r ?? "no_response") }
     }
     const x = r as ChatResponse
     return {
@@ -187,7 +206,7 @@ async function runBroad(query: string): Promise<ModeResult> {
       latency_ms,
     }
   } catch (e: any) {
-    return { mode: "Broad", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms: Date.now() - t0, error: e?.message ?? String(e) }
+    return { mode: "Broad", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms: Date.now() - t0, error: asErrorString(e) }
   }
 }
 
@@ -197,7 +216,7 @@ async function runRaw(query: string): Promise<ModeResult> {
     const r = await pureLlmChat([{ role: "user", content: query }])
     const latency_ms = Date.now() - t0
     if (!r || "error" in (r as any)) {
-      return { mode: "Raw", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms, error: (r as any)?.error ?? "no_response" }
+      return { mode: "Raw", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms, error: asErrorString(r ?? "no_response") }
     }
     const x = r as ChatResponse
     return {
@@ -211,7 +230,7 @@ async function runRaw(query: string): Promise<ModeResult> {
       latency_ms,
     }
   } catch (e: any) {
-    return { mode: "Raw", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms: Date.now() - t0, error: e?.message ?? String(e) }
+    return { mode: "Raw", ok: false, reply: "", model_ref: "—", input_tokens: 0, output_tokens: 0, context_records: 0, latency_ms: Date.now() - t0, error: asErrorString(e) }
   }
 }
 
