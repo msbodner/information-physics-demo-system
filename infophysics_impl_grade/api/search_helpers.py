@@ -245,6 +245,88 @@ def apply_exclusions(record_lines: List[str], exclusions: List[str]) -> List[str
 # ── Adaptive bundle sizing (#5) ───────────────────────────────────────
 
 
+_ORIGINAL_CSV_RE = re.compile(r"\[OriginalCSV\.([^\]]*)\]", re.IGNORECASE)
+
+
+def _csv_of_record(record_text: str) -> str:
+    """Extract the OriginalCSV bucket key from an AIO record line.
+
+    AIO records ship as concatenated bracket tokens; the first one is
+    typically [OriginalCSV.foo.csv]. Falls back to "unknown" when the
+    record is malformed (legacy fixtures, hand-built lines).
+    """
+    m = _ORIGINAL_CSV_RE.search(record_text or "")
+    if not m:
+        return "unknown"
+    val = m.group(1).strip()
+    return val or "unknown"
+
+
+def diversify_by_csv(records: List[str], total: int) -> List[str]:
+    """Per-CSV diversity cap for AIO retrieval bundles.
+
+    Mirrors lib/aio-math.ts diversifyByCSV. When the corpus is dominated
+    by a single CSV (e.g. AIA305 at 80% of the demo corpus), a flat
+    top-N cap fills the LLM context with that one CSV and starves the
+    operational CSVs that actually answer multi-CSV join questions.
+
+    Strategy: bucket by OriginalCSV preserving input order, take up to
+    floor(total / numCsvs) from each bucket (capacity-1 minimum so any
+    bucket with at least one record gets a slot), then backfill the
+    remaining slots from the highest-ranked leftovers.
+
+    Properties:
+      - never exceeds ``total``
+      - if a bucket has only 1 candidate, that 1 still makes it in
+      - input order within a bucket is preserved (stable; respects rank)
+      - no CSV is arbitrarily penalized
+      - O(n) over the input
+    """
+    if total <= 0 or not records:
+        return []
+    if len(records) <= total:
+        return list(records)
+
+    # Bucket by CSV preserving input order, tracking original indices so
+    # the backfill step can identify "already picked" records by position
+    # rather than by object identity (id() collapses duplicate string
+    # objects, breaking the leftover scan).
+    buckets: dict[str, List[int]] = {}
+    order: List[str] = []
+    for i, r in enumerate(records):
+        k = _csv_of_record(r) or "unknown"
+        if k not in buckets:
+            buckets[k] = []
+            order.append(k)
+        buckets[k].append(i)
+
+    num_csvs = len(order)
+    if num_csvs == 1:
+        return records[:total]
+
+    per_bucket = max(1, total // num_csvs)
+    picked_indices: List[int] = []
+    picked_set: set[int] = set()
+    for k in order:
+        for idx in buckets[k][:per_bucket]:
+            if len(picked_indices) >= total:
+                break
+            picked_indices.append(idx)
+            picked_set.add(idx)
+        if len(picked_indices) >= total:
+            break
+
+    if len(picked_indices) < total:
+        for i in range(len(records)):
+            if len(picked_indices) >= total:
+                break
+            if i not in picked_set:
+                picked_indices.append(i)
+                picked_set.add(i)
+
+    return [records[i] for i in picked_indices]
+
+
 def adaptive_aio_cap(num_cues: int, *, base: int = 50, per_cue: int = 50,
                      floor: int = 100, ceiling: int = 300,
                      total_matches: Optional[int] = None) -> int:

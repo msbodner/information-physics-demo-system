@@ -35,6 +35,7 @@ from api.search_helpers import (
     apply_exclusions,
     apply_filters,
     describe_filters,
+    diversify_by_csv,
     parse_exclusions,
     parse_filters,
     split_field_needles,
@@ -1260,7 +1261,16 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         # in noise; multi-cue queries get more breadth because each extra
         # cue narrows the candidate set.
         cap = adaptive_aio_cap(len(needles), total_matches=len(matched_aio_lines))
-        sample = matched_aio_lines[:cap]
+        # Per-CSV diversity: a flat top-N cap lets a numerically dominant
+        # CSV (e.g. AIA305 at 80% of the demo corpus) crowd out the
+        # operational CSVs (acc_rfis, acc_issues, acc_submittals,
+        # acc_vendors, acc_cost_codes) that answer multi-CSV joins.
+        # diversify_by_csv takes a fair share from each unique
+        # OriginalCSV first, then backfills with the highest-ranked
+        # leftovers. Mirrors the frontend Recall pipeline (lib/aio-math
+        # ts diversifyByCSV) so Live and Recall produce comparable
+        # substrates.
+        sample = diversify_by_csv(matched_aio_lines, cap)
         context_section += f"\n\n## Matched AIO Records ({len(sample)} of {len(matched_aio_lines)} total)\n"
         context_section += "\n".join(sample)
 
@@ -1315,9 +1325,13 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
     # window — the citation post-pass scores its tokens against the
     # answer text. We deliberately ship the post-cap slice (``sample``)
     # rather than the full matched list, so "sources used: N of M"
-    # reports against what Claude could plausibly cite.
+    # reports against what Claude could plausibly cite. Apply the same
+    # diversity cap so citation scoring matches what the model saw.
     shipped_records = (
-        matched_aio_lines[: adaptive_aio_cap(len(needles), total_matches=len(matched_aio_lines))]
+        diversify_by_csv(
+            matched_aio_lines,
+            adaptive_aio_cap(len(needles), total_matches=len(matched_aio_lines)),
+        )
         if matched_aio_lines else []
     )
 
