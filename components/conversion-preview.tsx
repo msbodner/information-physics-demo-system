@@ -152,54 +152,27 @@ export function ConversionPreview({ files, onClear, onProcess, backendIsOnline }
         throw new Error("No files loaded")
       }
 
-      const newlyDownloaded: string[] = []
-      let delay = 0
-      const STEP = 120
-
-      // 1) Auto-save each CSV to a .csv file
-      files.forEach((file) => {
-        const csvName = file.originalName.endsWith(".csv")
-          ? file.originalName
-          : `${file.originalName}.csv`
-        const csvContent = reconstructCsv(file)
-        setTimeout(() => {
-          triggerDownload(csvName, csvContent)
-          setDownloadedFiles((prev) => [...prev, csvName])
-        }, delay)
-        newlyDownloaded.push(csvName)
-        delay += STEP
-      })
-
-      // 2) Download every AIO across every file
+      // Build the in-memory AIO file list across every loaded CSV — no machine downloads.
       let counter = 0
+      const aioFileNames: string[] = []
       files.forEach((file) => {
         const baseName = file.originalName.replace(/\.csv$/i, "")
-        file.aioLines.forEach((line) => {
+        file.aioLines.forEach(() => {
           counter++
-          const aioName = `${baseName}_${String(counter).padStart(4, "0")}.aio`
-          const content = line + "\n"
-          setTimeout(() => {
-            triggerDownload(aioName, content)
-            setDownloadedFiles((prev) => [...prev, aioName])
-          }, delay)
-          newlyDownloaded.push(aioName)
-          delay += STEP
+          aioFileNames.push(`${baseName}_${String(counter).padStart(4, "0")}.aio`)
         })
       })
 
-      // 3) Hand off to the processor view once downloads are queued
-      setTimeout(() => {
-        setBulkStatus("success")
-        onProcess(newlyDownloaded)
-        setTimeout(() => setBulkStatus("idle"), 2500)
-      }, delay + 50)
+      setBulkStatus("success")
+      onProcess(aioFileNames)
+      setTimeout(() => setBulkStatus("idle"), 2500)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error"
       setError(`Bulk process failed: ${message}`)
       setBulkStatus("error")
       setTimeout(() => setBulkStatus("idle"), 4000)
     }
-  }, [files, onProcess, reconstructCsv, triggerDownload])
+  }, [files, onProcess])
 
   const STARTER_PROMPTS = [
     "What vendors are in this data?",
