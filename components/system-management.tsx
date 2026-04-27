@@ -3680,6 +3680,14 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         desc: "Confidential / Trade-Secret reference comparing the two ChatAIO retrieval modes: architecture, performance characteristics, MRO behavior, observability, and a decision matrix for when to use which. Subject to NDA on file.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
+                      {
+                        download: "/docs/Live_vs_Recall_Search_Technical_Report.docx",
+                        filename: "Live_vs_Recall_Search_Technical_Report.docx",
+                        icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
+                        title: "Technical Report — Live vs. Recall (Measured)",
+                        desc: "Single-run measurement against the Railway production deployment with cache bypassed on both paths. Reports measured tokens, latency, and DB scope on a representative named-entity query. Reproducible via scripts/measure_modes.ts.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
                     ].map(({ view, download, filename, icon, title, desc, color }) => (
                       <button
                         key={view ?? download}
