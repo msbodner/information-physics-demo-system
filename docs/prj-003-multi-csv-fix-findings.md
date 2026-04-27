@@ -77,7 +77,23 @@ fairness, single-row CSV preservation, alias folding, and cross-shape
 
 ## Verification
 
-`pnpm build` is clean (no TS errors).
+`pnpm build` is clean (no TS errors). `pnpm test` passes 37/37 (6 new cases).
+
+A self-contained verification script — [scripts/verify_diversity.ts](../scripts/verify_diversity.ts)
+— exercises just the bundle assembly against the live Railway corpus
+(skipping the LLM round-trip, which is blocked by an unrelated existing
+bug in `aio-chat-pipeline.ts:518`). Output saved to
+[docs/prj-003-diversity-trace.json](./prj-003-diversity-trace.json).
+
+Measured results on the deployed corpus (589 AIOs, 1208 HSL key-value pairs):
+
+- **`precise_bundle_per_csv`** (Part A engaged on a clean scope): all 5
+  operational CSVs are present — `acc_rfis: 2, acc_issues: 2, acc_submittals: 3,
+  acc_vendors: 4, acc_cost_codes: 21`, plus AIA305 + acc_employees + acc_customers
+  + acc_projects for context. Pre-fix: only 2 CSVs reached the bundle.
+- **`per_csv_counts`** (full pipeline today): 4 distinct CSVs reach the
+  bundle. Diversity is engaging, but the upstream needle scan still
+  saturates — see followup #3 below.
 
 Re-run the benchmark with:
 
@@ -107,6 +123,20 @@ distinct CSVs in the file names.
    weakly-matching row is given the same per-bucket budget as one with 50
    strong matches. A score-weighted variant may pay off once we have
    benchmark coverage across more multi-CSV joins.
-3. **Live mode parity.** Bug 2 was fixed on the Recall path; the Live
+3. **Upstream needle saturation (discovered during verification).** The
+   scoping call `findAiosByNeedles(needles, 500)` in
+   `lib/aio-chat-pipeline.ts:386` is hit with ~850 needles when the cue
+   extractor produces ~426 cues (1208-entry HSL catalog × benchmark prompt
+   richness). High-fanout person-name needles dominate the 500-row cap and
+   crowd out the operational rows entirely — the diversity fix downstream
+   sees a scope that already excludes acc_rfis / acc_issues / acc_submittals.
+
+   Probe: a single-needle `["PRJ-003"]` call to the same endpoint returns
+   40 rows spanning all 5 operational CSVs (cost_codes:21, employees:5,
+   vendors:4, submittals:3, issues:2, rfis:2). Two reasonable fixes:
+   (a) drop wildcard-key cues from the needle list so only precise
+   `[Key.Value]` cues fan out, or (b) raise the limit and diversify the
+   result by CSV before applying it as a scope filter.
+4. **Live mode parity.** Bug 2 was fixed on the Recall path; the Live
    pipeline (`/v1/op/aio-search`) runs server-side without `canonicalField`
-   — promoting Part B to the backend (followup #1) is what closes the gap.
+   — promoting Part B to the backend (followup #1) closes the gap.

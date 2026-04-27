@@ -1,0 +1,210 @@
+{
+  "query": "For Project ID PRJ-003 (Greenway Office Park - Phase 2):\n\n1. List every Open RFI and every Open Issue tied to this project. For each, give: ID, Title, Assigned To, Priority, and Due Date.\n\n2. Group those open items by Assigned To and report a count per person.\n\n3. List every Cost Code whose Applicable Projects field names PRJ-003. Give Cost Code, Cost Code Name, and Division Name.\n\n4. List every Vendor whose Projects Assigned field names PRJ-003. Give Vendor ID, Vendor Name, Status, and Trade/Specialty.\n\n5. From the Submittal records for PRJ-003, give a count grouped by Status.\n\n6. Across all six person fields touched by PRJ-003 - RFI Submitted By, RFI Assigned To, Issue Reported By, Issue Assigned To, Submittal Submitted By, Submittal Reviewed By - report the total count of distinct people who appear in any record tied to PRJ-003, and list them.\n\nApply each filter strictly: do not list non-matching items, do not annotate them with a rejection mark. Counts must reflect only surviving records. Cite each fact with the source AIO file name (for example: acc_rfis.csv - Row 162).",
+  "ts": "2026-04-27T19:21:55.319Z",
+  "cue_count": 426,
+  "cue_values_sample": [
+    "acc_rfis.csv",
+    "James Okafor",
+    "Weather",
+    "Open",
+    "acc_issues.csv",
+    "James Okafor",
+    "Revise and Resubmit",
+    "Approved with Comments",
+    "Greenway Office Park - Phase 2",
+    "PRJ-003",
+    "Approved with Comments",
+    "Curtain Wall System - Shop Drawings",
+    "acc_submittals.csv",
+    "Highland Medical Center Expansion",
+    "acc_projects.csv",
+    "VP Operations",
+    "Project Manager",
+    "acc_vendors.csv",
+    "Owner / Developer",
+    "Project Engineer"
+  ],
+  "scoped_aios": 500,
+  "bundle_aios": 40,
+  "per_csv_counts": {
+    "AIA305 Sample.csv": 24,
+    "acc_cost_codes.csv": 10,
+    "acc_employees.csv": 5,
+    "acc_vendors.csv": 1
+  },
+  "distinct_csvs": 4,
+  "precise_bundle_per_csv": {
+    "acc_issues.csv": 2,
+    "acc_cost_codes.csv": 21,
+    "acc_submittals.csv": 3,
+    "acc_employees.csv": 5,
+    "acc_rfis.csv": 2,
+    "acc_vendors.csv": 4,
+    "acc_projects.csv": 1,
+    "AIA305 Sample.csv": 1,
+    "acc_customers.csv": 1
+  },
+  "note": "scoped per-CSV reflects the upstream find-by-needles 500-cap which saturates with high-fanout terms when 426 cues fan out (followup #3 in findings doc). The 'precise_bundle_per_csv' field shows what Part A delivers when the upstream returns all 5 CSVs — fair shares across acc_rfis/acc_issues/acc_submittals/acc_vendors/acc_cost_codes.",
+  "aios_sent": [
+    {
+      "file": "AIA305 Sample.csv - Row 290",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-290][Project.PRJ-290 Eastside Workforce Housing - Block 4][Status.Substantial Completion][StartDate.2021-04-04][CompletionDate.2022-09-07][ProjectValue.$16,500,000.00][Address.1500 State Hwy 71][City.Dallas][State.TX][Zip.75240][County.Dallas][Owner.Lincoln Property Company][Architect.Page Inc.][Superintendent.James Okafor][ProjectManager.Sarah Mitchell][Estimator.James Okafor][ProjectAssistant.Angela Brooks][ProjectAccountant.Fiona Marsh][ConstructionType.Ground Up New Construction][Market.Residential][ProjectType.Multi-Family Housing][BidType.T&M][TaxCode.IL][SquareFootage.85500][EstimatedValue.$16,500,000.00][Current_Contract_Value.$16,500,000.00][PaidtoDate.$15,500,000.00][Work_Completed.$15,600,000.00][LSP_Total_Contracts.$2,500,000.00][% Performed_by_LSP.15.0%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 155",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-155][Project.PRJ-155 Metro Distribution Center][Status.Active][StartDate.2024-04-22][CompletionDate.2026-11-05][ProjectValue.$31,000,000.00][Address.1200 Transit Ave][City.Dallas][State.TX][Zip.75024][County.Collin][Owner.Kaiser Permanente][Architect.Henningson Durham & Richardson][Superintendent.James Okafor][ProjectManager.Priya Nair][Estimator.James Okafor][ProjectAssistant.Raymond Chu][ProjectAccountant.Carlos Ibarra][ConstructionType.Ground Up New Construction][Market.Residential][ProjectType.Multi-Family Housing][BidType.ServiceWork][TaxCode.IL][SquareFootage.272000][EstimatedValue.$32,000,000.00][Current_Contract_Value.$31,000,000.00][PaidtoDate.$10,400,000.00][Work_Completed.$11,900,000.00][LSP_Total_Contracts.$1,800,000.00][% Performed_by_LSP.5.8%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 276",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-276][Project.PRJ-276 Cedarbrook Luxury Condominiums][Status.Active][StartDate.2022-12-12][CompletionDate.2025-05-10][ProjectValue.$44,500,000.00][Address.1200 Transit Ave][City.Dallas][State.TX][Zip.75240][County.Dallas][Owner.Lincoln Property Company][Architect.Corgan Associates][Superintendent.James Okafor][ProjectManager.Daniel Torres][Estimator.Raymond Chu][ProjectAssistant.Destiny Owens][ProjectAccountant.Raymond Chu][ConstructionType.Renovation of Existing Space][Market.JOC][ProjectType.Parking Structure / Garage][BidType.DesignBuildBid][TaxCode.IL][SquareFootage.][EstimatedValue.$46,500,000.00][Current_Contract_Value.$44,500,000.00][PaidtoDate.$7,500,000.00][Work_Completed.$8,800,000.00][LSP_Total_Contracts.$6,000,000.00][% Performed_by_LSP.13.4%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 336",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-336][Project.PRJ-336 Maplewood Outpatient Surgery Center][Status.Pending][StartDate.2023-07-15][CompletionDate.2025-10-07][ProjectValue.][Address.1701 S Padre Island Dr][City.Dallas][State.TX][Zip.75240][County.Dallas][Owner.City of Austin][Architect.Burns & McDonnell][Superintendent.][ProjectManager.James Okafor][Estimator.Chen Wei][ProjectAssistant.Daniel Torres][ProjectAccountant.Jennifer Cross][ConstructionType.Ground Up New Construction][Market.Tenant Interiors][ProjectType.Office][BidType.T&M][TaxCode.IL][SquareFootage.][EstimatedValue.$38,500,000.00][Current_Contract_Value.][PaidtoDate.][Work_Completed.][LSP_Total_Contracts.][% Performed_by_LSP.]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 37",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-037][Project.PRJ-037 Crestwood Bridge Rehabilitation][Status.Under Construction][StartDate.2022-07-11][CompletionDate.2023-12-16][ProjectValue.$39,000,000.00][Address.500 W 2nd St][City.Dallas][State.TX][Zip.75201][County.Dallas][Owner.City Transit Authority][Architect.Perkins & Will][Superintendent.Raymond Chu][ProjectManager.Priya Nair][Estimator.James Okafor][ProjectAssistant.Fiona Marsh][ProjectAccountant.Carlos Ibarra][ConstructionType.Renovation of Existing Space][Market.JOC][ProjectType.Government Building][BidType.GeneralContractorBid][TaxCode.IL][SquareFootage.][EstimatedValue.$37,000,000.00][Current_Contract_Value.$39,000,000.00][PaidtoDate.$17,700,000.00][Work_Completed.$17,800,000.00][LSP_Total_Contracts.$11,700,000.00][% Performed_by_LSP.30.0%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 201",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-201][Project.PRJ-201 Crestwood Workforce Housing - Block 3][Status.Active][StartDate.2023-02-03][CompletionDate.2025-11-13][ProjectValue.$41,500,000.00][Address.1100 Quarry Ln][City.Dallas][State.TX][Zip.75201][County.Dallas][Owner.Coastal Hospitality Group][Architect.Populous][Superintendent.James Okafor][ProjectManager.Marcus Reid][Estimator.Angela Brooks][ProjectAssistant.Daniel Torres][ProjectAccountant.Priya Nair][ConstructionType.Ground Up New Construction][Market.SP Direct][ProjectType.Government Building][BidType.DesignBuildBid][TaxCode.IL][SquareFootage.396000][EstimatedValue.$43,000,000.00][Current_Contract_Value.$41,500,000.00][PaidtoDate.$9,300,000.00][Work_Completed.$10,700,000.00][LSP_Total_Contracts.$2,800,000.00][% Performed_by_LSP.6.8%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 349",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-349][Project.PRJ-349 Whitmore Sports Complex][Status.Completed][StartDate.2024-12-24][CompletionDate.2026-04-29][ProjectValue.$39,500,000.00][Address.9700 Kings Hwy][City.Austin][State.TX][Zip.78701][County.Travis][Owner.Lone Star Industrial LLC][Architect.Perkins & Will][Superintendent.James Okafor][ProjectManager.Priya Nair][Estimator.James Okafor][ProjectAssistant.Fiona Marsh][ProjectAccountant.Carlos Ibarra][ConstructionType.Ground Up New Construction][Market.Municipal/Education][ProjectType.Recreation Building][BidType.CMatRisk][TaxCode.IL][SquareFootage.232000][EstimatedValue.$38,000,000.00][Current_Contract_Value.$39,500,000.00][PaidtoDate.$39,000,000.00][Work_Completed.$39,100,000.00][LSP_Total_Contracts.$2,200,000.00][% Performed_by_LSP.5.6%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 11",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-011][Project.PRJ-011 Bluestone University Science Building][Status.Active][StartDate.2024-09-16][CompletionDate.2025-11-03][ProjectValue.$20,000,000.00][Address.3300 Gymnasium Blvd][City.Charlotte][State.NC][Zip.28202][County.Mecklenburg][Owner.City Transit Authority][Architect.DLR Group][Superintendent.James Okafor][ProjectManager.James Okafor][Estimator.Marcus Reid][ProjectAssistant.Chen Wei][ProjectAccountant.Angela Brooks][ConstructionType.Renovation of Existing Space][Market.Municipal/Education][ProjectType.Recreation Building][BidType.CMatRisk][TaxCode.Out/State][SquareFootage.137500][EstimatedValue.$18,500,000.00][Current_Contract_Value.$20,000,000.00][PaidtoDate.$6,500,000.00][Work_Completed.$7,400,000.00][LSP_Total_Contracts.$4,900,000.00][% Performed_by_LSP.24.4%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 2",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-002][Project.PRJ-002 Highland Medical Center Expansion][Status.Active][StartDate.2024-06-15][CompletionDate.2026-12-31][ProjectValue.$78,000,000.00][Address.2100 Medical Center Dr][City.Denver][State.CO][Zip.80204][County.Denver][Owner.Highland Health Systems][Architect.HDR Architecture][Superintendent.James Okafor][ProjectManager.James Okafor][Estimator.Chen Wei][ProjectAssistant.Angela Brooks][ProjectAccountant.Jennifer Cross][ConstructionType.Addition / Expansion][Market.Healthcare][ProjectType.Hospital][BidType.CMatRisk][TaxCode.Out/State][SquareFootage.220000][EstimatedValue.$75,000,000.00][Current_Contract_Value.$78,000,000.00][PaidtoDate.$22,000,000.00][Work_Completed.$25,000,000.00][LSP_Total_Contracts.$7,800,000.00][% Performed_by_LSP.10.0%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 484",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-484][Project.PRJ-484 Riverside Medical Pavilion][Status.Under Construction][StartDate.2023-08-22][CompletionDate.2025-03-28][ProjectValue.$128,500,000.00][Address.9900 Recreation Ln][City.Dallas][State.TX][Zip.75240][County.Dallas][Owner.CBRE Investment Management][Architect.Stantec Architecture][Superintendent.James Okafor][ProjectManager.Priya Nair][Estimator.Raymond Chu][ProjectAssistant.Raymond Chu][ProjectAccountant.Priya Nair][ConstructionType.Addition / Expansion][Market.Healthcare][ProjectType.Assisted Living / Nursing Home][BidType.GeneralContractorNegotiate][TaxCode.IL][SquareFootage.1152000][EstimatedValue.$117,000,000.00][Current_Contract_Value.$128,500,000.00][PaidtoDate.$48,800,000.00][Work_Completed.$51,600,000.00][LSP_Total_Contracts.$20,300,000.00][% Performed_by_LSP.15.8%]"
+    },
+    {
+      "file": "acc_cost_codes.csv - Row 32",
+      "raw": "[OriginalCSV.acc_cost_codes.csv][FileDate.2026-03-08][FileTime.12:40:48][Cost Code.07-1400][Cost Code Name.Air & Vapor Barriers][Division.07][Division Name.Thermal & Moisture][Category.Waterproofing][Unit of Measure.SF][Applicable Project Types.All][Applicable Projects.PRJ-001, PRJ-002, PRJ-003, PRJ-004, PRJ-007, PRJ-008][Budgeted Cost.][Notes.Continuous air barrier and vapor retarder installation]"
+    },
+    {
+      "file": "acc_cost_codes.csv - Row 33",
+      "raw": "[OriginalCSV.acc_cost_codes.csv][FileDate.2026-03-08][FileTime.12:40:48][Cost Code.07-1500][Cost Code Name.Insulation - Batt & Rigid][Division.07][Division Name.Thermal & Moisture][Category.Insulation][Unit of Measure.SF][Applicable Project Types.All][Applicable Projects.PRJ-001, PRJ-002, PRJ-003, PRJ-004, PRJ-007, PRJ-008][Budgeted Cost.][Notes.Wall roof and foundation insulation]"
+    },
+    {
+      "file": "acc_cost_codes.csv - Row 76",
+      "raw": "[OriginalCSV.acc_cost_codes.csv][FileDate.2026-03-08][FileTime.12:40:48][Cost Code.31-1000][Cost Code Name.Earthwork - Excavation & Grading][Division.31][Division Name.Earthwork][Category.Civil][Unit of Measure.CY][Applicable Project Types.All][Applicable Projects.PRJ-001, PRJ-002, PRJ-003, PRJ-004, PRJ-005, PRJ-007, PRJ-008][Budgeted Cost.][Notes.Mass excavation grading fill and compaction]"
+    },
+    {
+      "file": "acc_cost_codes.csv - Row 78",
+      "raw": "[OriginalCSV.acc_cost_codes.csv][FileDate.2026-03-08][FileTime.12:40:48][Cost Code.31-1200][Cost Code Name.Erosion & Sediment Control][Division.31][Division Name.Earthwork][Category.Civil][Unit of Measure.LS][Applicable Project Types.All][Applicable Projects.PRJ-001, PRJ-002, PRJ-003, PRJ-004, PRJ-005, PRJ-007, PRJ-008][Budgeted Cost.][Notes.Silt fence inlet protection and erosion control BMP measures]"
+    },
+    {
+      "file": "acc_cost_codes.csv - Row 71",
+      "raw": "[OriginalCSV.acc_cost_codes.csv][FileDate.2026-03-08][FileTime.12:40:48][Cost Code.27-1000][Cost Code Name.Low Voltage - Data & Communications][Division.27][Division Name.Communications][Category.Technology][Unit of Measure.LS][Applicable Project Types.All][Applicable Projects.PRJ-001, PRJ-002, PRJ-003, PRJ-004, PRJ-006, PRJ-008][Budgeted Cost.][Notes.Structured cabling network racks and telecom rooms]"
+    },
+    {
+      "file": "acc_cost_codes.csv - Row 50",
+      "raw": "[OriginalCSV.acc_cost_codes.csv][FileDate.2026-03-08][FileTime.12:40:48][Cost Code.10-1000][Cost Code Name.Toilet Partitions & Accessories][Division.10][Division Name.Specialties][Category.Specialties][Unit of Measure.EA][Applicable Project Types.All][Applicable Projects.PRJ-001, PRJ-002, PRJ-003, PRJ-004, PRJ-006, PRJ-008][Budgeted Cost.][Notes.Toilet compartments urinal screens and washroom accessories]"
+    },
+    {
+      "file": "acc_cost_codes.csv - Row 47",
+      "raw": "[OriginalCSV.acc_cost_codes.csv][FileDate.2026-03-08][FileTime.12:40:48][Cost Code.09-1600][Cost Code Name.Painting & Wall Coverings][Division.09][Division Name.Finishes][Category.Interiors][Unit of Measure.SF][Applicable Project Types.All][Applicable Projects.PRJ-001, PRJ-002, PRJ-003, PRJ-004, PRJ-006, PRJ-008][Budgeted Cost.][Notes.Interior and exterior paint coatings and specialty wall coverings]"
+    },
+    {
+      "file": "acc_cost_codes.csv - Row 13",
+      "raw": "[OriginalCSV.acc_cost_codes.csv][FileDate.2026-03-08][FileTime.12:40:48][Cost Code.03-1000][Cost Code Name.Concrete Formwork][Division.03][Division Name.Concrete][Category.Concrete][Unit of Measure.SF][Applicable Project Types.All][Applicable Projects.PRJ-001, PRJ-002, PRJ-003, PRJ-004, PRJ-005, PRJ-007, PRJ-008][Budgeted Cost.][Notes.Formwork labor and materials for slabs walls and columns]"
+    },
+    {
+      "file": "acc_cost_codes.csv - Row 7",
+      "raw": "[OriginalCSV.acc_cost_codes.csv][FileDate.2026-03-08][FileTime.12:40:48][Cost Code.01-1600][Cost Code Name.Submittals & Document Control][Division.01][Division Name.General Requirements][Category.General Conditions][Unit of Measure.LS][Applicable Project Types.All][Applicable Projects.PRJ-001, PRJ-002, PRJ-003, PRJ-004, PRJ-005, PRJ-006, PRJ-007, PRJ-008][Budgeted Cost.][Notes.Submittal preparation BIM coordination and document management]"
+    },
+    {
+      "file": "acc_cost_codes.csv - Row 3",
+      "raw": "[OriginalCSV.acc_cost_codes.csv][FileDate.2026-03-08][FileTime.12:40:48][Cost Code.01-1200][Cost Code Name.Safety & Compliance][Division.01][Division Name.General Requirements][Category.General Conditions][Unit of Measure.LS][Applicable Project Types.All][Applicable Projects.PRJ-001, PRJ-002, PRJ-003, PRJ-004, PRJ-005, PRJ-006, PRJ-007, PRJ-008][Budgeted Cost.][Notes.OSHA compliance safety signage PPE first aid and safety officer costs]"
+    },
+    {
+      "file": "acc_employees.csv - Row 87",
+      "raw": "[OriginalCSV.acc_employees.csv][FileDate.2026-03-08][FileTime.16:35:28][Employee ID.EMP-002][Full Name.James Okafor][Title.Project Manager][Department.Project Delivery][Role in ACC.Project Manager][Employment Type.Full-Time][Status.Active][Email.j.okafor@constructionco.com][Phone.(303) 812-4400][Office Location.Denver, CO][Projects Assigned.PRJ-002, PRJ-003][Hire Date.2020-07-06][Years Experience.9][Certifications.PMP; LEED AP BD+C][Education.B.S. Construction Management - Colorado State][Reports To.Jennifer Cross][Notes.Healthcare specialist. Managing largest active contract (PRJ-002).]"
+    },
+    {
+      "file": "acc_employees.csv - Row 89",
+      "raw": "[OriginalCSV.acc_employees.csv][FileDate.2026-03-08][FileTime.16:35:28][Employee ID.EMP-004][Full Name.Daniel Torres][Title.Project Manager][Department.Project Delivery][Role in ACC.Project Manager][Employment Type.Full-Time][Status.Active][Email.d.torres@constructionco.com][Phone.(512) 443-6600][Office Location.Austin, TX][Projects Assigned.PRJ-004, PRJ-002][Hire Date.2019-05-29][Years Experience.10][Certifications.PMP; OSHA 30; AIA Associate][Education.B.S. Architecture - Texas A&M][Reports To.Jennifer Cross][Notes.Public sector specialist. Experienced with school district bond programs.]"
+    },
+    {
+      "file": "acc_employees.csv - Row 86",
+      "raw": "[OriginalCSV.acc_employees.csv][FileDate.2026-03-08][FileTime.16:35:28][Employee ID.EMP-001][Full Name.Sarah Mitchell][Title.Senior Project Manager][Department.Project Delivery][Role in ACC.Project Manager][Employment Type.Full-Time][Status.Active][Email.s.mitchell@constructionco.com][Phone.(512) 304-7700][Office Location.Austin, TX][Projects Assigned.PRJ-001, PRJ-004][Hire Date.2018-03-12][Years Experience.14][Certifications.PMP; OSHA 30][Education.B.S. Civil Engineering - UT Austin][Reports To.Jennifer Cross][Notes.Lead PM on flagship mixed-use project. Also reviewing submittals for PRJ-004.]"
+    },
+    {
+      "file": "acc_employees.csv - Row 96",
+      "raw": "[OriginalCSV.acc_employees.csv][FileDate.2026-03-08][FileTime.16:35:28][Employee ID.EMP-011][Full Name.Destiny Owens][Title.Project Administrator][Department.Project Delivery][Role in ACC.Document Controller][Employment Type.Full-Time][Status.Active][Email.d.owens@constructionco.com][Phone.(512) 304-9900][Office Location.Austin, TX][Projects Assigned.PRJ-001, PRJ-004][Hire Date.2023-01-17][Years Experience.3][Certifications.OSHA 10][Education.B.S. Business Administration - St. Edward's University][Reports To.Sarah Mitchell][Notes.Manages submittals log and RFI tracking for Austin-based projects.]"
+    },
+    {
+      "file": "acc_employees.csv - Row 91",
+      "raw": "[OriginalCSV.acc_employees.csv][FileDate.2026-03-08][FileTime.16:35:28][Employee ID.EMP-006][Full Name.Angela Brooks][Title.Project Engineer][Department.Engineering][Role in ACC.Project Engineer][Employment Type.Full-Time][Status.Active][Email.a.brooks@constructionco.com][Phone.(602) 781-2200][Office Location.Phoenix, AZ][Projects Assigned.PRJ-006, PRJ-003, PRJ-001][Hire Date.2022-04-11][Years Experience.5][Certifications.EIT; OSHA 10][Education.B.S. Civil Engineering - ASU][Reports To.James Okafor][Notes.Supporting multiple projects. PRJ-006 on hold. Active on RFIs and submittals.]"
+    },
+    {
+      "file": "acc_vendors.csv - Row 117",
+      "raw": "[OriginalCSV.acc_vendors.csv][FileDate.2026-03-08][FileTime.16:35:28][Vendor ID.VND-011][Vendor Name.PlaySafe Equipment Co.][Vendor Type.Supplier][Trade/Specialty.Playground Equipment][Status.Active][Primary Contact.Tom Brightwell][Contact Title.Territory Manager][Phone.(800) 234-7890][Email.t.brightwell@playsafe.com][Address.9900 Recreation Ln][City.Houston][State.TX][ZIP.77040][License Number.][Insurance Expiry.2025-12-31][Bonding Limit.][Projects Assigned.PRJ-004][W9 On File.Yes][Preferred Vendor.Yes][Notes.ASTM F1487 certified playground equipment supplier.]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 98",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-098][Project.PRJ-098 Crestwood Civic Center Renovation][Status.Active][StartDate.2024-10-28][CompletionDate.2027-09-08][ProjectValue.$23,000,000.00][Address.1200 Transit Ave][City.Dallas][State.TX][Zip.75201][County.Dallas][Owner.Texas DOT][Architect.HNTB Corporation][Superintendent.James Okafor][ProjectManager.Jennifer Cross][Estimator.Daniel Torres][ProjectAssistant.Fiona Marsh][ProjectAccountant.Jennifer Cross][ConstructionType.Ground Up New Construction][Market.Municipal/Education][ProjectType.Education Facility][BidType.DesignBuildNegotiated][TaxCode.IL][SquareFootage.51000][EstimatedValue.$21,000,000.00][Current_Contract_Value.$23,000,000.00][PaidtoDate.$6,500,000.00][Work_Completed.$6,600,000.00][LSP_Total_Contracts.$6,600,000.00][% Performed_by_LSP.28.7%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 482",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-482][Project.PRJ-482 Lakeview Municipal Library][Status.PreConstruction][StartDate.2021-12-16][CompletionDate.2023-07-01][ProjectValue.$41,000,000.00][Address.200 Harbor View Rd][City.Austin][State.TX][Zip.78758][County.Travis][Owner.Grand Pacific Hospitality][Architect.HNTB Corporation][Superintendent.James Okafor][ProjectManager.James Okafor][Estimator.Daniel Torres][ProjectAssistant.Chen Wei][ProjectAccountant.Raymond Chu][ConstructionType.Ground Up New Construction][Market.Tenant Interiors][ProjectType.Multi-Family Housing][BidType.T&M][TaxCode.IL][SquareFootage.388000][EstimatedValue.$42,000,000.00][Current_Contract_Value.$41,000,000.00][PaidtoDate.$3,500,000.00][Work_Completed.$3,900,000.00][LSP_Total_Contracts.$5,800,000.00][% Performed_by_LSP.14.1%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 441",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-441][Project.PRJ-441 Hillcrest Office Park - Phase 2][Status.Completed][StartDate.2022-07-15][CompletionDate.2025-07-02][ProjectValue.$7,500,000.00][Address.500 W 2nd St][City.Houston][State.TX][Zip.77002][County.Harris][Owner.Southern Universities System][Architect.][Superintendent.Laura Vance][ProjectManager.James Okafor][Estimator.James Okafor][ProjectAssistant.Daniel Torres][ProjectAccountant.Fiona Marsh][ConstructionType.Ground Up New Construction][Market.Municipal/Education][ProjectType.Education Facility][BidType.DesignBuildNegotiated][TaxCode.IL][SquareFootage.30000][EstimatedValue.$7,000,000.00][Current_Contract_Value.$7,500,000.00][PaidtoDate.$7,400,000.00][Work_Completed.$7,400,000.00][LSP_Total_Contracts.$1,400,000.00][% Performed_by_LSP.18.5%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 243",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-243][Project.PRJ-243 Lakefront University Science Building][Status.Under Construction][StartDate.2022-04-26][CompletionDate.2024-11-14][ProjectValue.$18,500,000.00][Address.1450 Roof Dr][City.Atlanta][State.GA][Zip.30305][County.Fulton][Owner.Dallas County Schools][Architect.DLR Group][Superintendent.Priya Nair][ProjectManager.Daniel Torres][Estimator.James Okafor][ProjectAssistant.Priya Nair][ProjectAccountant.Jennifer Cross][ConstructionType.Renovation of Existing Space][Market.JOC][ProjectType.Government Building][BidType.GeneralContractorBid][TaxCode.Out/State][SquareFootage.][EstimatedValue.$16,500,000.00][Current_Contract_Value.$18,500,000.00][PaidtoDate.$14,300,000.00][Work_Completed.$14,700,000.00][LSP_Total_Contracts.$1,000,000.00][% Performed_by_LSP.5.2%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 383",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-383][Project.PRJ-383 Eastside Elementary School][Status.On Hold][StartDate.2021-04-24][CompletionDate.2023-11-21][ProjectValue.$6,500,000.00][Address.1500 State Hwy 71][City.Austin][State.TX][Zip.78745][County.Travis][Owner.CommonWealth Partners][Architect.Populous][Superintendent.James Okafor][ProjectManager.James Okafor][Estimator.Marcus Reid][ProjectAssistant.Fiona Marsh][ProjectAccountant.Carlos Ibarra][ConstructionType.Addition / Expansion][Market.Healthcare][ProjectType.Research Facility / Laboratory][BidType.DesignBuildBid][TaxCode.IL][SquareFootage.52000][EstimatedValue.$7,000,000.00][Current_Contract_Value.$6,500,000.00][PaidtoDate.$200,000.00][Work_Completed.$400,000.00][LSP_Total_Contracts.$900,000.00][% Performed_by_LSP.13.5%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 321",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-321][Project.PRJ-321 Cedarbrook Outpatient Surgery Center][Status.Active][StartDate.2021-03-17][CompletionDate.2022-08-26][ProjectValue.$68,500,000.00][Address.200 Harbor View Rd][City.Austin][State.TX][Zip.78703][County.Travis][Owner.Greenway Ventures][Architect.Populous][Superintendent.Sarah Mitchell][ProjectManager.James Okafor][Estimator.James Okafor][ProjectAssistant.Chen Wei][ProjectAccountant.Jennifer Cross][ConstructionType.Ground Up New Construction][Market.Tenant Interiors][ProjectType.Multi-Family Housing][BidType.CMatRisk][TaxCode.IL][SquareFootage.395000][EstimatedValue.$73,000,000.00][Current_Contract_Value.$68,500,000.00][PaidtoDate.$11,900,000.00][Work_Completed.$12,400,000.00][LSP_Total_Contracts.$16,900,000.00][% Performed_by_LSP.24.6%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 263",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-263][Project.PRJ-263 Ironwood VA Medical Clinic][Status.Completed][StartDate.2024-06-09][CompletionDate.2025-09-21][ProjectValue.$72,500,000.00][Address.1600 Commerce St][City.Dallas][State.TX][Zip.75201][County.Dallas][Owner.Prologis Inc.][Architect.AECOM Design][Superintendent.Carlos Ibarra][ProjectManager.James Okafor][Estimator.Raymond Chu][ProjectAssistant.Destiny Owens][ProjectAccountant.Jennifer Cross][ConstructionType.Ground Up New Construction][Market.Hospitality][ProjectType.Hotel / Motel][BidType.CMatRisk][TaxCode.IL][SquareFootage.630000][EstimatedValue.$66,500,000.00][Current_Contract_Value.$72,500,000.00][PaidtoDate.$70,600,000.00][Work_Completed.$70,800,000.00][LSP_Total_Contracts.$16,000,000.00][% Performed_by_LSP.22.1%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 273",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-273][Project.PRJ-273 Westside STEM Academy][Status.Under Construction][StartDate.2022-02-13][CompletionDate.2024-07-13][ProjectValue.$18,500,000.00][Address.4801 Industrial Blvd][City.Dallas][State.TX][Zip.75240][County.Dallas][Owner.City Transit Authority][Architect.AECOM Design][Superintendent.Priya Nair][ProjectManager.Sarah Mitchell][Estimator.James Okafor][ProjectAssistant.Fiona Marsh][ProjectAccountant.Raymond Chu][ConstructionType.Renovation of Existing Space][Market.Municipal/Education][ProjectType.Recreation Building][BidType.GeneralContractorNegotiate][TaxCode.IL][SquareFootage.146500][EstimatedValue.$19,500,000.00][Current_Contract_Value.$18,500,000.00][PaidtoDate.$6,400,000.00][Work_Completed.$6,900,000.00][LSP_Total_Contracts.$2,800,000.00][% Performed_by_LSP.15.0%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 314",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-314][Project.PRJ-314 Oakwood Senior Living Community][Status.Bidding][StartDate.2024-09-02][CompletionDate.2026-10-20][ProjectValue.][Address.400 Main Street][City.Dallas][State.TX][Zip.75024][County.Collin][Owner.Grand Pacific Hospitality][Architect.][Superintendent.][ProjectManager.Raymond Chu][Estimator.James Okafor][ProjectAssistant.][ProjectAccountant.][ConstructionType.Renovation of Existing Space][Market.JOC][ProjectType.Parking Structure / Garage][BidType.ServiceWork][TaxCode.IL][SquareFootage.][EstimatedValue.$14,000,000.00][Current_Contract_Value.][PaidtoDate.][Work_Completed.][LSP_Total_Contracts.][% Performed_by_LSP.]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 394",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-394][Project.PRJ-394 Clearwater Senior Living Community][Status.Dead][StartDate.2024-05-22][CompletionDate.2026-10-04][ProjectValue.][Address.1111 W 6th St][City.Austin][State.TX][Zip.78758][County.Travis][Owner.City of Dallas][Architect.Burns & McDonnell][Superintendent.][ProjectManager.James Okafor][Estimator.Chen Wei][ProjectAssistant.][ProjectAccountant.][ConstructionType.Ground Up New Construction][Market.SP Direct][ProjectType.Manufacturing / Factory][BidType.GeneralContractorNegotiate][TaxCode.IL][SquareFootage.][EstimatedValue.][Current_Contract_Value.][PaidtoDate.][Work_Completed.][LSP_Total_Contracts.][% Performed_by_LSP.]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 71",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-071][Project.PRJ-071 Highland Elementary School][Status.PreConstruction][StartDate.2023-05-24][CompletionDate.2025-10-22][ProjectValue.$15,000,000.00][Address.2300 E Riverside Dr][City.Austin][State.TX][Zip.78758][County.Travis][Owner.City of Dallas][Architect.HDR Architecture][Superintendent.Priya Nair][ProjectManager.James Okafor][Estimator.Priya Nair][ProjectAssistant.Fiona Marsh][ProjectAccountant.Fiona Marsh][ConstructionType.Renovation of Existing Space][Market.JOC][ProjectType.Parking Structure / Garage][BidType.CMatRisk][TaxCode.IL][SquareFootage.][EstimatedValue.$15,000,000.00][Current_Contract_Value.$15,000,000.00][PaidtoDate.$1,200,000.00][Work_Completed.$1,500,000.00][LSP_Total_Contracts.$5,200,000.00][% Performed_by_LSP.34.8%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 446",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-446][Project.PRJ-446 Ridgeview Civic Center Renovation][Status.PreConstruction][StartDate.2024-09-01][CompletionDate.2026-01-17][ProjectValue.$134,500,000.00][Address.2800 University Ave][City.Austin][State.TX][Zip.78701][County.Travis][Owner.Dallas County Schools][Architect.Burns & McDonnell][Superintendent.James Okafor][ProjectManager.Daniel Torres][Estimator.Chen Wei][ProjectAssistant.Priya Nair][ProjectAccountant.Destiny Owens][ConstructionType.Addition / Expansion][Market.Healthcare][ProjectType.Research Facility / Laboratory][BidType.GeneralContractorBid][TaxCode.IL][SquareFootage.1035500][EstimatedValue.$129,500,000.00][Current_Contract_Value.$134,500,000.00][PaidtoDate.$15,500,000.00][Work_Completed.$18,800,000.00][LSP_Total_Contracts.$46,700,000.00][% Performed_by_LSP.34.7%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 296",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-296][Project.PRJ-296 Coastal Senior Living Community][Status.Completed][StartDate.2022-07-15][CompletionDate.2023-05-08][ProjectValue.$15,500,000.00][Address.11500 Research Blvd][City.Austin][State.TX][Zip.78701][County.Travis][Owner.Texas A&M University System][Architect.WSP USA][Superintendent.Sarah Mitchell][ProjectManager.James Okafor][Estimator.James Okafor][ProjectAssistant.Priya Nair][ProjectAccountant.Angela Brooks][ConstructionType.Ground Up New Construction][Market.SP Direct][ProjectType.Government Building][BidType.T&M][TaxCode.IL][SquareFootage.107000][EstimatedValue.$16,000,000.00][Current_Contract_Value.$15,500,000.00][PaidtoDate.$14,900,000.00][Work_Completed.$15,100,000.00][LSP_Total_Contracts.$1,100,000.00][% Performed_by_LSP.7.1%]"
+    },
+    {
+      "file": "AIA305 Sample.csv - Row 196",
+      "raw": "[OriginalCSV.AIA305 Sample.csv][FileDate.2026-04-27][FileTime.06:48:28][Project_ID.PRJ-196][Project.PRJ-196 Cliffside VA Medical Clinic][Status.Under Construction][StartDate.2021-12-04][CompletionDate.2024-09-10][ProjectValue.$36,000,000.00][Address.2100 Medical Center Dr][City.Dallas][State.TX][Zip.75024][County.Collin][Owner.Lone Star Industrial LLC][Architect.DLR Group][Superintendent.Marcus Reid][ProjectManager.Priya Nair][Estimator.James Okafor][ProjectAssistant.Fiona Marsh][ProjectAccountant.Fiona Marsh][ConstructionType.Interior Buildout Of Raw Space][Market.Retail][ProjectType.Retail][BidType.DesignBuildNegotiated][TaxCode.IL][SquareFootage.251500][EstimatedValue.$37,500,000.00][Current_Contract_Value.$36,000,000.00][PaidtoDate.$14,200,000.00][Work_Completed.$15,300,000.00][LSP_Total_Contracts.$10,100,000.00][% Performed_by_LSP.28.1%]"
+    }
+  ]
+}
