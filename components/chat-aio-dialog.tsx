@@ -736,13 +736,30 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="!max-w-none !w-screen !h-screen !rounded-none !translate-x-0 !translate-y-0 !top-0 !left-0 !m-0 flex flex-col p-0 gap-0 overflow-hidden">
-          {/* Navy header — title on top, buttons below */}
-          <DialogHeader className="px-6 py-3 shrink-0 bg-[#0f3460] rounded-t-lg">
-            <DialogTitle className="flex items-center gap-2 text-white text-lg mb-2">
-              <MessageSquare className="w-5 h-5 text-white" />
-              ChatAIO - AI Access to AIO/HSL/MRO Information
+          {/* Navy header — title centered, action buttons centered below,
+              Close pinned to the upper-right corner so it never reflows
+              with the wrapping action row. The title uses a serif display
+              face (font-serif) at a larger size for a tighter, more
+              document-like feel that fills the bar properly. */}
+          <DialogHeader className="relative px-6 pt-4 pb-3 shrink-0 bg-[#0f3460] rounded-t-lg">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onOpenChange(false)}
+              className="absolute right-4 top-4 gap-1.5 text-xs text-white hover:bg-white/20 hover:text-white border-white/30"
+              title="Close"
+            >
+              <X className="w-4 h-4" />Close
+            </Button>
+
+            <DialogTitle asChild>
+              <h2 className="flex items-center justify-center gap-3 text-white font-serif font-semibold text-2xl md:text-3xl tracking-tight text-center mb-3">
+                <MessageSquare className="w-7 h-7 text-white shrink-0" />
+                <span>ChatAIO — AI Access to AIO / HSL / MRO Information</span>
+              </h2>
             </DialogTitle>
-            <div className="flex items-center gap-2 flex-wrap">
+
+            <div className="flex items-center justify-center gap-2 flex-wrap">
               <Button variant="ghost" size="sm" onClick={handleDownloadChat} disabled={chatMessages.length === 0}
                 className="gap-1.5 text-xs text-white hover:bg-white/20 hover:text-white border-white/30" title="Download chat as markdown">
                 <Download className="w-3.5 h-3.5" />Chat
@@ -762,11 +779,6 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
               <Button variant="ghost" size="sm" onClick={() => setShowGuide(!showGuide)}
                 className="gap-1.5 text-xs text-white hover:bg-white/20 hover:text-white border-white/30" title="ChatAIO User Guide">
                 <BookOpen className="w-3.5 h-3.5" />Guide
-              </Button>
-              <div className="flex-1" />
-              <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}
-                className="gap-1.5 text-xs text-white hover:bg-white/20 hover:text-white border-white/30" title="Close">
-                <X className="w-4 h-4" />Close
               </Button>
             </div>
           </DialogHeader>
