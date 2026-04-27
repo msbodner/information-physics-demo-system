@@ -531,7 +531,17 @@ export async function runChatPipeline(
     // Non-streaming path. Falls back to the standard chat endpoint if
     // substrate-chat is not yet deployed (e.g. rolling Railway deploy).
     let chatResponse = await substrateChatWithAIO(messages, bundleText)
-    const errLower = (chatResponse && "error" in chatResponse) ? chatResponse.error.toLowerCase() : ""
+    // Defensive: backend errors can come back as plain strings (404 from
+    // a rolling deploy) or as JSON envelopes (budget exceeded:
+    // {error, message, used_today, limit, ...}). Coerce to a single
+    // lowercase string before pattern-matching for the fallback trigger.
+    const errStr =
+      (chatResponse && "error" in chatResponse)
+        ? (typeof chatResponse.error === "string"
+            ? chatResponse.error
+            : JSON.stringify(chatResponse.error))
+        : ""
+    const errLower = errStr.toLowerCase()
     if (errLower.includes("404") || errLower.includes("not found") || errLower.includes("backend_unavailable")) {
       const fallbackMessages: ChatMessage[] = [
         { role: "user", content: "Use the following precomputed substrate as your evidence:\n\n" + bundleText },
@@ -540,7 +550,7 @@ export async function runChatPipeline(
       chatResponse = await chatWithAIO(fallbackMessages)
     }
     if (!chatResponse) return { error: "Backend unavailable" }
-    if ("error" in chatResponse) return { error: chatResponse.error }
+    if ("error" in chatResponse) return { error: errStr }
     chatReply = chatResponse.reply
     chatModel = chatResponse.model_ref
     chatInTok = chatResponse.input_tokens ?? 0
