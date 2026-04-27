@@ -24,7 +24,7 @@ import {
   listHslData, createHslData, updateHslData, deleteHslData,
   listSavedPrompts, createSavedPrompt, updateSavedPrompt, deleteSavedPrompt,
   listInformationElements, createInformationElement, updateInformationElement, deleteInformationElement, rebuildInformationElements,
-  getApiKeySetting, updateApiKeySetting, getModelSettings, updateModelSettings, loginUser, listIOs,
+  getApiKeySetting, updateApiKeySetting, getModelSettings, updateModelSettings, getBudgetSettings, updateBudgetSettings, loginUser, listIOs,
   listChatStats, deleteChatStat, getMroForStat, type MroForStat,
   listMroObjects, getMroObject, updateMroObject, deleteMroObject,
   listDemoBackups, createDemoBackup, deleteDemoBackup, resetDemoData, restoreDemoBackup,
@@ -1901,6 +1901,169 @@ function ModelsPane() {
         {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
         Save Model Settings
       </Button>
+
+      <BudgetPane />
+    </div>
+  )
+}
+
+// ── Budget Pane ───────────────────────────────────────────────────
+//
+// Daily token budget guardrail. Two settings live in system_settings:
+//   - daily_token_budget:<tenant_id>  (per-tenant override; empty/missing
+//                                      falls through to the global default)
+//   - daily_token_budget_per_tenant   (global default; empty/missing
+//                                      disables the guardrail entirely)
+// Backend is api/budget.py:status() / check_budget(). Frontend UX:
+// progress bar + two integer inputs (tenant + global) + Save. We expose
+// "Reset to default" and "Disable guardrail" as one-click escape hatches
+// because the SQL fallback (deleting a row in system_settings) is what
+// most operators actually want when they say "reset".
+
+function BudgetPane() {
+  const [data, setData] = useState<{
+    tenant_id: string
+    used_today: number
+    effective_limit: number | null
+    percent_used: number
+    tenant_limit_raw: string | null
+    global_limit_raw: string | null
+  } | null>(null)
+  const [tenantInput, setTenantInput] = useState("")
+  const [globalInput, setGlobalInput] = useState("")
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+
+  const refresh = useCallback(async () => {
+    const r = await getBudgetSettings()
+    if (r) {
+      setData(r)
+      setTenantInput(r.tenant_limit_raw ?? "")
+      setGlobalInput(r.global_limit_raw ?? "")
+    }
+    setIsLoading(false)
+  }, [])
+
+  useEffect(() => { refresh() }, [refresh])
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    // Send only fields the user changed. Empty string ("") signals
+    // clear; null/undefined leaves the row alone.
+    const payload: { tenant_limit?: string; global_limit?: string } = {}
+    if (tenantInput !== (data?.tenant_limit_raw ?? "")) payload.tenant_limit = tenantInput.trim()
+    if (globalInput !== (data?.global_limit_raw ?? "")) payload.global_limit = globalInput.trim()
+    if (Object.keys(payload).length === 0) {
+      toast.info("No budget changes to save.")
+      setIsSaving(false)
+      return
+    }
+    const result = await updateBudgetSettings(payload)
+    if (result?.ok) {
+      toast.success("Budget settings saved.")
+      setData(result)
+      setTenantInput(result.tenant_limit_raw ?? "")
+      setGlobalInput(result.global_limit_raw ?? "")
+    } else {
+      toast.error("Failed to save budget settings.")
+    }
+    setIsSaving(false)
+  }
+
+  if (isLoading || !data) {
+    return (
+      <div className="pt-6 border-t border-border">
+        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  const limit = data.effective_limit
+  const used = data.used_today
+  const pct = limit ? Math.min(100, (used / limit) * 100) : 0
+  const barColor =
+    !limit ? "bg-muted" :
+    pct >= 100 ? "bg-destructive" :
+    pct >= 80 ? "bg-amber-500" :
+    "bg-emerald-600"
+
+  return (
+    <div className="pt-6 border-t border-border space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold mb-1">Daily Token Budget</h3>
+        <p className="text-xs text-muted-foreground">
+          Caps total LLM tokens (input + output) per tenant per UTC day. When the cap is reached, every
+          ChatAIO mode returns a budget-exhausted error until the next day. Leave both fields empty to
+          disable the guardrail entirely.
+        </p>
+      </div>
+
+      {/* Live status */}
+      <div className="space-y-2">
+        <div className="flex items-baseline justify-between text-xs">
+          <span className="font-medium text-foreground">Tenant: <code className="font-mono">{data.tenant_id}</code></span>
+          <span className="font-mono text-muted-foreground">
+            {used.toLocaleString()} / {limit ? limit.toLocaleString() : "∞"} tokens today
+            {limit && <span className="ml-2">({pct.toFixed(1)}%)</span>}
+          </span>
+        </div>
+        <div className="h-2 rounded-full bg-muted overflow-hidden">
+          <div className={`h-full ${barColor} transition-all`} style={{ width: `${limit ? pct : 0}%` }} />
+        </div>
+      </div>
+
+      {/* Per-tenant override */}
+      <div className="space-y-2">
+        <Label htmlFor="tenant-budget">
+          Per-tenant limit
+          <span className="ml-2 text-xs font-normal text-muted-foreground">(applies to this tenant only)</span>
+        </Label>
+        <Input
+          id="tenant-budget"
+          type="number"
+          min="0"
+          inputMode="numeric"
+          value={tenantInput}
+          onChange={(e) => setTenantInput(e.target.value)}
+          placeholder="e.g. 2000000  (empty = use global default)"
+          className="max-w-sm font-mono"
+        />
+      </div>
+
+      {/* Global default */}
+      <div className="space-y-2">
+        <Label htmlFor="global-budget">
+          Global default
+          <span className="ml-2 text-xs font-normal text-muted-foreground">(applies to all tenants without an override)</span>
+        </Label>
+        <Input
+          id="global-budget"
+          type="number"
+          min="0"
+          inputMode="numeric"
+          value={globalInput}
+          onChange={(e) => setGlobalInput(e.target.value)}
+          placeholder="e.g. 500000  (empty = guardrail disabled)"
+          className="max-w-sm font-mono"
+        />
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={handleSave} disabled={isSaving} className="gap-2">
+          {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Save Budget Settings
+        </Button>
+        <Button variant="outline" onClick={refresh} disabled={isSaving} className="gap-2">
+          <RefreshCw className="w-4 h-4" />Refresh usage
+        </Button>
+      </div>
+
+      <p className="text-xs text-muted-foreground italic pt-2">
+        Counter resets at 00:00 UTC. Tracked in <code className="bg-muted px-1 rounded">tenant_token_usage</code>;
+        limits stored in <code className="bg-muted px-1 rounded">system_settings</code> as
+        <code className="bg-muted px-1 rounded ml-1">daily_token_budget:&lt;tenant&gt;</code> and
+        <code className="bg-muted px-1 rounded ml-1">daily_token_budget_per_tenant</code>.
+      </p>
     </div>
   )
 }

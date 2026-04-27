@@ -744,6 +744,33 @@ export async function updateModelSettings(payload: {
   })
 }
 
+// Daily token budget
+export interface BudgetSettings {
+  tenant_id: string
+  used_today: number
+  effective_limit: number | null
+  percent_used: number
+  warn?: boolean
+  blocked?: boolean
+  tenant_limit_raw: string | null  // null = no override; falls through to global
+  global_limit_raw: string | null  // null = no global default; guardrail disabled
+}
+
+export async function getBudgetSettings(): Promise<BudgetSettings | null> {
+  return safeFetch("/api/settings/budget")
+}
+
+export async function updateBudgetSettings(payload: {
+  tenant_limit?: string  // "" = clear; "<int>" = set
+  global_limit?: string
+}): Promise<(BudgetSettings & { ok: boolean }) | null> {
+  return safeFetch("/api/settings/budget", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+}
+
 // Information Elements
 export interface InformationElement {
   element_id: string
