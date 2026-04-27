@@ -208,7 +208,7 @@ export function ConversionPreview({ files, onClear, onProcess, backendIsOnline }
               bulkStatus === "success" && "bg-green-600 hover:bg-green-700",
               bulkStatus === "error" && "bg-destructive hover:bg-destructive/90",
             )}
-            title={`Auto-save ${files.length} CSVs + all AIO files, then run Hyper-Semantic Logic on the bulk set`}
+            title={`Run Hyper-Semantic Logic across all ${files.length} loaded files (CSVs and AIOs are already saved on load)`}
           >
             {bulkStatus === "running" ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -216,10 +216,10 @@ export function ConversionPreview({ files, onClear, onProcess, backendIsOnline }
               <Layers className="w-4 h-4" />
             )}
             {bulkStatus === "success"
-              ? "Bulk Saved!"
+              ? "Bulk Queued!"
               : bulkStatus === "error"
                 ? "Bulk Failed"
-                : "Bulk: All Newly Loaded Files"}
+                : "Bulk: Process All Loaded Files"}
           </Button>
         )}
         {backendIsOnline && (
