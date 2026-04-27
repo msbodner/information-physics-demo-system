@@ -426,10 +426,92 @@ query ──▶  Cue extraction (deterministic, client-side)
             </div>
           </Section>
 
+          <Section num={9} title="Recent retrieval improvements">
+            <p>
+              Since the original draft of this technote, three retrieval issues surfaced through end-to-end benchmarking
+              (the multi-CSV PRJ-003 join in particular). All three are now fixed and live.
+            </p>
+
+            <Sub title="9.1 HSL inverted-index fix (migration 029)">
+              <p>
+                Migration 017 introduced <code className="text-xs">information_element_refs</code> as the inverted index that backs
+                <code className="text-xs"> /v1/hsl-data/find-by-needles-full</code>. Its <code className="text-xs">ier_refresh_hsl()</code>
+                helper only parsed the <code className="text-xs">hsl_element_*</code> columns &mdash; which carry AIO row refs
+                (<code className="text-xs">acc_rfis.csv - Row 164</code>), not bracket tokens. The HSL&rsquo;s actual
+                <code className="text-xs"> [Key.Value]</code> identifier lives in <code className="text-xs">hsl_data.hsl_name</code>
+                (e.g. <code className="text-xs">[Assigned To.James Okafor].hsl</code>) and was never indexed. Result: every
+                cue-to-HSL probe returned zero rows and the pipeline silently fell back to AIO needle scan.
+              </p>
+              <p>
+                Migration 029 extends <code className="text-xs">ier_refresh_hsl()</code> to also parse
+                <code className="text-xs"> hsl_name</code> (after stripping the <code className="text-xs">.hsl</code> suffix) and re-runs the
+                backfill from migration 017. The function is idempotent (DELETE-then-INSERT inside the body), so re-running
+                the migration on already-indexed rows is safe.
+              </p>
+            </Sub>
+
+            <Sub title="9.2 Cap-by-CSV diversity in the AIO ranker">
+              <p>
+                Some corpora are dominated by a single CSV (the demo corpus is 80% AIA305 project records). When a cue like
+                <code className="text-xs"> PRJ-003</code> matched both AIA305 and the operational CSVs (acc_rfis, acc_issues,
+                acc_submittals, acc_vendors, acc_cost_codes), flat top-N ranking filled the substrate cap with AIA305 rows
+                and pushed the operational records out entirely. Recall and Live Search both returned &ldquo;no matching records.&rdquo;
+              </p>
+              <p>
+                The fix in <code className="text-xs">lib/aio-math.ts</code> applies a per-CSV diversity cap before slicing to
+                <code className="text-xs"> maxAios</code>: each unique <code className="text-xs">OriginalCSV</code> value gets up to
+                <code className="text-xs"> floor(maxAios / numCSVs)</code> slots, with leftovers filled by the highest-scored
+                remaining records. Multi-CSV joins on a shared key now retrieve from every contributing CSV.
+              </p>
+            </Sub>
+
+            <Sub title="9.3 HSL field-name aliasing">
+              <p>
+                The same value frequently appears under different field names across CSVs &mdash;
+                <code className="text-xs"> [Project_ID.PRJ-003]</code> in AIA305,
+                <code className="text-xs"> [Project ID.PRJ-003]</code> in acc_rfis,
+                <code className="text-xs"> [Projects Assigned.PRJ-003]</code> in acc_vendors,
+                <code className="text-xs"> [Applicable Projects.PRJ-003]</code> in acc_cost_codes. Cue extraction treated these
+                as four unrelated tokens and missed the join.
+              </p>
+              <p>
+                <code className="text-xs">lib/hsl-aliases.ts</code> exports a <code className="text-xs">canonicalField()</code> table
+                that folds equivalent headers to a single canonical key (here, <code className="text-xs">Project</code>) for
+                matching purposes. Frontend-only in V1; can be promoted to the backend (migration 030+) once the alias table
+                stabilizes.
+              </p>
+            </Sub>
+
+            <Sub title="9.4 In-app benchmarks (Benchmark 1 / Benchmark 2)">
+              <p>
+                Two saved benchmark prompts (<code className="text-xs">scripts/benchmark_prompt.txt</code> and
+                <code className="text-xs"> lib/benchmarks.ts</code>) exercise the full pipeline end-to-end across all four
+                modes. Press <strong>Benchmark 1</strong> or <strong>Benchmark 2</strong> in R&amp;D to run a four-mode
+                comparison with measured tokens, latency, context size, and verbatim replies; Print / Save-as-PDF captures
+                the report. Same prompts also runnable from the CLI via
+                <code className="text-xs"> BENCHMARK=1 pnpm dlx tsx scripts/measure_modes.ts</code>.
+              </p>
+            </Sub>
+
+            <Sub title="9.5 Runtime LLM model selection">
+              <p>
+                Every Anthropic call site reads its model from <code className="text-xs">system_settings</code> at request
+                time. Switch between <code className="text-xs">claude-opus-4-7</code>,
+                <code className="text-xs"> claude-sonnet-4-6</code>, and <code className="text-xs">claude-haiku-4-5</code>
+                from <strong>System Management &rarr; Models</strong>. A separate parse-phase override exists for Live Search
+                (Haiku for parsing cuts that step ~5&times; with negligible quality loss). Resolution order:
+                <code className="text-xs"> system_settings</code> &rarr; env var &rarr; fallback.
+              </p>
+            </Sub>
+          </Section>
+
           <p className="text-xs text-muted-foreground italic mt-10 pt-6 border-t border-border">
             End of document · For implementation details see <code className="text-xs">api/routes/chat.py</code>
             (<code className="text-xs">aio_search</code>, <code className="text-xs">substrate_chat</code>),
-            <code className="text-xs">api/search_quality.py</code>, and migration <code className="text-xs">024_aio_search_quality.sql</code>.
+            <code className="text-xs">api/search_quality.py</code>, migrations
+            <code className="text-xs"> 024_aio_search_quality.sql</code> and
+            <code className="text-xs"> 029_fix_hsl_ier_index.sql</code>, and the diversity / alias logic in
+            <code className="text-xs"> lib/aio-math.ts</code> and <code className="text-xs">lib/hsl-aliases.ts</code>.
           </p>
 
         </article>

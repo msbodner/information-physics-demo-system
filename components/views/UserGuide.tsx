@@ -328,7 +328,7 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                 <ul className="list-disc list-inside space-y-1">
                   <li><strong>Paper III</strong> — the full theoretical treatment. Home page → Paper III button.</li>
                   <li><strong>Mathematics Reference</strong> — all formulas with worked examples. Downloadable from System Admin → Documentation.</li>
-                  <li><strong>R &amp; D — Compound HSL Builder</strong> — the interactive equivalent of Step 2. Use it to see the set-intersection operation without invoking Claude.</li>
+                  <li><strong>R &amp; D — Compound HSL Builder</strong> — the interactive equivalent of Step 2. Use it to see the set-intersection operation without invoking Claude. The R&amp;D header also exposes <strong>Benchmark 1</strong> and <strong>Benchmark 2</strong>, which run a saved prompt through all four ChatAIO modes (Recall, Live, Broad, Raw) and print a side-by-side report you can save as PDF.</li>
                 </ul>
               </CardContent></Card>
             )}
@@ -573,9 +573,19 @@ employees_0005.aio   employees     5       2024-01-15 10:30:00`}</div>
                   </ul>
                 </div>
 
-                <h4 className="text-foreground font-medium mt-2">Settings tab</h4>
+                <h4 className="text-foreground font-medium mt-2">API Key tab</h4>
                 <div className="pl-2 border-l-2 border-border">
-                  <p>Configure the <strong>Anthropic API Key</strong> used by the ChatAIO feature and the Summarize All function. Paste your key and click Save. The key is stored securely in the <code className="bg-muted px-1 rounded">system_settings</code> table and loaded at server startup.</p>
+                  <p>Configure the <strong>Anthropic API Key</strong> used by every ChatAIO mode (Recall, Live, Broad, Raw), Summarize, and entity-resolution. Paste your key and click Save. The key is stored in the <code className="bg-muted px-1 rounded">system_settings</code> table; updates take effect on the next request &mdash; no restart required.</p>
+                </div>
+
+                <h4 className="text-foreground font-medium mt-2">Models tab</h4>
+                <div className="pl-2 border-l-2 border-border">
+                  <p>Pick the Anthropic model used by the platform at runtime. Two slots:</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    <li><strong>Default model</strong> &mdash; used by all four ChatAIO modes plus Summarize and entity-resolution. Choose <code className="bg-muted px-1 rounded">claude-opus-4-7</code>, <code className="bg-muted px-1 rounded">claude-sonnet-4-6</code>, or <code className="bg-muted px-1 rounded">claude-haiku-4-5</code> from the dropdown (or save any other valid SKU).</li>
+                    <li><strong>Parse-phase model</strong> &mdash; optional override used only by the Live Search query-parsing step. Set this to Haiku to cut parse cost ~5&times; with negligible quality loss; leave on &ldquo;Use default&rdquo; to keep one model for everything.</li>
+                  </ul>
+                  <p>Resolution order on the backend: <code className="bg-muted px-1 rounded">system_settings</code> (this UI) &rarr; env var (<code className="bg-muted px-1 rounded">ANTHROPIC_DEFAULT_MODEL</code>, <code className="bg-muted px-1 rounded">AIO_SEARCH_PARSE_MODEL</code>) &rarr; fallback (<code className="bg-muted px-1 rounded">claude-sonnet-4-6</code>). Changes take effect on the next request.</p>
                 </div>
 
                 <h4 className="text-foreground font-medium mt-2">Search Statistics Analytics tab (V4.3, renamed in V4.4)</h4>

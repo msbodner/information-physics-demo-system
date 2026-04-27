@@ -191,35 +191,57 @@ Key interfaces: `AioData`, `HslData`, `MroObject`, `InformationElement`, `FieldM
 
 ## ChatAIO Search Modes
 
+ChatAIO exposes four retrieval modes, in increasing distance from the data:
+
+### Recall Search (Substrate Mode)
+
+Headline mode (`/v1/op/substrate-chat`). The client assembles a JSON substrate envelope (HSL gating + MRO-assisted retrieval + needle-matched AIOs) and sends it to Claude with a fixed system prompt that teaches the model how to consume it. Lowest token cost when MRO priors exist; can short-circuit to an MRO cache hit at score &ge; 0.85.
+
+The pipeline (client-side, in `lib/aio-chat-pipeline.ts`):
+
+1. **Cue extraction** &mdash; pull bracket values from the query and AIO neighborhood
+2. **HSL traversal** &mdash; resolve each cue against `/v1/hsl-data/find-by-needles-full` (backed by the inverted index in `information_element_refs`, populated correctly after migration 029)
+3. **AIO neighborhood** &mdash; intersect HSL neighborhoods with cue-matched AIOs; rank by overlap and apply a **cap-by-CSV diversity** (`lib/aio-math.ts`) so no single CSV (e.g. AIA305) can dominate the substrate
+4. **MRO priors** &mdash; ranked by Jaccard &times; freshness &times; confidence; injected as &quot;framing only&quot; (never as ground truth)
+5. **Synthesize** &mdash; substrate envelope &rarr; Claude
+
+### Live Search (Four-Phase Algebra)
+
+`/v1/op/aio-search`. Server-side parse &rarr; HSL match &rarr; AIO gather &rarr; synthesize. Faster cold start than Recall (no client-side cue extraction), with a per-query micro-cache (`?bypass_cache=true` to defeat). The response includes a context bundle in bracket notation, e.g. `[MROKey.HSL-3-AIO-47][Query.Tell me about Sarah][Result. ...][SearchTerms.{"terms":["sarah"]}][SeedHSLs.3 HSLs][MatchedAIOs.47][Confidence.derived][Timestamp. ...]`.
+
 ### Broad Search
 
-Sends the entire AIO dataset as context to Claude AI for open-ended queries.
+`/v1/op/chat`. Sends the entire AIO dataset as context. Most exhaustive, highest token cost (~70K input tokens for the demo corpus). Use for open-ended exploration where retrieval recall is more important than cost.
 
-```
-User Query → Fetch all AIOs → Build context → Claude generates response → Display result
-```
+### Raw Search
 
-### AIO Search (Four-Phase Algebra)
+`/v1/op/pure-llm`. Plain LLM call with only the saved CSV samples as context, bypassing AIO/HSL/MRO entirely. Useful as a null baseline to verify that AIO/HSL retrieval is actually contributing.
 
-Structured retrieval using the HSL relational layer:
+### Field-name aliasing
 
-1. **Parse** &mdash; Extract search terms and intent from the user query
-2. **Match HSLs** &mdash; Find HSL records with matching elements
-3. **Gather AIOs** &mdash; Collect all AIOs linked through matched HSLs
-4. **Synthesize** &mdash; Send matched AIOs to Claude with the original query
-
-The response includes a **context bundle** in bracket notation:
-
-```
-[MROKey.HSL-3-AIO-47][Query.Tell me about Sarah]
-[Result.**Full Name:** Sarah Mitchell ...]
-[SearchTerms.{"terms":["sarah"]}][SeedHSLs.3 HSLs]
-[MatchedAIOs.47][Confidence.derived][Timestamp.2026-...]
-```
+Cue extraction folds equivalent field names through `lib/hsl-aliases.ts` so the same value under different headers (e.g. `[Project_ID.PRJ-003]` in AIA305 vs `[Project ID.PRJ-003]` in acc_rfis vs `[Projects Assigned.PRJ-003]` in acc_vendors vs `[Applicable Projects.PRJ-003]` in acc_cost_codes) maps to one canonical key (`Project`) for matching. Frontend-only in V1; can be promoted to the backend with a migration once the alias table stabilizes.
 
 ### MRO Save
 
-After any search, users can save the complete retrieval episode as an MRO, preserving query, result, search terms, matched counts, and the full context bundle for later analysis.
+After any search, users can save the complete retrieval episode as an MRO, preserving query, result, search terms, matched counts, and the full context bundle for later analysis. The `trust_score` column is incremented every time a saved MRO is reused as a prior, so frequently-useful episodes rise to the top.
+
+### Benchmarking
+
+Two saved benchmark prompts ship in `lib/benchmarks.ts` and `scripts/benchmark_prompt.txt`:
+
+- **Benchmark 1** &mdash; PRJ-003 multi-CSV join (stresses cap-by-CSV diversity, HSL aliasing, strict filter semantics)
+- **Benchmark 2** &mdash; James Okafor named-entity probe (stresses person-centric HSL traversal and MRO short-circuit thresholds)
+
+Run from the **R&amp;D &rarr; Benchmark 1 / Benchmark 2** buttons (in-app, with Print / Save-as-PDF), or from the CLI:
+
+```bash
+BENCHMARK=1 pnpm dlx tsx scripts/measure_modes.ts
+BENCHMARK=1 MRO_BYPASS=1 pnpm dlx tsx scripts/trace_recall.ts
+```
+
+### LLM model selection
+
+Every Anthropic call site reads its model from `system_settings` at request time. Choose `claude-opus-4-7`, `claude-sonnet-4-6`, or `claude-haiku-4-5` (or any other valid Anthropic SKU) from **System Management &rarr; Models**. Two slots: a default model (used by all four search modes plus summarize / entity-resolution) and a parse-phase override for Live Search (using Haiku here cuts parse cost ~5&times;). Resolution order is `system_settings` &rarr; env var &rarr; fallback.
 
 ---
 

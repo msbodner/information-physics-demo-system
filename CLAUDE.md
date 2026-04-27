@@ -56,9 +56,13 @@ Pattern: `app/api/{resource}/route.ts` → `${API_BASE}/v1/{resource}`
 
 ### Key Frontend Files
 - `app/page.tsx` — Main SPA with all views (home, converter, HSL builder, R&D, workflow, guides, reference papers)
-- `components/chat-aio-dialog.tsx` — Full-screen ChatAIO with two search modes, MRO save, PDF export
-- `components/system-management.tsx` — Admin panel with 10 tabs (users, roles, AIO data, HSL data, API key, saved CSVs, saved AIOs, saved prompts, info elements, architecture)
+- `components/chat-aio-dialog.tsx` — Full-screen ChatAIO with all four search modes (Recall/Live/Broad/Raw), MRO save, PDF export
+- `components/system-management.tsx` — Admin panel with tabs for users, roles, AIO data, HSL data, MRO data, API key, **Models** (LLM selection), saved CSVs/AIOs/prompts, info elements, search statistics, references, architecture, demo reset/backup
+- `components/benchmark-runner.tsx` — Full-screen four-mode benchmark UI mounted from R&D; Print/Save-as-PDF
 - `lib/api-client.ts` — Typed fetch wrappers for all API endpoints
+- `lib/benchmarks.ts` — Saved benchmark prompts + `runFourModes()` (browser-side counterpart to `scripts/measure_modes.ts`)
+- `lib/aio-math.ts` — AIO ranking with cap-by-CSV diversity (prevents single-CSV dominance in the substrate)
+- `lib/hsl-aliases.ts` — Canonical field-name aliasing (`Project_ID` ≡ `Project ID` ≡ `Projects Assigned` ≡ `Applicable Projects` → `Project`)
 
 ### Key Backend Files
 - `infophysics_impl_grade/api/main.py` — App wiring + middleware only. Endpoints live in `api/routes/`.
@@ -71,7 +75,7 @@ Pattern: `app/api/{resource}/route.ts` → `${API_BASE}/v1/{resource}`
   - `/v1/aio-data/find-by-needles`, `/v1/hsl-data/find-by-needles` — Needle-keyed lookups feeding substrate
   - `/v1/mro-objects/bump-trust`, `/v1/hsl-data/{id}/link-mro` — Trust scoring + HSL↔MRO lineage
   - CRUD for: `/v1/aio-data`, `/v1/hsl-data`, `/v1/mro-objects`, `/v1/information-elements`, `/v1/saved-prompts`, `/v1/io`, `/v1/users`, `/v1/roles`
-- `infophysics_impl_grade/migrations/` — Numbered SQL migrations (000–023, latest: `023_hsl_member_and_uniqueness.sql`), applied in order by `start.sh`
+- `infophysics_impl_grade/migrations/` — Numbered SQL migrations (000–029, latest: `029_fix_hsl_ier_index.sql`), applied in order by `start.sh`. Notable: `017_information_element_refs.sql` introduced the inverted index that backs `find-by-needles-full`; `029_fix_hsl_ier_index.sql` extended `ier_refresh_hsl()` to also parse `hsl_data.hsl_name` (the bracket token lives there, not in the element columns), with backfill for existing rows.
 
 ### Database
 PostgreSQL 15 with Row-Level Security for tenant isolation. Tenant set via `X-Tenant-Id` header (default: `tenantA`). Key tables: `aio_data`, `hsl_data`, `mro_objects`, `information_elements`, `information_objects`, `saved_prompts`, `users`, `roles`, `system_settings`.
@@ -104,3 +108,14 @@ railway service status --all
 - **Adding a System Admin tab**: Add `TabsTrigger` + `TabsContent` in `components/system-management.tsx`, create a new pane function
 - **SQL migrations**: Add numbered file in `infophysics_impl_grade/migrations/` (e.g., `012_new_table.sql`). Migrations run automatically on backend startup. Use `IF NOT EXISTS` for idempotency.
 - **Backend Dockerfile**: pip dependencies are hardcoded in the Dockerfile `RUN pip install` line, not read from `pyproject.toml`. Update both when adding Python packages.
+- **LLM model selection**: Every Anthropic call site goes through `get_default_model()` / `get_parse_model()` in `infophysics_impl_grade/api/llm.py`. Resolution order: `system_settings.{default_model,parse_model}` (set via System Management → Models tab) → env var (`ANTHROPIC_DEFAULT_MODEL`, `AIO_SEARCH_PARSE_MODEL`) → fallback (`claude-sonnet-4-6`). Never reintroduce hardcoded model strings.
+- **Benchmarks**: Two saved prompts in `lib/benchmarks.ts` and `scripts/benchmark_prompt.txt`. Run via the R&D **Benchmark 1 / Benchmark 2** buttons (UI), or `BENCHMARK=1 pnpm dlx tsx scripts/measure_modes.ts` (CLI). The runners must stay in sync with each other.
+
+## Recent material changes (post-V4.4 hotfixes)
+
+- **Migration 029** — fixed the HSL inverted index. Previously `find-by-needles-full` returned 0 rows for typical cues because `ier_refresh_hsl()` only parsed element columns (which carry AIO row refs, not bracket tokens). The actual `[Key.Value]` lives in `hsl_data.hsl_name`. The migration parses both and backfills.
+- **AIO diversity cap** — `lib/aio-math.ts` now applies a cap-by-CSV when ranking the AIO neighborhood, so a CSV that holds 80% of the corpus (AIA305 in the demo) can't push out smaller operational CSVs (acc_rfis, acc_issues, acc_submittals, acc_vendors, acc_cost_codes). Without this, multi-CSV joins on a Project ID failed in Recall and Live mode.
+- **HSL aliasing** — `lib/hsl-aliases.ts` folds equivalent field names (`Project_ID`, `Project ID`, `Projects Assigned`, `Applicable Projects`, `Active Projects`) to a canonical `Project` for cue matching. Frontend-only for V1; can be promoted to the backend (a future migration) once the alias table stabilizes.
+- **System Management → Models tab** — runtime selection of default and parse-phase models from a dropdown of `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`. Saved to `system_settings`, takes effect on the next request.
+- **R&D → Benchmark buttons** — full-screen four-mode benchmark runner with side-by-side metrics, verbatim replies, and Print / Save-as-PDF.
+- **References tab** — embedded inline document viewer. The two technical reports and the Recall trace open as full-screen views (mammoth converts the .docx to HTML in the browser); no file downloads are triggered.
