@@ -16,8 +16,21 @@
 const FRONTEND_BASE = process.env.IP_FRONTEND_BASE ?? "https://informationphysicsdemo.up.railway.app"
 const TENANT_ID = process.env.IP_TENANT_ID ?? "tenantA"
 const SALT = Math.random().toString(36).slice(2, 8)
-const BASE_QUERY = process.env.IP_QUERY
-  ?? "What roles does Sarah Mitchell hold. List projects and financials for each."
+// Resolution order — same as measure_modes.ts:
+//   1. BENCHMARK=1   → scripts/benchmark_prompt.txt
+//   2. IP_QUERY=...  → exact string
+//   3. fallback      → Sarah Mitchell named-entity probe
+import * as _fs from "node:fs"
+import * as _path from "node:path"
+function loadBaseQuery(): string {
+  if (process.env.BENCHMARK === "1") {
+    const p = _path.resolve(__dirname, "benchmark_prompt.txt")
+    return _fs.readFileSync(p, "utf8").trim()
+  }
+  return process.env.IP_QUERY
+    ?? "What roles does Sarah Mitchell hold. List projects and financials for each."
+}
+const BASE_QUERY = loadBaseQuery()
 const QUERY = `${BASE_QUERY} (run ${SALT})`
 
 // Fetch shim: rewrite /api/* to Railway, inject tenant header.
@@ -52,7 +65,7 @@ import {
 import { parseAioLine } from "../lib/aio-utils"
 import { runChatPipeline } from "../lib/aio-chat-pipeline"
 
-import * as fs from "node:fs"
+const fs = _fs
 
 async function main() {
   const t0 = Date.now()

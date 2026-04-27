@@ -1,0 +1,15 @@
+For Project ID PRJ-003 (Greenway Office Park - Phase 2):
+
+1. List every Open RFI and every Open Issue tied to this project. For each, give: ID, Title, Assigned To, Priority, and Due Date.
+
+2. Group those open items by Assigned To and report a count per person.
+
+3. List every Cost Code whose Applicable Projects field names PRJ-003. Give Cost Code, Cost Code Name, and Division Name.
+
+4. List every Vendor whose Projects Assigned field names PRJ-003. Give Vendor ID, Vendor Name, Status, and Trade/Specialty.
+
+5. From the Submittal records for PRJ-003, give a count grouped by Status.
+
+6. Across all six person fields touched by PRJ-003 - RFI Submitted By, RFI Assigned To, Issue Reported By, Issue Assigned To, Submittal Submitted By, Submittal Reviewed By - report the total count of distinct people who appear in any record tied to PRJ-003, and list them.
+
+Apply each filter strictly: do not list non-matching items, do not annotate them with a rejection mark. Counts must reflect only surviving records. Cite each fact with the source AIO file name (for example: acc_rfis.csv - Row 162).

@@ -22,8 +22,24 @@ const TENANT_ID = process.env.IP_TENANT_ID ?? "tenantA"
 // MRO short-circuit (Recall) don't serve a prior run's answer back to us.
 // We want measured LLM tokens, not "served_from_cache: true".
 const SALT = Math.random().toString(36).slice(2, 8)
-const BASE_QUERY = process.env.IP_QUERY
-  ?? "What roles does Sarah Mitchell hold. List projects and financials for each."
+// Resolution order:
+//   1. BENCHMARK=1               → load scripts/benchmark_prompt.txt (the
+//                                  multi-CSV PRJ-003 join benchmark; designed
+//                                  to exercise HSL pointer index + AIO needle
+//                                  scan + MRO priors + filter semantics).
+//   2. IP_QUERY="..."           → use that exact string.
+//   3. fallback                 → Sarah Mitchell named-entity probe.
+import * as _fs from "node:fs"
+import * as _path from "node:path"
+function loadBaseQuery(): string {
+  if (process.env.BENCHMARK === "1") {
+    const p = _path.resolve(__dirname, "benchmark_prompt.txt")
+    return _fs.readFileSync(p, "utf8").trim()
+  }
+  return process.env.IP_QUERY
+    ?? "What roles does Sarah Mitchell hold. List projects and financials for each."
+}
+const BASE_QUERY = loadBaseQuery()
 const QUERY = `${BASE_QUERY} (run ${SALT})`
 
 // ── Fetch shim: rewrite /api/* to the Railway frontend; inject tenant header ──
