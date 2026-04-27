@@ -31,7 +31,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
         <section className="space-y-4">
           <h2 className="text-2xl font-bold">Getting Started</h2>
           <p className="text-muted-foreground leading-relaxed">
-            AIO/HSL/MRO Demo System V4.4 builds on V4.3&apos;s R &amp; D Compound HSL Builder and Information Elements tracking with a substrate-retrieval performance pass, per-query quality logging, and the Live Search / Recall Search rename. It converts CSV data into Associated Information Objects (AIOs),
+            AIO/HSL/MRO Demo System V4.4 builds on V4.3&apos;s R &amp; D Compound HSL Builder and Information Elements tracking with a substrate-retrieval performance pass, per-query quality logging, a new Search Statistics Analytics screen, and a full rename of the four ChatAIO modes — <strong>Live Search</strong> (formerly AIO Search), <strong>Recall Search</strong> (formerly Substrate Mode), <strong>Broad Search</strong> (formerly Blind Dump AIO/HSL), and <strong>Raw Search</strong> (formerly CSV→LLM Raw). It converts CSV data into Associated Information Objects (AIOs),
             stores them in a dedicated PostgreSQL database, and provides semantic search, ChatAIO (AI-powered Q&amp;A via Claude), HSL relationship tracking,
             compound multi-field HSL queries, an Information Elements directory, saved prompts for recurring queries, and full system administration — all deployed as a self-contained production service.
           </p>
@@ -257,7 +257,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
               </ul>
 
               <h3 className="font-semibold text-lg mt-4">Four Search Modes</h3>
-              <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Send (broad search):</span> Sends your question to Claude along with ALL stored AIO and HSL records as context (up to 500 records). Best for general questions like &quot;What vendors are in this data?&quot; or &quot;Total invoice amount by vendor.&quot;</p>
+              <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Broad Search <span className="text-muted-foreground font-normal">(formerly Blind Dump AIO/HSL)</span>:</span> Sends your question to Claude along with ALL stored AIO and HSL records as context (up to 500 records). No relevance filtering — slow and token-heavy, but useful for general exploratory questions like &quot;What vendors are in this data?&quot; before any HSL library exists.</p>
               <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Live Search <span className="text-muted-foreground font-normal">(formerly AIO Search — targeted algebra)</span>:</span> Uses a four-phase search algebra for focused answers:</p>
               <ol className="list-decimal list-inside space-y-1 text-muted-foreground ml-4">
                 <li><span className="font-semibold text-foreground">Parse:</span> Claude extracts key search terms from your prompt (names, projects, dates, etc.)</li>
@@ -267,7 +267,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
               </ol>
               <p className="leading-relaxed text-muted-foreground">If no HSLs match, Live Search falls back to direct element-level search across all AIOs. The response footer shows how many HSLs and AIOs were matched.</p>
               <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Recall Search <span className="text-muted-foreground font-normal">(formerly Substrate Chat — precomputed substrate)</span>:</span> Runs the full Paper-III pipeline — cue extraction → HSL neighborhood traversal → MRO prior ranking → tiered context bundle. Uses ONLY the assembled substrate as context, no raw DB dump. Best for tightly-grounded analytical questions.</p>
-              <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Pure LLM:</span> Sends raw saved CSVs to Claude with no AIO/HSL/MRO machinery — useful as a baseline to see what Information Physics adds.</p>
+              <p className="leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">Raw Search <span className="text-muted-foreground font-normal">(formerly CSV→LLM Raw)</span>:</span> Sends raw saved CSVs to Claude with no AIO/HSL/MRO machinery — the apples-to-apples baseline against vanilla Claude that lets you measure exactly what Information Physics adds.</p>
 
               <h3 className="font-semibold text-lg mt-6 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-amber-500" />
@@ -425,7 +425,12 @@ export function UserGuide({ onBack }: UserGuideProps) {
                 <li><span className="font-semibold text-foreground">Saved CSVs / AIOs:</span> view raw uploaded artifacts retained for re-processing.</li>
                 <li><span className="font-semibold text-foreground">Saved Prompts:</span> manage cross-session prompt library used by ChatAIO history.</li>
                 <li><span className="font-semibold text-foreground">Info Elements:</span> directory of unique field names with AIO occurrence counts; click <span className="font-semibold text-foreground">&quot;Rebuild from AIOs&quot;</span> to refresh.</li>
-                <li><span className="font-semibold text-foreground">Architecture / References:</span> in-app links to system architecture diagrams and the foundational research papers.</li>
+                <li>
+                  <span className="font-semibold text-foreground">Search Statistics Analytics <span className="ml-1 text-[10px] uppercase bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded">V4.4</span>:</span> live performance dashboard for every ChatAIO query.
+                  Summary cards count searches per mode (Broad / Raw / Live / Recall); the table shows time, query, latency, input/output tokens, matched HSLs/AIOs, cue count, and whether an MRO was saved. Click a row to expand the result preview; click the <span className="font-mono text-xs bg-muted px-1 rounded">✅</span>
+                  in the MRO column to view the persisted retrieval episode read-only. Filter by mode, export to PDF, or print. Reachable from the home screen <span className="font-semibold text-foreground">Search Statistics Analytics</span> button or from System Admin.
+                </li>
+                <li><span className="font-semibold text-foreground">Architecture / References:</span> in-app links to system architecture diagrams, the foundational research papers, and the new <span className="font-semibold text-foreground">Search Modes Technote</span> explaining when to use Live Search vs Recall Search.</li>
               </ul>
               <div className="flex items-start gap-2 p-3 bg-violet-500/10 rounded-lg border border-violet-500/20">
                 <Brain className="w-5 h-5 text-violet-500 shrink-0 mt-0.5" />

@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Download, Copy, Check, ArrowLeft, FileText, Package, Zap, MessageSquare, Loader2, Eye, Database } from "lucide-react"
+import { Download, Copy, Check, ArrowLeft, FileText, Package, Zap, MessageSquare, Loader2, Eye, Database, Layers } from "lucide-react"
 import type { ConvertedFile } from "@/app/page"
 import { listAioData, type AioDataRecord } from "@/lib/api-client"
 import { ChatAioDialog } from "@/components/chat-aio-dialog"
@@ -123,6 +123,84 @@ export function ConversionPreview({ files, onClear, onProcess, backendIsOnline }
     }
   }, [files, triggerDownload])
 
+  // CSV cell escaping for round-trip download
+  const escapeCsvCell = useCallback((cell: string): string => {
+    if (cell == null) return ""
+    const needsQuote = /[",\n\r]/.test(cell)
+    const escaped = cell.replace(/"/g, '""')
+    return needsQuote ? `"${escaped}"` : escaped
+  }, [])
+
+  const reconstructCsv = useCallback((file: ConvertedFile): string => {
+    const lines: string[] = []
+    if (file.headers && file.headers.length > 0) {
+      lines.push(file.headers.map(escapeCsvCell).join(","))
+    }
+    file.csvData.forEach((row) => {
+      lines.push(row.map(escapeCsvCell).join(","))
+    })
+    return lines.join("\n") + "\n"
+  }, [escapeCsvCell])
+
+  const [bulkStatus, setBulkStatus] = useState<"idle" | "running" | "success" | "error">("idle")
+
+  const handleBulkProcessAll = useCallback(() => {
+    setError(null)
+    setBulkStatus("running")
+    try {
+      if (!files || files.length === 0) {
+        throw new Error("No files loaded")
+      }
+
+      const newlyDownloaded: string[] = []
+      let delay = 0
+      const STEP = 120
+
+      // 1) Auto-save each CSV to a .csv file
+      files.forEach((file) => {
+        const csvName = file.originalName.endsWith(".csv")
+          ? file.originalName
+          : `${file.originalName}.csv`
+        const csvContent = reconstructCsv(file)
+        setTimeout(() => {
+          triggerDownload(csvName, csvContent)
+          setDownloadedFiles((prev) => [...prev, csvName])
+        }, delay)
+        newlyDownloaded.push(csvName)
+        delay += STEP
+      })
+
+      // 2) Download every AIO across every file
+      let counter = 0
+      files.forEach((file) => {
+        const baseName = file.originalName.replace(/\.csv$/i, "")
+        file.aioLines.forEach((line) => {
+          counter++
+          const aioName = `${baseName}_${String(counter).padStart(4, "0")}.aio`
+          const content = line + "\n"
+          setTimeout(() => {
+            triggerDownload(aioName, content)
+            setDownloadedFiles((prev) => [...prev, aioName])
+          }, delay)
+          newlyDownloaded.push(aioName)
+          delay += STEP
+        })
+      })
+
+      // 3) Hand off to the processor view once downloads are queued
+      setTimeout(() => {
+        setBulkStatus("success")
+        onProcess(newlyDownloaded)
+        setTimeout(() => setBulkStatus("idle"), 2500)
+      }, delay + 50)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error"
+      setError(`Bulk process failed: ${message}`)
+      setBulkStatus("error")
+      setTimeout(() => setBulkStatus("idle"), 4000)
+    }
+  }, [files, onProcess, reconstructCsv, triggerDownload])
+
   const STARTER_PROMPTS = [
     "What vendors are in this data?",
     "Total invoice amount by vendor",
@@ -149,6 +227,29 @@ export function ConversionPreview({ files, onClear, onProcess, backendIsOnline }
           <Zap className="w-4 h-4" />
           Process AIO Files via Hyper-Semantic Logic
         </Button>
+        {files.length > 1 && (
+          <Button
+            onClick={handleBulkProcessAll}
+            disabled={bulkStatus === "running"}
+            className={cn(
+              "gap-2 shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white",
+              bulkStatus === "success" && "bg-green-600 hover:bg-green-700",
+              bulkStatus === "error" && "bg-destructive hover:bg-destructive/90",
+            )}
+            title={`Auto-save ${files.length} CSVs + all AIO files, then run Hyper-Semantic Logic on the bulk set`}
+          >
+            {bulkStatus === "running" ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Layers className="w-4 h-4" />
+            )}
+            {bulkStatus === "success"
+              ? "Bulk Saved!"
+              : bulkStatus === "error"
+                ? "Bulk Failed"
+                : "Bulk: All Newly Loaded Files"}
+          </Button>
+        )}
         {backendIsOnline && (
           <Button
             variant="outline"
