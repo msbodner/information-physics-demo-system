@@ -474,8 +474,23 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     } else {
       const inTok = result.input_tokens ?? 0
       const outTok = result.output_tokens ?? 0
+      // Resolve matched HSL ids back to names so we can show which HSL
+      // families contributed to this Recall Search bundle. Distinct count
+      // == "how many HSL families lit up across the cue set".
+      const matchedHslIdSet = new Set(result.matched_hsl_ids ?? [])
+      const matchedHslNames = substrateHsls
+        .filter((h) => matchedHslIdSet.has(h.hsl_id))
+        .map((h) => h.hsl_name)
+      const familyCount = matchedHslIdSet.size
+      const familyTooltipNames = matchedHslNames.slice(0, 8).join(", ")
+      const familyOverflow = matchedHslNames.length > 8 ? `, +${matchedHslNames.length - 8} more` : ""
+      const familyDisplay = familyCount === 0
+        ? "0 HSL families"
+        : `${familyCount} HSL ${familyCount === 1 ? "family" : "families"}` +
+          (matchedHslNames.length > 0 ? ` (${familyTooltipNames}${familyOverflow})` : "")
       const meta =
         `\n\n---\n_Recall Search: ${result.cost.cues} cues → ` +
+        `${familyDisplay} → ` +
         `${result.cost.neighborhood} AIOs in neighborhood · ` +
         `${result.cost.priors} priors · ` +
         `${result.mro_saved ? "MRO saved" : "MRO not saved"} · ` +
@@ -493,7 +508,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         result_preview: result.reply.slice(0, 500),
         elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
         total_tokens: inTok + outTok, context_records: 0,
-        matched_hsls: 0, matched_aios: result.cost.neighborhood,
+        matched_hsls: familyCount, matched_aios: result.cost.neighborhood,
         cue_count: result.cost.cues, neighborhood_size: result.cost.neighborhood,
         prior_count: result.cost.priors, mro_saved: result.mro_saved,
       }).catch(() => {})
