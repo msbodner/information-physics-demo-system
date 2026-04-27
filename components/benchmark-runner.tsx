@@ -10,7 +10,7 @@
  * native print dialog) so operators can capture the output.
  */
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { Loader2, Printer, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { runFourModes, type Benchmark, type BenchmarkResult } from "@/lib/benchmarks"
@@ -29,7 +29,6 @@ export function BenchmarkRunner({
   const [running, setRunning] = useState(true)
   const [result, setResult] = useState<BenchmarkResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const printableRef = useRef<HTMLDivElement>(null)
 
   // Lock body scroll for the duration of the overlay.
   useEffect(() => {
@@ -79,7 +78,7 @@ export function BenchmarkRunner({
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8">
-        <div ref={printableRef} className="benchmark-printable space-y-6">
+        <div className="benchmark-printable space-y-6">
           {/* Title (visible in both screen and print) */}
           <div>
             <h2 className="text-2xl font-bold text-foreground mb-1">{benchmark.title}</h2>
@@ -195,28 +194,28 @@ export function BenchmarkRunner({
 
       {/* Print-only stylesheet: hide the rest of the app, expand the
           benchmark column to full page width, and force long replies to
-          break across pages cleanly. */}
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
+          break across pages cleanly. Using a plain <style> tag (rather
+          than styled-jsx) so this component works without the SWC
+          styled-jsx plugin being applied here. */}
+      <style
+        dangerouslySetInnerHTML={{ __html: `
+          @media print {
+            body * { visibility: hidden !important; }
+            .benchmark-printable, .benchmark-printable * { visibility: visible !important; }
+            .benchmark-printable {
+              position: absolute;
+              left: 0;
+              top: 0;
+              width: 100%;
+              padding: 0 0.5in;
+            }
+            .benchmark-printable pre {
+              white-space: pre-wrap !important;
+              word-wrap: break-word !important;
+            }
           }
-          .benchmark-printable, .benchmark-printable * {
-            visibility: visible !important;
-          }
-          .benchmark-printable {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            padding: 0 0.5in;
-          }
-          .benchmark-printable pre {
-            white-space: pre-wrap !important;
-            word-wrap: break-word !important;
-          }
-        }
-      `}</style>
+        ` }}
+      />
     </div>
   )
 }
