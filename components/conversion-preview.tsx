@@ -123,25 +123,6 @@ export function ConversionPreview({ files, onClear, onProcess, backendIsOnline }
     }
   }, [files, triggerDownload])
 
-  // CSV cell escaping for round-trip download
-  const escapeCsvCell = useCallback((cell: string): string => {
-    if (cell == null) return ""
-    const needsQuote = /[",\n\r]/.test(cell)
-    const escaped = cell.replace(/"/g, '""')
-    return needsQuote ? `"${escaped}"` : escaped
-  }, [])
-
-  const reconstructCsv = useCallback((file: ConvertedFile): string => {
-    const lines: string[] = []
-    if (file.headers && file.headers.length > 0) {
-      lines.push(file.headers.map(escapeCsvCell).join(","))
-    }
-    file.csvData.forEach((row) => {
-      lines.push(row.map(escapeCsvCell).join(","))
-    })
-    return lines.join("\n") + "\n"
-  }, [escapeCsvCell])
-
   const [bulkStatus, setBulkStatus] = useState<"idle" | "running" | "success" | "error">("idle")
 
   const handleBulkProcessAll = useCallback(() => {

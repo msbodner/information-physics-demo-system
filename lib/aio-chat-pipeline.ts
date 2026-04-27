@@ -278,7 +278,8 @@ export async function runChatPipeline(
       // Stream parity: emit the cached reply once for streaming UIs.
       options.onChunk?.(replyText)
       // Reinforcement: bump trust on the MRO we just reused. Best-effort.
-      bumpMroTrust([topMroHit.mro_id], 1.0).catch(() => {})
+      bumpMroTrust([topMroHit.mro_id], 1.0)
+        .catch((e) => { console.error("bumpMroTrust failed (cache hit reinforcement)", e) })
       return {
         reply: replyText,
         bundle: {
@@ -506,7 +507,8 @@ export async function runChatPipeline(
         .map((p) => p.mro.mro_id)
         .filter((id): id is string => !!id)
       if (parentIds.length > 0) {
-        bumpMroTrust(parentIds, 1.0).catch(() => {})
+        bumpMroTrust(parentIds, 1.0)
+          .catch((e) => { console.error("bumpMroTrust failed (prior reinforcement)", e) })
       }
     }
   }

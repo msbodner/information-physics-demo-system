@@ -218,11 +218,11 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   const [mroLoading, setMroLoading] = useState(false)
   const [viewMro, setViewMro] = useState<MroObject | null>(null)
   const [lastSearchMeta, setLastSearchMeta] = useState<{ matched_hsls: number; matched_aios: number; search_terms: string; seed_hsls: string } | null>(null)
-  const [substrateAios, setSubstrateAios] = useState<ParsedAio[]>([])
-  const [substrateHsls, setSubstrateHsls] = useState<HslDataRecord[]>([])
-  const [substrateReady, setSubstrateReady] = useState(false)
-  const [substrateCache, setSubstrateCache] = useState<{ mros: MroObject[] } | null>(null)
-  const [lastSubstrateMeta, setLastSubstrateMeta] = useState<{ cues: number; neighborhood: number; priors: number; mroSaved: boolean } | null>(null)
+  const [recallAios, setRecallAios] = useState<ParsedAio[]>([])
+  const [recallHsls, setRecallHsls] = useState<HslDataRecord[]>([])
+  const [recallReady, setRecallReady] = useState(false)
+  const [recallCache, setRecallCache] = useState<{ mros: MroObject[] } | null>(null)
+  const [lastRecallMeta, setLastRecallMeta] = useState<{ cues: number; neighborhood: number; priors: number; mroSaved: boolean } | null>(null)
   const [lastPerfMetrics, setLastPerfMetrics] = useState<{ elapsedMs: number; inputTokens: number; outputTokens: number; searchMode: string } | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
@@ -230,12 +230,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [chatMessages, isChatLoading])
 
-  // Load AIO + HSL corpus + MRO cache when the dialog opens (for Substrate Mode).
-  // All three are fetched in parallel so the first Substrate query pays no
+  // Load AIO + HSL corpus + MRO cache when the dialog opens (for Recall Search).
+  // All three are fetched in parallel so the first Recall Search query pays no
   // extra latency. HSLs are used as a non-gating ranking booster — missing
   // them only removes the boost; it never breaks retrieval.
   useEffect(() => {
-    if (!open || substrateReady) return
+    if (!open || recallReady) return
     Promise.all([
       listAioData().catch(() => [] as AioDataRecord[]),
       // Summary mode: drops result_text + context_bundle (~80% smaller
@@ -250,12 +250,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         const lineNumber = lineMatch ? parseInt(lineMatch[1], 10) : 0
         return { fileName: r.aio_name, elements: parseAioLine(raw), raw, csvRoot, lineNumber }
       })
-      setSubstrateAios(parsed)
-      setSubstrateHsls(hsls)
-      setSubstrateCache({ mros })
-      setSubstrateReady(true)
+      setRecallAios(parsed)
+      setRecallHsls(hsls)
+      setRecallCache({ mros })
+      setRecallReady(true)
     })
-  }, [open, substrateReady])
+  }, [open, recallReady])
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -307,14 +307,20 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       const perfLine = `\n\n---\n_⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
       setChatMessages([...next, { role: "assistant", content: result.reply + perfLine }])
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "BroadSearch" })
+      // Broad Search ships the first N AIOs + first M HSLs to Claude with
+      // no retrieval. context_records is the combined count from the
+      // backend; we approximate matched_aios as that figure (no separate
+      // HSL count is returned, so matched_hsls stays 0). cue_count and
+      // neighborhood_size are intentionally 0 — Broad Search has no
+      // parsing or topology traversal step.
       createChatStat({
         search_mode: "BroadSearch", query_text: text,
         result_preview: result.reply.slice(0, 500),
         elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
         total_tokens: inTok + outTok, context_records: result.context_records ?? 0,
-        matched_hsls: 0, matched_aios: 0, cue_count: 0,
+        matched_hsls: 0, matched_aios: result.context_records ?? 0, cue_count: 0,
         neighborhood_size: 0, prior_count: 0, mro_saved: false,
-      }).catch(() => {})
+      }).catch((e) => { console.error("createChatStat failed (BroadSearch)", e) })
     }
   }, [chatInput, chatMessages, isChatLoading])
 
@@ -343,6 +349,10 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       const perfLine = `\n\n---\n_⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens · ${result.context_records ?? 0} CSV files_`
       setChatMessages([...next, { role: "assistant", content: result.reply + perfLine }])
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "RawSearch" })
+      // Raw Search (Pure LLM) ships raw CSV files to Claude with no IP
+      // machinery. matched_hsls / matched_aios / cue_count / neighborhood
+      // are accurate at 0 — no AIO/HSL/MRO subsystem participates.
+      // context_records is the count of CSV files sent.
       createChatStat({
         search_mode: "RawSearch", query_text: text,
         result_preview: result.reply.slice(0, 500),
@@ -350,7 +360,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         total_tokens: inTok + outTok, context_records: result.context_records ?? 0,
         matched_hsls: 0, matched_aios: 0, cue_count: 0,
         neighborhood_size: 0, prior_count: 0, mro_saved: false,
-      }).catch(() => {})
+      }).catch((e) => { console.error("createChatStat failed (RawSearch)", e) })
     }
   }, [chatInput, chatMessages, isChatLoading])
 
@@ -424,9 +434,10 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       policy_scope: "default",
     }).then((mro) => {
       if (mro?.mro_id && hslIds.length > 0) {
-        Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, mro.mro_id))).catch(() => {})
+        Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, mro.mro_id)))
+          .catch((e) => { console.error("linkMroToHsl failed (Live Search)", e) })
       }
-    }).catch(() => {})
+    }).catch((e) => { console.error("createMroObject failed (Live Search)", e) })
 
     createChatStat({
       search_mode: "AIOSearch", query_text: text,
@@ -435,10 +446,10 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       total_tokens: inTok + outTok, context_records: meta.context_records ?? 0,
       matched_hsls: meta.matched_hsls, matched_aios: meta.matched_aios,
       cue_count: 0, neighborhood_size: 0, prior_count: 0, mro_saved: hslIds.length > 0,
-    }).catch(() => {})
+    }).catch((e) => { console.error("createChatStat failed (AIOSearch)", e) })
   }, [chatInput, chatMessages, isChatLoading])
 
-  const handleSubstrateSearch = useCallback(async () => {
+  const handleRecallSearch = useCallback(async () => {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
     const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
@@ -449,13 +460,13 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     setIsChatLoading(true)
     const history = chatMessages
     const t0 = Date.now()
-    const result = await runChatPipeline(text, substrateAios, {
+    const result = await runChatPipeline(text, recallAios, {
       history,
       maxPriors: 3,
       maxAios: 40,
       saveMRO: true,
-      cachedMros: substrateCache?.mros,
-      hsls: substrateHsls,
+      cachedMros: recallCache?.mros,
+      hsls: recallHsls,
       onChunk: (chunk) => {
         setChatMessages((prev) => {
           const last = prev[prev.length - 1]
@@ -478,7 +489,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       // families contributed to this Recall Search bundle. Distinct count
       // == "how many HSL families lit up across the cue set".
       const matchedHslIdSet = new Set(result.matched_hsl_ids ?? [])
-      const matchedHslNames = substrateHsls
+      const matchedHslNames = recallHsls
         .filter((h) => matchedHslIdSet.has(h.hsl_id))
         .map((h) => h.hsl_name)
       const familyCount = matchedHslIdSet.size
@@ -496,7 +507,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         `${result.mro_saved ? "MRO saved" : "MRO not saved"} · ` +
         `⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
       setChatMessages([...next, { role: "assistant", content: result.reply + meta }])
-      setLastSubstrateMeta({
+      setLastRecallMeta({
         cues: result.cost.cues,
         neighborhood: result.cost.neighborhood,
         priors: result.cost.priors,
@@ -511,13 +522,13 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         matched_hsls: familyCount, matched_aios: result.cost.neighborhood,
         cue_count: result.cost.cues, neighborhood_size: result.cost.neighborhood,
         prior_count: result.cost.priors, mro_saved: result.mro_saved,
-      }).catch(() => {})
+      }).catch((e) => { console.error("createChatStat failed (Recall Search)", e) })
       // Refresh MRO cache (summary mode again) so the newly saved MRO is
       // available as a prior next query
       if (result.mro_saved) {
         listMroObjects(200, { summary: true })
-          .then((mros) => setSubstrateCache({ mros }))
-          .catch(() => {})
+          .then((mros) => setRecallCache({ mros }))
+          .catch((e) => { console.error("listMroObjects refresh failed (Recall Search)", e) })
 
         // Back-link the new MRO into the HSLs that contributed to this
         // bundle. matched_hsl_ids comes from the in-memory pipeline
@@ -527,18 +538,19 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
           if (result.matched_hsl_ids.length > 0) {
             Promise.all(result.matched_hsl_ids.map((hslId) =>
               linkMroToHsl(hslId, result.mro_id!),
-            )).catch(() => {})
+            )).catch((e) => { console.error("linkMroToHsl failed (Recall Search, in-memory)", e) })
           } else if (result.cue_values.length > 0) {
             findHslsByNeedles(result.cue_values).then((hslIds) => {
               if (hslIds.length > 0) {
-                Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, result.mro_id!))).catch(() => {})
+                Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, result.mro_id!)))
+                  .catch((e) => { console.error("linkMroToHsl failed (Recall Search, needle fallback)", e) })
               }
-            }).catch(() => {})
+            }).catch((e) => { console.error("findHslsByNeedles failed (Recall Search)", e) })
           }
         }
       }
     }
-  }, [chatInput, chatMessages, isChatLoading, substrateAios, substrateHsls, substrateCache])
+  }, [chatInput, chatMessages, isChatLoading, recallAios, recallHsls, recallCache])
 
   const handleDownloadChat = useCallback(() => {
     if (chatMessages.length === 0) return
@@ -890,7 +902,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                     e.preventDefault()
                     // Default to Substrate (fast, cheap, MRO-capturing). Fall back to
                     // broad Send only while the AIO corpus is still loading.
-                    if (substrateReady) handleSubstrateSearch()
+                    if (recallReady) handleRecallSearch()
                     else handleSend()
                   }
                 }}
@@ -900,8 +912,8 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
             </div>
             {/* Row 2: action buttons — Substrate is the default (Enter key) */}
             <div className="flex gap-2 justify-end">
-              <Button size="sm" onClick={handleSubstrateSearch}
-                disabled={!chatInput.trim() || isChatLoading || !substrateReady}
+              <Button size="sm" onClick={handleRecallSearch}
+                disabled={!chatInput.trim() || isChatLoading || !recallReady}
                 className="gap-2 shrink-0 h-9 bg-purple-600 hover:bg-purple-700 text-white"
                 title="Recall Search (formerly Substrate Mode — default, Enter key): extract cues, traverse HSL neighborhoods, pre-fetch MRO priors from past episodes, and persist this answer as a new MRO. Memory-augmented — gets richer with use.">
                 <Brain className="w-4 h-4" />Recall

@@ -522,8 +522,24 @@ export async function deleteAioData(aioId: string): Promise<boolean> {
 }
 
 // HSL Data
-export async function listHslData(limit: number = 5000): Promise<HslDataRecord[]> {
+
+/**
+ * Default HSL fetch cap for full-corpus loads (Recall Search multi-family
+ * fan-out, Live Search Phase 2 catalog). High enough for the demo corpus;
+ * the right long-term fix is server-side filtering (find-by-needles)
+ * once a tenant's hsl_data row count routinely exceeds this cap.
+ */
+export const DEFAULT_HSL_FETCH_CAP = 5000
+
+export async function listHslData(limit: number = DEFAULT_HSL_FETCH_CAP): Promise<HslDataRecord[]> {
   const result = await safeFetch<HslDataRecord[]>(`/api/hsl-data?limit=${limit}`)
+  if (result && result.length >= limit) {
+    console.warn(
+      `listHslData: returned ${result.length} rows at cap (limit=${limit}). ` +
+      `Recall Search multi-family fan-out and Live Search Phase 2 catalog ` +
+      `may be truncated. Consider server-side filtering or paginated load.`,
+    )
+  }
   return result ?? []
 }
 
