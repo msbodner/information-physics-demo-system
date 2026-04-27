@@ -57,7 +57,7 @@ export function SearchModesTechnote({ onBack, onSysAdmin }: { onBack: () => void
             Document version: V4.4 · Status: Internal Reference · Audience: engineering, technical buyers
           </p>
 
-          <Section num={0} title="TL;DR">
+          <Section num={0} title="Summary">
             <p>
               ChatAIO ships two retrieval modes that share the same substrate (AIOs + HSLs + MROs) but
               differ in <em>who assembles context</em> and <em>whether memory is used</em>. Both terminate
