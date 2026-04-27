@@ -334,8 +334,23 @@ export interface ChatStatRecord {
   created_at: string
 }
 
-export async function listChatStats(limit: number = 5000): Promise<ChatStatRecord[]> {
-  return (await safeFetch<ChatStatRecord[]>(`/api/chat-stats?limit=${limit}`)) ?? []
+/**
+ * Default chat-stats fetch cap. Mirrors DEFAULT_HSL_FETCH_CAP pattern: bounds
+ * full-table loads in admin views; warn when results saturate the cap so
+ * operators know the list is truncated.
+ */
+export const DEFAULT_CHAT_STATS_FETCH_CAP = 500
+
+export async function listChatStats(limit: number = DEFAULT_CHAT_STATS_FETCH_CAP): Promise<ChatStatRecord[]> {
+  const result = await safeFetch<ChatStatRecord[]>(`/api/chat-stats?limit=${limit}`)
+  if (result && result.length >= limit) {
+    console.warn(
+      `listChatStats: returned ${result.length} rows at cap (limit=${limit}). ` +
+      `Admin chat-stats view may be truncated. Consider raising the cap or ` +
+      `adding server-side filtering / pagination.`,
+    )
+  }
+  return result ?? []
 }
 
 export async function createChatStat(payload: Omit<ChatStatRecord, "stat_id" | "tenant_id" | "created_at">): Promise<ChatStatRecord | null> {
@@ -529,7 +544,52 @@ export async function deleteAioData(aioId: string): Promise<boolean> {
  * the right long-term fix is server-side filtering (find-by-needles)
  * once a tenant's hsl_data row count routinely exceeds this cap.
  */
-export const DEFAULT_HSL_FETCH_CAP = 5000
+export const DEFAULT_HSL_FETCH_CAP = 500
+
+/**
+ * V4.4 P3 — list deduped (key, value) pairs parsed from HSL names.
+ * Tiny payload (no element columns), used by Recall Search at dialog
+ * open to seed cue extraction with the precise-key catalog without
+ * shipping the full HSL corpus to the browser.
+ */
+export interface HslKeyValuePair {
+  key: string
+  value: string
+}
+
+export async function listHslKeyValuePairs(
+  opts: { signal?: AbortSignal } = {},
+): Promise<HslKeyValuePair[]> {
+  const result = await safeFetch<HslKeyValuePair[]>(
+    "/api/hsl-data/key-value-pairs",
+    opts.signal ? { signal: opts.signal } : undefined,
+  )
+  return result ?? []
+}
+
+/**
+ * V4.4 P3 — fetch full HSL rows whose names contain ≥1 of the supplied
+ * values. Backed by the migration 017 ``information_element_refs``
+ * inverted index. Used at query time (after cue extraction) so the
+ * browser only pulls HSLs scoped to the current query rather than the
+ * full corpus.
+ */
+export async function findHslsByNeedlesFull(
+  values: string[],
+  opts: { signal?: AbortSignal } = {},
+): Promise<HslDataRecord[]> {
+  if (!values || values.length === 0) return []
+  const result = await safeFetch<HslDataRecord[]>(
+    "/api/hsl-data/find-by-needles-full",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ values }),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    },
+  )
+  return result ?? []
+}
 
 export async function listHslData(limit: number = DEFAULT_HSL_FETCH_CAP): Promise<HslDataRecord[]> {
   const result = await safeFetch<HslDataRecord[]>(`/api/hsl-data?limit=${limit}`)
@@ -742,8 +802,8 @@ export async function listMroObjects(
   return result ?? []
 }
 
-export async function getMroObject(mroId: string): Promise<MroObject | null> {
-  return safeFetch<MroObject>(`/api/mro-objects/${mroId}`)
+export async function getMroObject(mroId: string, opts?: { signal?: AbortSignal }): Promise<MroObject | null> {
+  return safeFetch<MroObject>(`/api/mro-objects/${mroId}`, opts?.signal ? { signal: opts.signal } : undefined)
 }
 
 export async function createMroObject(data: {
@@ -832,7 +892,7 @@ export interface MroSearchResponse {
  */
 export async function mroSearch(
   query: string,
-  opts: { k?: number; minScore?: number; summaryChars?: number } = {},
+  opts: { k?: number; minScore?: number; summaryChars?: number; signal?: AbortSignal } = {},
 ): Promise<MroSearchResponse | null> {
   const q = (query ?? "").trim()
   if (!q) return null
@@ -840,7 +900,10 @@ export async function mroSearch(
   if (opts.k !== undefined) qs.set("k", String(opts.k))
   if (opts.minScore !== undefined) qs.set("min_score", String(opts.minScore))
   if (opts.summaryChars !== undefined) qs.set("summary_chars", String(opts.summaryChars))
-  return safeFetch<MroSearchResponse>(`/api/op/mro-search?${qs.toString()}`)
+  return safeFetch<MroSearchResponse>(
+    `/api/op/mro-search?${qs.toString()}`,
+    opts.signal ? { signal: opts.signal } : undefined,
+  )
 }
 
 /**

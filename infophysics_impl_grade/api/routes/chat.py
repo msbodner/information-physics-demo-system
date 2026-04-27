@@ -303,6 +303,12 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
 
     aio_lines: List[str] = []
     hsl_blocks: List[str] = []
+    # Server-side context cap. Broad /v1/op/chat dumps every AIO/HSL into the
+    # system prompt — that fan-out is the whole point of the endpoint, but it
+    # has to stop somewhere. We pull up to AIO_CONTEXT_HARD_CAP rows and, if
+    # the query saturates, append a system note nudging the caller toward
+    # Recall Search for full-corpus questions.
+    AIO_CONTEXT_HARD_CAP = 1000
     try:
         with db() as conn:
             set_tenant(conn, tenant)
@@ -313,8 +319,9 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
                     FROM information_objects
                     WHERE type IN ('AIO', 'HSL', 'CSV')
                     ORDER BY created_at DESC
-                    LIMIT 500
-                    """
+                    LIMIT %s
+                    """,
+                    (AIO_CONTEXT_HARD_CAP + 1,),
                 )
                 for row in cur.fetchall():
                     raw_uri = row[0] or ""
@@ -328,6 +335,19 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
     except Exception:
         logger.warning("Could not fetch DB context for chat — proceeding without it")
 
+    # Detect saturation against the hard cap and truncate before building
+    # context. Total context rows = AIO + HSL; we apply the cap to AIO since
+    # that's the dominant fan-out term.
+    context_truncated = False
+    original_aio_count = len(aio_lines)
+    if original_aio_count > AIO_CONTEXT_HARD_CAP:
+        logger.warning(
+            "chat /v1/op/chat: context truncated — %d AIOs exceeded hard cap of %d for tenant=%s",
+            original_aio_count, AIO_CONTEXT_HARD_CAP, tenant,
+        )
+        aio_lines = aio_lines[:AIO_CONTEXT_HARD_CAP]
+        context_truncated = True
+
     context_section = ""
     if aio_lines:
         sample = aio_lines[:300]
@@ -336,6 +356,11 @@ def chat(payload: ChatRequest, x_tenant_id: Optional[str] = Header(None, alias="
     if hsl_blocks:
         context_section += f"\n\n## HSL Files ({len(hsl_blocks)} total)\n"
         context_section += "\n\n---\n\n".join(hsl_blocks[:10])
+    if context_truncated:
+        context_section += (
+            f"\n\n## NOTE\nContext truncated to first {AIO_CONTEXT_HARD_CAP} of "
+            f"{original_aio_count} AIOs. Use Recall Search for full-corpus queries."
+        )
 
     system = (
         "You are ChatAIO, an intelligent analyst for Information Physics data. "

@@ -245,12 +245,34 @@ export async function runChatPipeline(
     /** Pre-loaded HSL records — when supplied, Substrate uses HSL coverage
      *  as a non-gating ranking boost on the AIO neighborhood (see
      *  computeHslBoost in aio-math). No HSLs = pure AIO-similarity ranking
-     *  as before. */
+     *  as before.
+     *
+     *  Legacy path: pass the full corpus pre-fetched at dialog open.
+     *  Preferred V4.4 path: pass ``resolveHsls`` instead and let the
+     *  pipeline pull a query-scoped subset after cue extraction. */
     hsls?: HslLite[]
+    /** V4.4 P3 — query-time HSL resolver. Called after cue extraction
+     *  with the value strings of concrete cues; expected to return only
+     *  HSLs whose names contain ≥1 of those values (backed by the
+     *  ``information_element_refs`` inverted index server-side). When
+     *  supplied and ``hsls`` is not, the pipeline uses the resolved
+     *  scope for both the HSL boost and the matched-id back-link. */
+    resolveHsls?: (cueValues: string[], signal?: AbortSignal) => Promise<HslLite[]>
+    /** V4.4 P3 — pre-loaded (key, value) catalog from HSL names. Tiny
+     *  payload (no element columns); used by extractCues to emit
+     *  precise-key cues instead of the value-vocab wildcard fallback.
+     *  When omitted, the catalog is derived from ``hsls`` if those are
+     *  supplied, otherwise extractCues falls through to value vocab. */
+    hslCatalog?: Array<{ key: string; value: string }>
     /** When provided, the LLM call streams via SSE and each text chunk is
      *  pushed through this callback. The final reply (full text) is still
      *  returned in the resolved PipelineResult. Useful for incremental UI. */
     onChunk?: (chunk: string) => void
+    /** Caller-supplied AbortSignal — when aborted, in-flight MRO lookups
+     *  (mroSearch / getMroObject) are cancelled. Submit handlers in
+     *  chat-aio-dialog use this to drop a stale request when a new one
+     *  starts or the dialog unmounts. */
+    signal?: AbortSignal
   } = {},
 ): Promise<PipelineResult | { error: string }> {
   // ── V4.4 Step 0 — MRO-assisted retrieval (first slice) ────────────
@@ -260,7 +282,7 @@ export async function runChatPipeline(
   //   (c) augment the bundle with the top prior's result_summary
   // Best-effort: a backend-unavailable miss falls through to the
   // original pipeline with no behavioral change.
-  const mroAssist = await mroSearch(query, { k: 5, summaryChars: 500 })
+  const mroAssist = await mroSearch(query, { k: 5, summaryChars: 500, signal: options.signal })
     .catch(() => null)
   const mroHits: MroSearchHit[] = mroAssist?.matches ?? []
   const topMroHit: MroSearchHit | undefined = mroHits[0]
@@ -272,7 +294,7 @@ export async function runChatPipeline(
   // saveMRO:false to indicate "I'll handle persistence" — but the
   // common case (ChatAIO) wants the cache.
   if (shouldShortCircuitOnMro(topMroHit)) {
-    const fullPrior = await getMroObject(topMroHit.mro_id).catch(() => null)
+    const fullPrior = await getMroObject(topMroHit.mro_id, { signal: options.signal }).catch(() => null)
     const replyText = fullPrior?.result_text || topMroHit.result_summary
     if (replyText) {
       // Stream parity: emit the cached reply once for streaming UIs.
@@ -310,8 +332,15 @@ export async function runChatPipeline(
   // records. HSL names follow the convention "[Key.Value].hsl", so a
   // single regex pass over the names gives extractCues a precise-key
   // catalog to prefer over the value-vocabulary wildcard fallback.
-  const hslCatalog: Array<{ key: string; value: string }> = []
-  if (options.hsls && options.hsls.length > 0) {
+  //
+  // V4.4 P3 — prefer an explicit ``hslCatalog`` from the caller (tiny
+  // server-paid payload from /v1/hsl-data/key-value-pairs). Fall back to
+  // deriving from ``hsls`` for legacy callers that still pre-fetch the
+  // full corpus.
+  let hslCatalog: Array<{ key: string; value: string }> = []
+  if (options.hslCatalog && options.hslCatalog.length > 0) {
+    hslCatalog = options.hslCatalog
+  } else if (options.hsls && options.hsls.length > 0) {
     const seenKv = new Set<string>()
     const nameRe = /\[([^\].]+)\.([^\]]+)\]/
     for (const hsl of options.hsls) {
@@ -378,15 +407,34 @@ export async function runChatPipeline(
     .map(mroObjectToMRO)
     .filter((m): m is MRO => m !== null)
 
-  // Step 2b — optional HSL boost map (non-gating ranking signal)
-  const hslBoost = options.hsls && options.hsls.length > 0
-    ? computeHslBoost(cues, options.hsls)
+  // Step 2b — optional HSL boost map (non-gating ranking signal).
+  //
+  // V4.4 P3 — when ``resolveHsls`` is provided, fetch a query-scoped
+  // HSL slice (server-side via ``information_element_refs``) instead of
+  // relying on a full-corpus preload. Falls back to the legacy
+  // ``options.hsls`` path when no resolver is supplied.
+  let scopedHsls: HslLite[] = options.hsls ?? []
+  if ((!options.hsls || options.hsls.length === 0) && options.resolveHsls) {
+    const cueValuesForResolver = cues
+      .map((c) => c.value)
+      .filter((v): v is string => !!v && v !== "*" && v.length >= 2)
+    if (cueValuesForResolver.length > 0) {
+      try {
+        scopedHsls = await options.resolveHsls(cueValuesForResolver, options.signal)
+      } catch {
+        scopedHsls = []
+      }
+    }
+  }
+
+  const hslBoost = scopedHsls.length > 0
+    ? computeHslBoost(cues, scopedHsls)
     : undefined
 
   // Step 2c — collect matched HSL ids so the caller can back-link the new
   // MRO without re-querying the server for a duplicate needle scan.
-  const matchedHslIds = options.hsls && options.hsls.length > 0
-    ? getMatchedHslIds(cues, options.hsls)
+  const matchedHslIds = scopedHsls.length > 0
+    ? getMatchedHslIds(cues, scopedHsls)
     : []
 
   const bundle = assembleBundle(cues, scopedAios, priorMROs, {

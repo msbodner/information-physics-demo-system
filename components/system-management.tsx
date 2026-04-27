@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { toast } from "sonner"
 import {
   ArrowLeft, Plus, Pencil, Trash2, Eye, EyeOff, Save,
@@ -1040,7 +1040,9 @@ function HslDataPane() {
 
   const load = useCallback(async () => {
     setIsLoading(true)
-    setRecords(await listHslData())
+    // Admin HSL browser pulls a higher limit than the default 500 — this is
+    // an unfiltered table view, not a Recall-Search hot path.
+    setRecords(await listHslData(5000))
     setIsLoading(false)
   }, [])
 
@@ -3013,13 +3015,24 @@ function AioSearchStatsPane() {
     }
   }, [windowHours])
 
+  // Keep the latest fetchStats in a ref so the polling interval always calls
+  // the fresh closure (incl. current windowHours) without restarting the timer.
+  const fetchStatsRef = useRef(fetchStats)
+  useEffect(() => {
+    fetchStatsRef.current = fetchStats
+  }, [fetchStats])
+
   useEffect(() => {
     setLoading(true)
-    fetchStats()
+    fetchStatsRef.current()
+  }, [windowHours])
+
+  useEffect(() => {
     // Poll every 30s — cheap aggregate query, drift visible without manual refresh.
-    const id = setInterval(fetchStats, 30_000)
+    // Reads fetchStatsRef so the timer never restarts on windowHours change.
+    const id = setInterval(() => fetchStatsRef.current(), 30_000)
     return () => clearInterval(id)
-  }, [fetchStats])
+  }, [])
 
   const fmtMs = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(2)}s` : `${n} ms`)
   const fmtPct = (n: number) => `${(n * 100).toFixed(1)}%`

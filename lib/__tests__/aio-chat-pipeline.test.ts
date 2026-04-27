@@ -29,6 +29,12 @@ import {
   MRO_CUE_SEED_TOPK,
   type MroGatingHit,
 } from "../aio-chat-pipeline"
+import {
+  getMatchedHslIds,
+  computeHslBoost,
+  type HslLite,
+  type ElementCue,
+} from "../aio-math"
 
 // ── Threshold ordering invariants ───────────────────────────────────
 
@@ -262,4 +268,57 @@ test("a hit at short-circuit threshold also clears the augment threshold", () =>
   }
   assert.ok(shouldShortCircuitOnMro(hit))
   assert.ok(buildPriorEpisodeBlock(hit) !== null)
+})
+
+// ── V4.4 P3 — resolveHsls vs hsls path equivalence ──────────────────
+//
+// The scale-corrected loading model adds an optional ``resolveHsls``
+// callback to ``runChatPipeline`` that fetches HSLs at query time
+// (scoped via the inverted index) instead of from a full preload.
+// The contract: given the same underlying HSL set, the matched-id
+// back-link and the per-AIO HSL boost must be identical regardless of
+// which path delivered the records to the pipeline. The pipeline only
+// composes ``getMatchedHslIds`` and ``computeHslBoost`` over whichever
+// HSL list it ends up with — exercising those directly with both
+// "delivery paths" pinned to the same data is the precise invariant.
+
+test("matched_hsl_ids and HSL boost are identical for hsls vs resolveHsls path given same data", () => {
+  const hsls: HslLite[] = [
+    { hsl_id: "h1", hsl_name: "[Vendor.Acme].hsl", elements: ["a.csv - Row 1", "a.csv - Row 2"] },
+    { hsl_id: "h2", hsl_name: "[Project.Atlas].hsl", elements: ["a.csv - Row 1", "b.csv - Row 7"] },
+    { hsl_id: "h3", hsl_name: "[Vendor.Globex].hsl", elements: ["c.csv - Row 4"] },
+  ]
+  const cues: ElementCue[] = [
+    { key: "Vendor", value: "Acme", raw: "[Vendor.Acme]" },
+    { key: "Project", value: "Atlas", raw: "[Project.Atlas]" },
+  ]
+
+  // Legacy path: caller pre-fetched the full corpus and hands it in.
+  const legacyMatched = getMatchedHslIds(cues, hsls)
+  const legacyBoost = computeHslBoost(cues, hsls)
+
+  // V4.4 P3 path: caller passes a resolver that returns the same HSLs
+  // (this is what findHslsByNeedlesFull does, scoped to the cue values).
+  const resolverScoped: HslLite[] = hsls.filter((h) =>
+    cues.some((c) => c.value && h.hsl_name.toLowerCase().includes(c.value.toLowerCase())),
+  )
+  const resolvedMatched = getMatchedHslIds(cues, resolverScoped)
+  const resolvedBoost = computeHslBoost(cues, resolverScoped)
+
+  // Sets must agree (order may differ if the pipeline ever sorts).
+  assert.deepEqual(
+    new Set(legacyMatched),
+    new Set(resolvedMatched),
+    "matched_hsl_ids must be identical across delivery paths",
+  )
+  // Per-AIO boost map must agree key-for-key.
+  assert.deepEqual(
+    Object.fromEntries(legacyBoost.entries()),
+    Object.fromEntries(resolvedBoost.entries()),
+    "HSL boost map must be identical across delivery paths",
+  )
+  // And both must actually find h1 and h2 (sanity).
+  assert.ok(legacyMatched.includes("h1"))
+  assert.ok(legacyMatched.includes("h2"))
+  assert.ok(!legacyMatched.includes("h3"), "Globex HSL should not match Acme/Atlas cues")
 })

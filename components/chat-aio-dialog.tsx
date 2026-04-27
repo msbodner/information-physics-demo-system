@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye, Sparkles } from "lucide-react"
-import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, listSavedPrompts, createSavedPrompt, listMroObjects, getMroObject, createMroObject, listAioData, listHslData, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type AioSearchStreamMeta } from "@/lib/api-client"
+import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, listSavedPrompts, createSavedPrompt, listMroObjects, getMroObject, createMroObject, listAioData, listHslKeyValuePairs, findHslsByNeedlesFull, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type HslKeyValuePair, type AioSearchStreamMeta } from "@/lib/api-client"
 import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
@@ -219,7 +219,17 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   const [viewMro, setViewMro] = useState<MroObject | null>(null)
   const [lastSearchMeta, setLastSearchMeta] = useState<{ matched_hsls: number; matched_aios: number; search_terms: string; seed_hsls: string } | null>(null)
   const [recallAios, setRecallAios] = useState<ParsedAio[]>([])
-  const [recallHsls, setRecallHsls] = useState<HslDataRecord[]>([])
+  // V4.4 P3 — at dialog open we only fetch the deduped (Key, Value)
+  // catalog parsed from HSL names (~tens of KB max) rather than the
+  // full HSL row corpus. Full HSL rows are pulled at query time via
+  // findHslsByNeedlesFull only for the cue values that actually fired.
+  const [hslCatalog, setHslCatalog] = useState<HslKeyValuePair[]>([])
+  // Transient: HSLs returned by the resolver during the *current* pipeline
+  // run. Used to render the family-count meta line — replaces the role
+  // formerly played by the full ``recallHsls`` corpus. Refs (not state)
+  // because we only read it once, immediately after the pipeline returns,
+  // and don't need a re-render to refresh stale UI.
+  const lastQueryHslsRef = useRef<HslDataRecord[]>([])
   const [recallReady, setRecallReady] = useState(false)
   const [recallCache, setRecallCache] = useState<{ mros: MroObject[] } | null>(null)
   const [lastRecallMeta, setLastRecallMeta] = useState<{ cues: number; neighborhood: number; priors: number; mroSaved: boolean } | null>(null)
@@ -227,6 +237,10 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
   const pdfIframeRef = useRef<HTMLIFrameElement>(null)
+  // Tracks the AbortController for the current Recall pipeline run. A new
+  // submit aborts the prior controller; unmount aborts whatever is in-flight.
+  const pipelineAbortRef = useRef<AbortController | null>(null)
+  useEffect(() => () => { pipelineAbortRef.current?.abort() }, [])
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [chatMessages, isChatLoading])
 
@@ -241,8 +255,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       // Summary mode: drops result_text + context_bundle (~80% smaller
       // payload). The substrate pipeline hydrates the top-K priors lazily.
       listMroObjects(200, { summary: true }).catch(() => [] as MroObject[]),
-      listHslData().catch(() => [] as HslDataRecord[]),
-    ]).then(([records, mros, hsls]) => {
+      // V4.4 P3 — replaces the prior listHslData() call. Pulls only
+      // deduped (key, value) pairs parsed from HSL names. Full HSL rows
+      // for the matching scope are fetched per query via
+      // findHslsByNeedlesFull, after cue extraction.
+      listHslKeyValuePairs().catch(() => [] as HslKeyValuePair[]),
+    ]).then(([records, mros, kvPairs]) => {
       const parsed: ParsedAio[] = records.map((r) => {
         const raw = r.elements.filter(Boolean).join("")
         const csvRoot = r.aio_name.replace(/\s*-\s*Row\s*\d+$/i, "").replace(/\.csv$/i, "") || "backend"
@@ -251,7 +269,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         return { fileName: r.aio_name, elements: parseAioLine(raw), raw, csvRoot, lineNumber }
       })
       setRecallAios(parsed)
-      setRecallHsls(hsls)
+      setHslCatalog(kvPairs)
       setRecallCache({ mros })
       setRecallReady(true)
     })
@@ -460,13 +478,33 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     setIsChatLoading(true)
     const history = chatMessages
     const t0 = Date.now()
+    // Abort any in-flight pipeline run before starting a new one.
+    pipelineAbortRef.current?.abort()
+    const controller = new AbortController()
+    pipelineAbortRef.current = controller
+    // V4.4 P3 — capture the HSLs the resolver returns for *this* query
+    // so we can render the family-count meta line below without holding
+    // the full corpus in browser memory.
+    const queryHsls: HslDataRecord[] = []
     const result = await runChatPipeline(text, recallAios, {
       history,
       maxPriors: 3,
       maxAios: 40,
       saveMRO: true,
       cachedMros: recallCache?.mros,
-      hsls: recallHsls,
+      hslCatalog,
+      resolveHsls: async (cueValues, signal) => {
+        const rows = await findHslsByNeedlesFull(cueValues, { signal })
+        // Side-channel: stash the rows for the meta-line renderer.
+        queryHsls.length = 0
+        queryHsls.push(...rows)
+        return rows.map((r) => ({
+          hsl_name: r.hsl_name,
+          elements: r.elements,
+          hsl_id: r.hsl_id,
+        }))
+      },
+      signal: controller.signal,
       onChunk: (chunk) => {
         setChatMessages((prev) => {
           const last = prev[prev.length - 1]
@@ -488,8 +526,11 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       // Resolve matched HSL ids back to names so we can show which HSL
       // families contributed to this Recall Search bundle. Distinct count
       // == "how many HSL families lit up across the cue set".
+      // V4.4 P3 — names come from the per-query resolver scope, not a
+      // full-corpus preload.
+      lastQueryHslsRef.current = queryHsls
       const matchedHslIdSet = new Set(result.matched_hsl_ids ?? [])
-      const matchedHslNames = recallHsls
+      const matchedHslNames = queryHsls
         .filter((h) => matchedHslIdSet.has(h.hsl_id))
         .map((h) => h.hsl_name)
       const familyCount = matchedHslIdSet.size
@@ -550,7 +591,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         }
       }
     }
-  }, [chatInput, chatMessages, isChatLoading, recallAios, recallHsls, recallCache])
+  }, [chatInput, chatMessages, isChatLoading, recallAios, hslCatalog, recallCache])
 
   const handleDownloadChat = useCallback(() => {
     if (chatMessages.length === 0) return

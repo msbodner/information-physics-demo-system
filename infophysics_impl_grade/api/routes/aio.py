@@ -325,6 +325,10 @@ def update_information_element(element_id: str, payload: InformationElementReque
 
 @router.delete("/v1/information-elements/{element_id}")
 def delete_information_element(element_id: str):
+    # NOTE: information_elements is global (no tenant_id column); endpoint
+    # should require admin role. No role/admin gating pattern currently
+    # exists in routes — see TODO below before introducing one here.
+    # TODO(security): gate to admin role once an auth scheme exists.
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM information_elements WHERE element_id = %s RETURNING element_id", (element_id,))

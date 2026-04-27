@@ -75,6 +75,15 @@ class HslFindByNeedlesRequest(BaseModel):
     limit: int = 20
 
 
+class HslFindByNeedlesFullRequest(BaseModel):
+    values: List[str]
+
+
+class HslKeyValuePair(BaseModel):
+    key: str
+    value: str
+
+
 # ---------------------------------------------------------------------------
 # Member-table helpers
 # ---------------------------------------------------------------------------
@@ -294,6 +303,85 @@ def link_mro_to_hsl(
                 slot = None
         conn.commit()
     return {"updated": True, "slot": slot, "mro_ref": mro_ref}
+
+
+@router.get("/v1/hsl-data/key-value-pairs", response_model=List[HslKeyValuePair])
+def list_hsl_key_value_pairs(
+    scan_limit: int = Query(50000, ge=1, le=200000),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Return deduped (key, value) pairs parsed server-side from
+    ``hsl_data.hsl_name``.
+
+    HSL names follow the convention ``[Key.Value].hsl``; we run the same
+    bracket regex used by the rest of this module (``_VALUE_RE``) so the
+    parse is consistent with cue extraction. Tenant-scoped via RLS.
+    Cheap: scans names only — no element columns, no side-table joins.
+    """
+    tenant = x_tenant_id or "tenantA"
+    seen: set[Tuple[str, str]] = set()
+    out: List[HslKeyValuePair] = []
+    with db() as conn:
+        set_tenant(conn, tenant)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT hsl_name FROM hsl_data ORDER BY created_at DESC LIMIT %s",
+                (scan_limit,),
+            )
+            rows = cur.fetchall()
+    for (hsl_name,) in rows:
+        if not hsl_name or not isinstance(hsl_name, str):
+            continue
+        for m in _VALUE_RE.finditer(hsl_name):
+            key = m.group(1).strip()
+            val = m.group(2).strip()
+            if not key or not val:
+                continue
+            kv = (key, val)
+            if kv in seen:
+                continue
+            seen.add(kv)
+            out.append(HslKeyValuePair(key=key, value=val))
+    return out
+
+
+@router.post("/v1/hsl-data/find-by-needles-full", response_model=List[HslDataOut])
+def find_hsls_by_needles_full(
+    payload: HslFindByNeedlesFullRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Return full HSL rows whose names contain ≥1 of the supplied values.
+
+    Backed by the migration 017 ``information_element_refs`` inverted
+    index — single ``value_lower = ANY(...)`` probe rather than the
+    100-column LIKE scan that ``find-by-needles`` uses for legacy
+    callers. Tenant-scoped via RLS.
+    """
+    if not payload.values:
+        return []
+    tenant = x_tenant_id or "tenantA"
+    values = [v.lower().strip() for v in payload.values if v and v.strip()]
+    if not values:
+        return []
+    with db() as conn:
+        set_tenant(conn, tenant)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT hsl_id FROM information_element_refs "
+                "WHERE hsl_id IS NOT NULL AND value_lower = ANY(%s)",
+                (values,),
+            )
+            hsl_ids = [str(r[0]) for r in cur.fetchall()]
+            if not hsl_ids:
+                return []
+            cur.execute(
+                f"SELECT hsl_id, hsl_name, {_HSL_COLS}, created_at, updated_at "
+                f"FROM hsl_data WHERE hsl_id = ANY(%s) ORDER BY created_at DESC",
+                (hsl_ids,),
+            )
+            rows = cur.fetchall()
+            members_map = _members_for_hsls(cur, [str(r[0]) for r in rows])
+    return [_hsl_row_to_out(r, members_map.get(str(r[0]))) for r in rows]
 
 
 @router.post("/v1/hsl-data/find-by-needles")
@@ -545,6 +633,24 @@ def rebuild_hsls_from_aios(
                     skipped_single += 1
                     continue
                 candidates.append((f"[{key}.{val}].hsl", names))
+
+        # ── Guardrail: rebuild is O(n_candidates · avg_members). For very
+        # broad rebuilds the work product blows up well past what a single
+        # request should do. Estimate total member writes and refuse if it
+        # exceeds 1M; ask the caller to scope the rebuild (e.g. ``as_of``
+        # window or per-family). This is a safety cap, not a real fix.
+        if candidates:
+            total_members = sum(len(names) for _, names in candidates)
+            avg_members = total_members / len(candidates)
+            if len(candidates) * avg_members > 1_000_000:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"Rebuild too large: {len(candidates)} candidate HSLs × "
+                        f"~{avg_members:.0f} avg members exceeds the 1M-write cap. "
+                        "Scope the rebuild via ``as_of`` or run per-family."
+                    ),
+                )
 
         # ── Phase 1: bulk INSERT … ON CONFLICT DO NOTHING into hsl_data.
         # Batched in chunks to keep the parameter count under PG limits.

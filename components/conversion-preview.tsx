@@ -47,13 +47,31 @@ export function ConversionPreview({ files, onClear, onProcess, backendIsOnline }
 
   const activeFile = files[activeFileIndex]
 
+  // Track per-handler reset timeouts so a fast re-click clears the prior timer
+  // and we never queue overlapping resets that flicker the status pill.
+  const resetTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({})
+  const scheduleReset = useCallback((key: string, ms: number, fn: () => void) => {
+    const prior = resetTimeoutsRef.current[key]
+    if (prior) clearTimeout(prior)
+    resetTimeoutsRef.current[key] = setTimeout(() => {
+      resetTimeoutsRef.current[key] = null
+      fn()
+    }, ms)
+  }, [])
+  useEffect(() => () => {
+    for (const k of Object.keys(resetTimeoutsRef.current)) {
+      const t = resetTimeoutsRef.current[k]
+      if (t) clearTimeout(t)
+    }
+  }, [])
+
   const handleCopyAio = useCallback(async () => {
     setError(null)
     try {
       const content = activeFile.aioLines[selectedRowIndex]
       await navigator.clipboard.writeText(content)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      scheduleReset("copied", 2000, () => setCopied(false))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to copy"
       setError(`Copy failed: ${message}`)
@@ -84,14 +102,14 @@ export function ConversionPreview({ files, onClear, onProcess, backendIsOnline }
       triggerDownload(fileName, content)
       setDownloadStatus("success")
       setDownloadedFiles(prev => [...prev, fileName])
-      setTimeout(() => setDownloadStatus("idle"), 3000)
+      scheduleReset("downloadStatus", 3000, () => setDownloadStatus("idle"))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error"
       setError(`Download failed: ${message}`)
       setDownloadStatus("error")
-      setTimeout(() => setDownloadStatus("idle"), 5000)
+      scheduleReset("downloadStatus", 5000, () => setDownloadStatus("idle"))
     }
-  }, [activeFile, selectedRowIndex, triggerDownload])
+  }, [activeFile, selectedRowIndex, triggerDownload, scheduleReset])
 
   const handleDownloadAllAios = useCallback(() => {
     setError(null)
@@ -114,14 +132,14 @@ export function ConversionPreview({ files, onClear, onProcess, backendIsOnline }
         })
       })
       setDownloadAllStatus("success")
-      setTimeout(() => setDownloadAllStatus("idle"), 3000)
+      scheduleReset("downloadAllStatus", 3000, () => setDownloadAllStatus("idle"))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error"
       setError(`Download all failed: ${message}`)
       setDownloadAllStatus("error")
-      setTimeout(() => setDownloadAllStatus("idle"), 5000)
+      scheduleReset("downloadAllStatus", 5000, () => setDownloadAllStatus("idle"))
     }
-  }, [files, triggerDownload])
+  }, [files, triggerDownload, scheduleReset])
 
   const [bulkStatus, setBulkStatus] = useState<"idle" | "running" | "success" | "error">("idle")
 
@@ -146,14 +164,14 @@ export function ConversionPreview({ files, onClear, onProcess, backendIsOnline }
 
       setBulkStatus("success")
       onProcess(aioFileNames)
-      setTimeout(() => setBulkStatus("idle"), 2500)
+      scheduleReset("bulkStatus", 2500, () => setBulkStatus("idle"))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error"
       setError(`Bulk process failed: ${message}`)
       setBulkStatus("error")
-      setTimeout(() => setBulkStatus("idle"), 4000)
+      scheduleReset("bulkStatus", 4000, () => setBulkStatus("idle"))
     }
-  }, [files, onProcess])
+  }, [files, onProcess, scheduleReset])
 
   const STARTER_PROMPTS = [
     "What vendors are in this data?",
