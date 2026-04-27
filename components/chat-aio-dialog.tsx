@@ -306,9 +306,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       const outTok = result.output_tokens ?? 0
       const perfLine = `\n\n---\n_⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
       setChatMessages([...next, { role: "assistant", content: result.reply + perfLine }])
-      setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "Send" })
+      setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "BroadSearch" })
       createChatStat({
-        search_mode: "Send", query_text: text,
+        search_mode: "BroadSearch", query_text: text,
         result_preview: result.reply.slice(0, 500),
         elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
         total_tokens: inTok + outTok, context_records: result.context_records ?? 0,
@@ -342,9 +342,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       const outTok = result.output_tokens ?? 0
       const perfLine = `\n\n---\n_⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens · ${result.context_records ?? 0} CSV files_`
       setChatMessages([...next, { role: "assistant", content: result.reply + perfLine }])
-      setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "PureLLM" })
+      setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "RawSearch" })
       createChatStat({
-        search_mode: "PureLLM", query_text: text,
+        search_mode: "RawSearch", query_text: text,
         result_preview: result.reply.slice(0, 500),
         elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
         total_tokens: inTok + outTok, context_records: result.context_records ?? 0,
@@ -758,8 +758,8 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                     <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
                       <li><span className="font-medium text-purple-600 font-semibold">Recall</span> (purple, leftmost) is the default — press <span className="font-medium text-foreground">Enter</span> to run it. Memory-augmented (uses prior MROs), auto-saves a new MRO</li>
                       <li>Use <span className="font-medium text-foreground">Live Search</span> when you want a fresh four-phase retrieval with no memory of prior queries — best for one-off lookups</li>
-                      <li>Use <span className="font-medium text-foreground">CSV→LLM Raw</span> as the control case — standard Claude with the raw saved CSVs only (no AIO/HSL machinery)</li>
-                      <li>Use <span className="font-medium text-foreground">Blind Dump AIO/HSL</span> only for exploratory questions — NO retrieval, just dumps the first 300 AIOs + 10 HSLs at Claude unfiltered (slow, token-heavy)</li>
+                      <li>Use <span className="font-medium text-foreground">Raw Search</span> <span className="text-muted-foreground">(formerly CSV→LLM Raw)</span> as the control case — standard Claude with the raw saved CSVs only (no AIO/HSL machinery)</li>
+                      <li>Use <span className="font-medium text-foreground">Broad Search</span> <span className="text-muted-foreground">(formerly Blind Dump AIO/HSL)</span> only for exploratory questions — NO retrieval, just dumps the first 300 AIOs + 10 HSLs at Claude unfiltered (slow, token-heavy)</li>
                       <li>ChatAIO requires a valid Anthropic API key configured in System Admin → API Key</li>
                       <li>Responses include markdown tables when relevant — they render as formatted tables in the chat</li>
                     </ul>
@@ -894,11 +894,11 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
               <Button size="sm" variant="outline" onClick={handleAioSearch} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Live Search (formerly AIO Search): fresh four-phase retrieval — parse cues, match HSLs, gather AIOs, synthesize. No memory of prior queries.">
                 <Search className="w-4 h-4" />Live Search
               </Button>
-              <Button size="sm" variant="outline" onClick={handlePureLlm} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="CSV→LLM Raw: standard Claude prompt with the raw saved CSV files as context (no AIO/HSL/MRO machinery — control case)">
-                <Sparkles className="w-4 h-4" />CSV→LLM Raw
+              <Button size="sm" variant="outline" onClick={handlePureLlm} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Raw Search (formerly CSV→LLM Raw): standard Claude prompt with the raw saved CSV files as context (no AIO/HSL/MRO machinery — control case)">
+                <Sparkles className="w-4 h-4" />Raw Search
               </Button>
-              <Button size="sm" variant="outline" onClick={handleSend} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Blind Dump AIO/HSL: NO retrieval — ships the first 300 AIOs + 10 HSLs from the DB to Claude with no relevance filtering. Slow and token-heavy.">
-                <Send className="w-4 h-4" />Blind Dump AIO/HSL
+              <Button size="sm" variant="outline" onClick={handleSend} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Broad Search (formerly Blind Dump AIO/HSL): NO retrieval — ships the first 300 AIOs + 10 HSLs from the DB to Claude with no relevance filtering. Slow and token-heavy.">
+                <Send className="w-4 h-4" />Broad Search
               </Button>
             </div>
           </div>

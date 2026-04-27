@@ -5,7 +5,7 @@
 CREATE TABLE IF NOT EXISTS chat_search_stats (
     stat_id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id       TEXT        NOT NULL DEFAULT 'tenantA',
-    search_mode     TEXT        NOT NULL,   -- 'Send' | 'AIOSearch' | 'Substrate'
+    search_mode     TEXT        NOT NULL,   -- 'BroadSearch' | 'RawSearch' | 'AIOSearch' | 'Substrate' (legacy 'Send'/'PureLLM' renamed by 025)
     query_text      TEXT        NOT NULL,
     result_preview  TEXT,                   -- first 500 chars of the reply
     elapsed_ms      INTEGER     DEFAULT 0,

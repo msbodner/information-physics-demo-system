@@ -217,8 +217,8 @@ export function WorkflowDescription({ onBack, onSysAdmin }: { onBack: () => void
                 <h4 className="text-foreground font-medium mt-4">ChatAIO</h4>
                 <p>When the backend is online, the <strong>ChatAIO</strong> button opens a full-screen conversational interface with four search modes:</p>
                 <ul className="list-disc list-inside space-y-1 ml-2">
-                  <li><strong>CSV→LLM Raw (Control):</strong> Standard Claude prompt with the raw saved CSV files as context (up to 50 files, ~30 KB each). No AIO/HSL/MRO machinery. Use this to benchmark what a vanilla LLM does with the same data.</li>
-                  <li><strong>Blind Dump AIO/HSL (Broad AIO/HSL Dump):</strong> Sends your question to Claude along with ALL stored AIO and HSL records as context (up to 500 records). Best for general exploratory questions.</li>
+                  <li><strong>Raw Search (Control):</strong> Standard Claude prompt with the raw saved CSV files as context (up to 50 files, ~30 KB each). No AIO/HSL/MRO machinery. Use this to benchmark what a vanilla LLM does with the same data.</li>
+                  <li><strong>Broad Search (Broad AIO/HSL Dump):</strong> Sends your question to Claude along with ALL stored AIO and HSL records as context (up to 500 records). Best for general exploratory questions.</li>
                   <li><strong>Live Search</strong> <span className="text-muted-foreground">(formerly AIO Search — search algebra):</span> A four-phase targeted search: (1) Claude parses your prompt to extract key terms, (2) searches the HSL library for matching records, (3) gathers only the AIOs referenced in those HSLs, (4) answers using only that focused subset. Falls back to direct AIO element search if no HSLs match. Stateless — no memory of prior queries.</li>
                   <li><strong>Recall Search</strong> <span className="text-muted-foreground">(formerly Substrate Mode — Paper III pipeline):</span> Default. Deterministic cue extraction → HSL neighborhood traversal → Jaccard-ranked MRO pre-fetch → tiered bundle assembly → MRO capture. Memory-augmented; self-improving as MROs accumulate.</li>
                 </ul>
@@ -314,9 +314,9 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                 <h4 className="text-foreground font-medium mt-4">Four Search Modes</h4>
                 <div className="space-y-3 ml-2">
                   <div>
-                    <p className="font-medium text-foreground">CSV→LLM Raw (Control Case) — <code className="bg-muted px-1 rounded">POST /api/op/pure-llm</code></p>
+                    <p className="font-medium text-foreground">Raw Search (Control Case) — <code className="bg-muted px-1 rounded">POST /api/op/pure-llm</code></p>
                     <ol className="list-decimal list-inside space-y-1 ml-2">
-                      <li>User types a question and clicks <strong>CSV→LLM Raw</strong></li>
+                      <li>User types a question and clicks <strong>Raw Search</strong></li>
                       <li>Backend fetches up to 50 saved CSV files from <code className="bg-muted px-1 rounded">information_objects</code> where <code className="bg-muted px-1 rounded">type=&apos;CSV&apos;</code></li>
                       <li>Builds a vanilla system prompt — &quot;You are a helpful data analyst&quot; — with each CSV embedded as a fenced code block (capped at ~30 KB per file)</li>
                       <li>Sends to Claude with no AIO bracket notation, no HSL traversal, no MRO priors, no Information-Physics framing</li>
@@ -324,9 +324,9 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
                     <p className="mt-1">This is the <em>control case</em>. It demonstrates what Claude can do with the same source data and no AIO/HSL/MRO substrate. Use it to benchmark the lift the Information-Physics layers provide.</p>
                   </div>
                   <div>
-                    <p className="font-medium text-foreground">Blind Dump AIO/HSL (Broad AIO/HSL Dump) — <code className="bg-muted px-1 rounded">POST /api/op/chat</code></p>
+                    <p className="font-medium text-foreground">Broad Search (Broad AIO/HSL Dump) — <code className="bg-muted px-1 rounded">POST /api/op/chat</code></p>
                     <ol className="list-decimal list-inside space-y-1 ml-2">
-                      <li>User types a question and clicks <strong>Blind Dump AIO/HSL</strong></li>
+                      <li>User types a question and clicks <strong>Broad Search</strong></li>
                       <li>Backend fetches up to 500 AIO/HSL records from the database</li>
                       <li>Builds a system prompt with up to 300 AIO lines and 10 HSL blocks as context</li>
                       <li>Sends to Claude, which returns a contextual answer grounded in all available data</li>

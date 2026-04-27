@@ -2343,7 +2343,7 @@ function InformationElementsPane() {
 export function SearchStatsPane() {
   const [stats, setStats] = useState<ChatStatRecord[]>([])
   const [loading, setLoading] = useState(false)
-  const [filter, setFilter] = useState<"All" | "Send" | "PureLLM" | "AIOSearch" | "Substrate">("All")
+  const [filter, setFilter] = useState<"All" | "BroadSearch" | "RawSearch" | "AIOSearch" | "Substrate">("All")
   const [expanded, setExpanded] = useState<string | null>(null)
   const [pdfPreviewHtml, setPdfPreviewHtml] = useState<string | null>(null)
   const [mroPopup, setMroPopup] = useState<MroForStat | null>(null)
@@ -2377,8 +2377,8 @@ export function SearchStatsPane() {
   const visible = filter === "All" ? stats : stats.filter((s) => s.search_mode === filter)
 
   const modeBadge = (mode: string) => {
-    if (mode === "Send") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Blind Dump AIO/HSL</span>
-    if (mode === "PureLLM") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">CSV→LLM Raw</span>
+    if (mode === "BroadSearch" || mode === "Send") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Broad Search</span>
+    if (mode === "RawSearch" || mode === "PureLLM") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Raw Search</span>
     if (mode === "AIOSearch") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Live Search</span>
     if (mode === "Substrate") return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">Recall Search</span>
     return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-muted text-muted-foreground">{mode}</span>
@@ -2408,14 +2408,14 @@ export function SearchStatsPane() {
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;")
     const modeLabel = (m: string) =>
-      m === "Send" ? "Blind Dump AIO/HSL"
-      : m === "PureLLM" ? "CSV→LLM Raw"
+      m === "BroadSearch" || m === "Send" ? "Broad Search"
+      : m === "RawSearch" || m === "PureLLM" ? "Raw Search"
       : m === "AIOSearch" ? "Live Search"
       : m === "Substrate" ? "Recall Search"
       : m
     const modeBadgeClass = (m: string) =>
-      m === "Send" ? "badge-blind"
-      : m === "PureLLM" ? "badge-csv"
+      m === "BroadSearch" || m === "Send" ? "badge-blind"
+      : m === "RawSearch" || m === "PureLLM" ? "badge-csv"
       : m === "AIOSearch" ? "badge-aio"
       : m === "Substrate" ? "badge-sub"
       : "badge-default"
@@ -2508,8 +2508,8 @@ export function SearchStatsPane() {
   <div class="subtitle">${esc(new Date().toLocaleString())} · ${visible.length} of ${stats.length} record${stats.length === 1 ? "" : "s"} (filter: ${esc(filterLabel)})</div>
   <div class="summary">
     <div class="card"><div class="num">${totalSearches}</div><div class="lbl">Total</div></div>
-    <div class="card"><div class="num">${byMode.Send ?? 0}</div><div class="lbl">Blind Dump</div></div>
-    <div class="card"><div class="num">${byMode.PureLLM ?? 0}</div><div class="lbl">CSV→LLM</div></div>
+    <div class="card"><div class="num">${(byMode.BroadSearch ?? 0) + (byMode.Send ?? 0)}</div><div class="lbl">Broad Search</div></div>
+    <div class="card"><div class="num">${(byMode.RawSearch ?? 0) + (byMode.PureLLM ?? 0)}</div><div class="lbl">Raw Search</div></div>
     <div class="card"><div class="num">${byMode.AIOSearch ?? 0}</div><div class="lbl">Live Search</div></div>
     <div class="card"><div class="num">${byMode.Substrate ?? 0}</div><div class="lbl">Recall Search</div></div>
     <div class="card"><div class="num">${totalTokens.toLocaleString()}</div><div class="lbl">Tokens</div></div>
@@ -2539,12 +2539,12 @@ export function SearchStatsPane() {
       </thead>
       <tbody>
         <tr>
-          <td><span class="pill pill-csv">CSV→LLM Raw</span></td>
+          <td><span class="pill pill-csv">Raw Search <span style="color:#64748b;font-weight:400;">(formerly CSV→LLM Raw)</span></span></td>
           <td>None — control case</td>
           <td>Claude receives up to 50 raw saved CSV files (~30 KB each) plus a generic "you are a data analyst" system prompt. No AIO bracket notation, no HSL traversal, no MRO priors — this is the apples-to-apples baseline against vanilla Claude.</td>
         </tr>
         <tr>
-          <td><span class="pill pill-blind">Blind Dump AIO/HSL</span></td>
+          <td><span class="pill pill-blind">Broad Search <span style="color:#64748b;font-weight:400;">(formerly Blind Dump AIO/HSL)</span></span></td>
           <td>None — blind dump</td>
           <td>Claude receives the first 300 AIOs and 10 HSLs from the database with no relevance filtering, plus the ChatAIO preamble instructing it to parse <code>[Key.Value]</code> notation and show its work. Cheapest to implement, most token-wasteful — ships ~300 unrelated records per query.</td>
         </tr>
@@ -2561,7 +2561,7 @@ export function SearchStatsPane() {
       </tbody>
     </table>
     <p class="legend">
-      <strong>Blind Dump AIO/HSL</strong> and <strong>CSV→LLM Raw</strong> are the controls — they show what Claude does without Information-Physics machinery. <strong>Live Search</strong> and <strong>Recall Search</strong> are where the substrate earns its keep: bounded retrieval, real provenance, and (for Recall Search) episodic memory that compounds across sessions.
+      <strong>Broad Search</strong> and <strong>Raw Search</strong> are the controls — they show what Claude does without Information-Physics machinery. <strong>Live Search</strong> and <strong>Recall Search</strong> are where the substrate earns its keep: bounded retrieval, real provenance, and (for Recall Search) episodic memory that compounds across sessions.
     </p>
   </div>
 </body>
@@ -2648,8 +2648,8 @@ export function SearchStatsPane() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
           { label: "Total Searches", value: totalSearches },
-          { label: "Blind Dump AIO/HSL", value: byMode.Send ?? 0 },
-          { label: "CSV→LLM Raw", value: byMode.PureLLM ?? 0 },
+          { label: "Broad Search", value: (byMode.BroadSearch ?? 0) + (byMode.Send ?? 0) },
+          { label: "Raw Search", value: (byMode.RawSearch ?? 0) + (byMode.PureLLM ?? 0) },
           { label: "Live Search", value: byMode.AIOSearch ?? 0 },
           { label: "Recall Search", value: byMode.Substrate ?? 0 },
         ].map((card) => (
@@ -2672,10 +2672,10 @@ export function SearchStatsPane() {
 
       {/* Controls */}
       <div className="flex items-center gap-2 flex-wrap">
-        {(["All", "Send", "PureLLM", "AIOSearch", "Substrate"] as const).map((m) => (
+        {(["All", "BroadSearch", "RawSearch", "AIOSearch", "Substrate"] as const).map((m) => (
           <button key={m} onClick={() => setFilter(m)}
             className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${filter === m ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
-            {m === "AIOSearch" ? "Live Search" : m === "Substrate" ? "Recall Search" : m === "Send" ? "Blind Dump AIO/HSL" : m === "PureLLM" ? "CSV→LLM Raw" : m}
+            {m === "AIOSearch" ? "Live Search" : m === "Substrate" ? "Recall Search" : m === "BroadSearch" ? "Broad Search" : m === "RawSearch" ? "Raw Search" : m}
           </button>
         ))}
         <div className="flex-1" />
@@ -2807,12 +2807,12 @@ export function SearchStatsPane() {
             </thead>
             <tbody>
               <tr className="border-b border-border bg-background">
-                <td className="px-3 py-2 align-top"><span className="font-semibold text-amber-700">CSV→LLM Raw</span></td>
+                <td className="px-3 py-2 align-top"><span className="font-semibold text-amber-700">Raw Search <span className="text-muted-foreground font-normal">(formerly CSV→LLM Raw)</span></span></td>
                 <td className="px-3 py-2 align-top">None — control case</td>
                 <td className="px-3 py-2 align-top">Claude receives up to 50 raw saved CSV files (~30 KB each) plus a generic &quot;you are a data analyst&quot; system prompt. No AIO bracket notation, no HSL traversal, no MRO priors — the apples-to-apples baseline against vanilla Claude.</td>
               </tr>
               <tr className="border-b border-border bg-muted/20">
-                <td className="px-3 py-2 align-top"><span className="font-semibold text-blue-700">Blind Dump AIO/HSL</span></td>
+                <td className="px-3 py-2 align-top"><span className="font-semibold text-blue-700">Broad Search <span className="text-muted-foreground font-normal">(formerly Blind Dump AIO/HSL)</span></span></td>
                 <td className="px-3 py-2 align-top">None — blind dump</td>
                 <td className="px-3 py-2 align-top">Claude receives the first 300 AIOs and 10 HSLs from the database with no relevance filtering, plus the ChatAIO preamble instructing it to parse <code className="bg-muted px-1 rounded">[Key.Value]</code> notation and show its work. Cheapest to implement, most token-wasteful — ships ~300 unrelated records per query.</td>
               </tr>
@@ -2830,7 +2830,7 @@ export function SearchStatsPane() {
           </table>
         </div>
         <p className="text-xs text-muted-foreground">
-          <strong>Blind Dump AIO/HSL</strong> and <strong>CSV→LLM Raw</strong> are the controls — they show what Claude does without Information-Physics machinery.
+          <strong>Broad Search</strong> and <strong>Raw Search</strong> are the controls — they show what Claude does without Information-Physics machinery.
           <strong> Live Search</strong> and <strong>Recall Search</strong> are where the substrate earns its keep: bounded retrieval, real provenance, and (for Recall Search) episodic memory that compounds across sessions.
         </p>
       </div>
