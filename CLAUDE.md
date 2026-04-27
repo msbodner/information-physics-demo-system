@@ -39,6 +39,16 @@ npm run dist           # Build DMG/EXE/AppImage
 ```
 Requires `electron/resources/` populated by `bash scripts/build-resources.sh`.
 
+**macOS code signing & notarization (optional but strongly recommended for distribution).** The build degrades gracefully — if no certificate is installed and no env vars are set, it produces unsigned DMGs that work but require right-click → Open on first launch. To produce signed + notarized DMGs:
+
+1. Have an active **Apple Developer Program** membership.
+2. Install a **Developer ID Application** certificate in Keychain (download .cer from developer.apple.com).
+3. Generate an **app-specific password** at appleid.apple.com (for notarization).
+4. Copy `electron/.env.example` to `electron/.env` and fill in `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`. The `.env` file is gitignored.
+5. `npm run dist` — the script auto-sources `.env`, signs with the Keychain identity, and submits for notarization (3-15 minutes).
+
+The Hardened Runtime entitlements live in `electron/build/entitlements.mac.plist` — they enable Electron's V8 JIT and allow loading the bundled Python/Postgres binaries without library validation. Don't tighten without testing the embedded backend still launches.
+
 ## Architecture
 
 ### Three-Layer Data Model

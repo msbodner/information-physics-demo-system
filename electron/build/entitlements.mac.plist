@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Hardened Runtime entitlements for Information Physics Demo System.
+
+      Required by Electron's V8 / Node integration:
+        - allow-jit: V8 JIT compilation
+        - allow-unsigned-executable-memory: V8 code generation
+        - allow-dyld-environment-variables: lets us point at bundled libs
+
+      Required to launch our embedded child binaries (Python interpreter
+      backing FastAPI, embedded Postgres, etc.) which are signed with our
+      Developer ID but loaded at runtime:
+        - disable-library-validation: allow loading the bundled .dylib
+          files that ship inside Resources/python and Resources/postgres
+        - disable-executable-page-protection: PostgreSQL forks worker
+          processes and uses self-modifying code paths in some cases
+
+      Network access is needed for the frontend → backend localhost
+      connection. We don't request com.apple.security.app-sandbox because
+      that would prevent us from spawning the embedded backend processes.
+    -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.disable-executable-page-protection</key>
+    <true/>
+
+    <!-- Network entitlements for the local frontend ↔ backend bridge -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+</dict>
+</plist>

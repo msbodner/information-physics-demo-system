@@ -15,6 +15,7 @@ electron/node_modules/
 electron/dist/
 electron/icons/
 electron/resources/
+electron/.env
 
 # Build artifacts
 tsconfig.tsbuildinfo
