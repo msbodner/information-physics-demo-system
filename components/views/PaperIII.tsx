@@ -98,8 +98,8 @@ HSL traversal:
             <Sub title="5.4 Admissibility">Retrieval accelerator, not truth object; AIOs remain the grounding layer.</Sub>
           </Section>
 
-          <Section num={6} title="The Five-Step Procedure (now live in ChatAIO Substrate Mode)">
-            <p>Click the purple <strong>Substrate</strong> button in ChatAIO to invoke this pipeline end-to-end:</p>
+          <Section num={6} title="The Five-Step Procedure (now live in ChatAIO as Recall Search, formerly Substrate Mode)">
+            <p>Click the purple <strong>Recall Search</strong> button (formerly labeled <strong>Substrate</strong>) in ChatAIO to invoke this pipeline end-to-end:</p>
             <Sub title="Step 1 — Cue extraction">Parse the natural-language query into the cue set K ⊂ E × (V ∪ {"{"}*{"}"}) using the Information Elements directory and the AIO value vocabulary.</Sub>
             <Sub title="Step 2 — HSL traversal">Compute the bounded neighborhood N(K) as the set intersection of per-cue AIO sets (Compound HSL).</Sub>
             <Sub title="Step 3 — MRO pre-fetch">Rank prior MROs by Jaccard(K_m, K) × freshness(t_m) × confidence; surface top-N as priors.</Sub>
@@ -108,16 +108,16 @@ HSL traversal:
           </Section>
 
           <Section num={7} title="Implementation in V4.2">
-            <p>The Substrate mode is implemented in three new modules:</p>
+            <p>Recall Search (formerly Substrate Mode) is implemented in three new modules:</p>
             <Sub title="lib/aio-math.ts">Core mathematics: cue extraction, HSL traversal (set intersection), Jaccard similarity, exponential freshness decay, MRO ranking, and tiered bundle assembly.</Sub>
             <Sub title="lib/aio-chat-pipeline.ts">Orchestration layer: runs the five-step pipeline end-to-end, calls Claude with the assembled bundle, and persists the captured MRO.</Sub>
-            <Sub title="components/chat-aio-dialog.tsx">UI integration: the purple Substrate button invokes the pipeline; response metadata shows cue count, neighborhood size, priors used, and MRO-save status.</Sub>
+            <Sub title="components/chat-aio-dialog.tsx">UI integration: the purple Recall Search button (formerly labeled Substrate) invokes the pipeline; response metadata shows cue count, distinct HSL family fan-out, neighborhood size, priors used, and MRO-save status.</Sub>
             <p>See the <strong>Mathematics Reference</strong> in the System Admin → Documentation menu for the full technical specification of every operation.</p>
           </Section>
 
           <Section num={8} title="Conclusion">
             <p>Traditional RAG fed by Medallion curation is workable but lossy. The AIO/HSL/MRO architecture implements the same function on different structural principles: encoding-specific capture, precomputed topology, recursive episodic enrichment. The substrate is exact on the dimensions that matter, bounded in per-query cost, fully provenant, and self-improving through use.</p>
-            <p>With V4.2 and Substrate Mode, the substrate is now live. Claude reads from it natively.</p>
+            <p>With V4.2 and Recall Search (originally shipped as Substrate Mode), the substrate is now live. Claude reads from it natively.</p>
           </Section>
 
           <section className="mb-8">

@@ -3325,11 +3325,11 @@ function ArchitecturePane() {
           <rect x="790" y="95" width="280" height="32" rx="10" fill="#DB2777"/><rect x="790" y="117" width="280" height="10" fill="#DB2777"/>
           <text x="930" y="116" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="13" fontWeight="bold" fill="white">ChatAIO — AI Retrieval</text>
           <rect x="803" y="136" width="124" height="60" rx="5" fill="white" stroke="#F9A8D4" strokeWidth="1"/>
-          <text x="865" y="152" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="10" fontWeight="bold" fill="#9D174D">Send (Broad)</text>
+          <text x="865" y="152" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="10" fontWeight="bold" fill="#9D174D">Broad Search</text>
           <text x="865" y="166" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="8" fill="#475569">All AIOs + HSLs</text>
           <text x="865" y="178" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="8" fill="#475569">1 LLM call</text>
           <rect x="933" y="136" width="124" height="60" rx="5" fill="white" stroke="#F9A8D4" strokeWidth="1"/>
-          <text x="995" y="152" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="10" fontWeight="bold" fill="#9D174D">AIO Search</text>
+          <text x="995" y="152" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="10" fontWeight="bold" fill="#9D174D">Live Search</text>
           <text x="995" y="166" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="8" fill="#475569">4-phase algebra</text>
           <text x="995" y="178" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="8" fill="#475569">φ → σ → π → Ψ</text>
           <rect x="803" y="202" width="254" height="18" rx="3" fill="#FDF2F8"/>
@@ -3650,7 +3650,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         view: "paper-iii",
                         icon: <Atom className="w-6 h-6 text-emerald-600" />,
                         title: "Paper III — Precomputed Substrates for LLMs",
-                        desc: "Advanced research paper on deterministic semantic substrate retrieval — the foundation of Substrate Chat mode.",
+                        desc: "Advanced research paper on deterministic semantic substrate retrieval — the foundation of Recall Search mode (formerly Substrate Chat).",
                         color: "border-emerald-300/50 hover:border-emerald-400",
                       },
                       {
