@@ -120,6 +120,46 @@ export function getMatchedHslIds(
 }
 
 /**
+ * Collect the AIO name set pointed to by every HSL whose name contains at
+ * least one concrete cue value. This is the HSL-as-recall-path: instead of
+ * re-scoring every AIO, we follow the HSL's own pointer column to a tight
+ * candidate list.
+ *
+ * Substring-on-name matching mirrors computeHslBoost / getMatchedHslIds so
+ * the three stay aligned (an HSL that boosts an AIO is also one that
+ * contributes pointers, and vice-versa).
+ *
+ * Returns lowercased names so callers can do case-insensitive set lookups
+ * against `aio.fileName` regardless of how the HSL stored the ref. The
+ * `[MRO.*]` element refs are skipped — those are MRO-link sentinels, not
+ * AIO pointers.
+ */
+export function collectHslPointerNames(
+  cueSet: ElementCue[],
+  hsls: HslLite[],
+): Set<string> {
+  const out = new Set<string>()
+  if (cueSet.length === 0 || hsls.length === 0) return out
+  const cueValues = cueSet
+    .map((c) => c.value?.toLowerCase())
+    .filter((v): v is string => !!v && v.length >= 2)
+  if (cueValues.length === 0) return out
+
+  for (const hsl of hsls) {
+    const name = (hsl.hsl_name || "").toLowerCase()
+    if (!name) continue
+    if (!cueValues.some((v) => name.includes(v))) continue
+    for (const ref of hsl.elements) {
+      if (!ref || typeof ref !== "string") continue
+      const trimmed = ref.trim()
+      if (!trimmed || trimmed.startsWith("[MRO.")) continue
+      out.add(trimmed.toLowerCase())
+    }
+  }
+  return out
+}
+
+/**
  * Compute a per-AIO "HSL coverage" score: how many cue-matched HSLs
  * reference each AIO by name.
  *

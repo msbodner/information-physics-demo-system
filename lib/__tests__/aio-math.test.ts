@@ -17,6 +17,7 @@ import {
   assembleBundle,
   serializeBundle,
   computeHslBoost,
+  collectHslPointerNames,
   diversifyByCSV,
   traverseHSL,
   type ContextBundle,
@@ -169,6 +170,39 @@ test("diversifyByCSV: dominant CSV cannot crowd out a single-row CSV", () => {
   assert.ok(seen.has("acc_submittals"))
   assert.ok(seen.has("acc_vendors"))
   assert.ok(out.length <= 10)
+})
+
+// ── HSL pointer expansion ───────────────────────────────────────────
+
+test("collectHslPointerNames: returns AIO refs from cue-matched HSLs", () => {
+  const hsls: HslLite[] = [
+    {
+      hsl_id: "h1",
+      hsl_name: "[Project_ID.PRJ-003].hsl",
+      elements: ["acc_rfis.csv - Row 162", "acc_issues.csv - Row 47", "[MRO.abc]"],
+    },
+    {
+      hsl_id: "h2",
+      hsl_name: "[Project_ID.PRJ-099].hsl",
+      elements: ["other.csv - Row 1"],
+    },
+  ]
+  const cues = [{ key: "Project", value: "PRJ-003", raw: "[Project.PRJ-003]" }]
+  const got = collectHslPointerNames(cues, hsls)
+  assert.ok(got.has("acc_rfis.csv - row 162"))
+  assert.ok(got.has("acc_issues.csv - row 47"))
+  // PRJ-099 HSL doesn't match the PRJ-003 cue → its pointers stay out
+  assert.ok(!got.has("other.csv - row 1"))
+  // [MRO.*] sentinels are skipped
+  for (const v of got) assert.ok(!v.startsWith("[mro."))
+})
+
+test("collectHslPointerNames: empty when no concrete cue values", () => {
+  const hsls: HslLite[] = [
+    { hsl_id: "h1", hsl_name: "[Project.PRJ-003].hsl", elements: ["a.csv"] },
+  ]
+  const got = collectHslPointerNames([{ key: "Project", raw: "[Project.*]" }], hsls)
+  assert.equal(got.size, 0)
 })
 
 // ── HSL field aliasing ──────────────────────────────────────────────

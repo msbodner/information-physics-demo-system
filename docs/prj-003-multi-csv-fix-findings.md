@@ -51,6 +51,26 @@ on the ranked neighborhood instead of `slice(0, maxAios)`. Behavior:
 Result: AIA305 still gets a fair share, but cannot crowd out a 1-row CSV
 that's needed to answer the join.
 
+### Part C — HSL pointer expansion (`lib/aio-math.ts`, `lib/aio-chat-pipeline.ts`)
+
+The original Recall pipeline scoped the AIO neighborhood by sending cue
+needles to a pg_trgm scan over the AIO blob (`findAiosByNeedles`), capped
+at 500 rows. With ~426 cues fanning out to ~850 needles, the cap saturated
+with high-fanout terms (person names that hit hundreds of AIA305 rows) and
+acc_rfis / acc_issues / acc_submittals were never returned at all. The
+HSL was being fetched but used only as a re-rank booster — the recall path
+that AIA305 starved.
+
+This part inverts that: the HSL pointer column *is* a tight short list of
+AIO names per relationship. We resolve HSLs first, take the union of every
+cue-matched HSL's `elements` (skipping `[MRO.*]` sentinels), and use that
+as the primary scope. The needle scan is kept as a complementary safety
+net for AIOs that no HSL covers.
+
+New helper `collectHslPointerNames(cueSet, hsls)` in `aio-math.ts` (pure,
+testable). The pipeline is reordered: resolve HSLs → expand pointers →
+union with needle scan → filter the in-memory AIO array against that set.
+
 ### Part B — frontend HSL field aliasing (`lib/hsl-aliases.ts`)
 
 New `canonicalField(name)` folds equivalent field names onto a canonical form:
@@ -91,9 +111,12 @@ Measured results on the deployed corpus (589 AIOs, 1208 HSL key-value pairs):
   operational CSVs are present — `acc_rfis: 2, acc_issues: 2, acc_submittals: 3,
   acc_vendors: 4, acc_cost_codes: 21`, plus AIA305 + acc_employees + acc_customers
   + acc_projects for context. Pre-fix: only 2 CSVs reached the bundle.
-- **`per_csv_counts`** (full pipeline today): 4 distinct CSVs reach the
-  bundle. Diversity is engaging, but the upstream needle scan still
-  saturates — see followup #3 below.
+- **`per_csv_counts`** (full pipeline post-Part-C): 9 distinct CSVs reach
+  the bundle, all 5 operational ones present —
+  `acc_rfis: 4, acc_issues: 4, acc_submittals: 4, acc_vendors: 4,
+  acc_cost_codes: 4, acc_employees: 4, acc_projects: 4, acc_customers: 4,
+  AIA305 Sample: 8`. The HSL pointer union supplied the operational rows
+  the needle scan had been starving.
 
 Re-run the benchmark with:
 
@@ -123,20 +146,10 @@ distinct CSVs in the file names.
    weakly-matching row is given the same per-bucket budget as one with 50
    strong matches. A score-weighted variant may pay off once we have
    benchmark coverage across more multi-CSV joins.
-3. **Upstream needle saturation (discovered during verification).** The
-   scoping call `findAiosByNeedles(needles, 500)` in
-   `lib/aio-chat-pipeline.ts:386` is hit with ~850 needles when the cue
-   extractor produces ~426 cues (1208-entry HSL catalog × benchmark prompt
-   richness). High-fanout person-name needles dominate the 500-row cap and
-   crowd out the operational rows entirely — the diversity fix downstream
-   sees a scope that already excludes acc_rfis / acc_issues / acc_submittals.
-
-   Probe: a single-needle `["PRJ-003"]` call to the same endpoint returns
-   40 rows spanning all 5 operational CSVs (cost_codes:21, employees:5,
-   vendors:4, submittals:3, issues:2, rfis:2). Two reasonable fixes:
-   (a) drop wildcard-key cues from the needle list so only precise
-   `[Key.Value]` cues fan out, or (b) raise the limit and diversify the
-   result by CSV before applying it as a scope filter.
+3. **~~Upstream needle saturation.~~** _Resolved by Part C (HSL pointer
+   expansion). The needle scan still runs as a safety net; its 500-row
+   saturation is no longer fatal because the HSL pointer union supplies
+   the operational AIOs directly._
 4. **Live mode parity.** Bug 2 was fixed on the Recall path; the Live
    pipeline (`/v1/op/aio-search`) runs server-side without `canonicalField`
    — promoting Part B to the backend (followup #1) closes the gap.

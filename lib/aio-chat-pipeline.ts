@@ -17,6 +17,7 @@ import {
   buildValueVocabulary,
   buildFieldVocabulary,
   computeHslBoost,
+  collectHslPointerNames,
   getMatchedHslIds,
   type ContextBundle,
   type HslLite,
@@ -364,50 +365,14 @@ export async function runChatPipeline(
   // queries actually need."
   const cues = seedCuesWithMroHits(extractedCues, mroHits)
 
-  // V4.4 P0a — Push the candidate-neighborhood scan into Postgres.
-  // We send the cue values (and key.value brackets) as needles to the
-  // pg_trgm-indexed find-by-needles endpoint, then filter the in-memory
-  // AIO array to the returned name set. This replaces the O(|cues|×|aios|)
-  // JS scan inside traverseHSL with an O(|matches|) one — the first big
-  // win when the corpus grows past a few hundred AIOs.
+  // Step 2 — resolve the HSL slice for this query.
   //
-  // Falls back to the original full-corpus aios on backend miss or when
-  // no value-bearing cues are present (key-only wildcards aren't useful
-  // needles — they'd match every element of that key).
-  let scopedAios: ParsedAio[] = aios
-  const needleStrings = cues
-    .flatMap((c) =>
-      c.value && c.value !== "*" && c.value.length >= 2
-        ? [c.value, `[${c.key}.${c.value}`]
-        : [],
-    )
-    .filter((s, i, a) => a.indexOf(s) === i)
-  if (needleStrings.length > 0 && aios.length > 0) {
-    const matchedNames = await findAiosByNeedles(needleStrings, 500).catch(
-      () => null,
-    )
-    if (matchedNames && matchedNames.length > 0) {
-      const nameSet = new Set(matchedNames)
-      const filtered = aios.filter((a) => nameSet.has(a.fileName))
-      if (filtered.length > 0) scopedAios = filtered
-    }
-    // matchedNames === null  → backend unavailable, keep full aios
-    // matchedNames === []    → no candidates; keep full aios so traverseHSL
-    //                          can still apply its ranked-union fallback
-    //                          (matches existing behavior for truly empty
-    //                          neighborhoods rather than silently zeroing out)
-  }
-
-  // Step 2-3 — use cached MROs if provided, otherwise fetch.
-  // The cached payload is expected to be in summary mode (no result_text /
-  // context_bundle) — we hydrate just the priors that win the ranking below.
-  const priorMroObjects = options.cachedMros
-    ?? await listMroObjects(200, { summary: true }).catch(() => [])
-  const priorMROs: MRO[] = priorMroObjects
-    .map(mroObjectToMRO)
-    .filter((m): m is MRO => m !== null)
-
-  // Step 2b — optional HSL boost map (non-gating ranking signal).
+  // The HSL pointer column (an AIO name list per HSL) is the proper
+  // recall path: each cue-matched HSL hands us a tight short list of
+  // AIOs to read, sized to the actual relationship — not a pg_trgm
+  // text scan over the AIO blob. We resolve HSLs FIRST so we can use
+  // their pointers as the primary scope; the needle scan below remains
+  // as a safety net for AIOs that no HSL covers.
   //
   // V4.4 P3 — when ``resolveHsls`` is provided, fetch a query-scoped
   // HSL slice (server-side via ``information_element_refs``) instead of
@@ -426,6 +391,57 @@ export async function runChatPipeline(
       }
     }
   }
+
+  // Step 2a — HSL pointer expansion. Take the union of AIO name pointers
+  // across every cue-matched HSL. This is the recall-by-pointer path:
+  // when an HSL named [Project_ID.PRJ-003].hsl says "I cover acc_rfis Row
+  // 162, acc_issues Row 47, …", those AIOs land in scope regardless of
+  // whether the downstream pg_trgm needle scan finds them. Fixes the
+  // upstream-saturation bug where high-fanout cues filled the 500-row
+  // needle cap with AIA305 and starved the operational CSVs.
+  const hslPointerLowerNames = collectHslPointerNames(cues, scopedHsls)
+
+  // Step 2b — needle scan (original V4.4 P0a path), kept as a complement
+  // to HSL pointers for cues that have no HSL coverage. The two are
+  // unioned below — neither path alone is sufficient on a sparse-HSL
+  // corpus, but together they cover the recall surface.
+  //
+  // Cap stays at 500 server-side; we no longer rely on it as the sole
+  // scope so its saturation is no longer fatal.
+  const needleStrings = cues
+    .flatMap((c) =>
+      c.value && c.value !== "*" && c.value.length >= 2
+        ? [c.value, `[${c.key}.${c.value}`]
+        : [],
+    )
+    .filter((s, i, a) => a.indexOf(s) === i)
+  let needleMatchedNames: string[] | null = null
+  if (needleStrings.length > 0 && aios.length > 0) {
+    needleMatchedNames = await findAiosByNeedles(needleStrings, 500).catch(() => null)
+  }
+
+  // Step 2c — union the two scope sources and filter `aios` to that set.
+  // Falls through to the full corpus when both sources came up empty
+  // (preserves the original "let traverseHSL apply its ranked-union
+  // fallback" behavior on a backend miss).
+  let scopedAios: ParsedAio[] = aios
+  const scopeNames = new Set<string>(hslPointerLowerNames)
+  if (needleMatchedNames) {
+    for (const n of needleMatchedNames) scopeNames.add(n.toLowerCase())
+  }
+  if (scopeNames.size > 0 && aios.length > 0) {
+    const filtered = aios.filter((a) => scopeNames.has((a.fileName || "").toLowerCase()))
+    if (filtered.length > 0) scopedAios = filtered
+  }
+
+  // Step 3 — use cached MROs if provided, otherwise fetch.
+  // The cached payload is expected to be in summary mode (no result_text /
+  // context_bundle) — we hydrate just the priors that win the ranking below.
+  const priorMroObjects = options.cachedMros
+    ?? await listMroObjects(200, { summary: true }).catch(() => [])
+  const priorMROs: MRO[] = priorMroObjects
+    .map(mroObjectToMRO)
+    .filter((m): m is MRO => m !== null)
 
   const hslBoost = scopedHsls.length > 0
     ? computeHslBoost(cues, scopedHsls)

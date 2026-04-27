@@ -64,17 +64,27 @@ async function main() {
   console.log(`cues: ${cues.length}`)
   const cueValues = cues.map((c) => c.value).filter((v): v is string => !!v && v !== "*" && v.length >= 2)
 
+  // Resolve HSLs first (mirrors the new pipeline order)
+  const hsls = await findHslsByNeedlesFull(cueValues).catch(() => [])
+  const hslLite = hsls.map((r) => ({ hsl_name: r.hsl_name, elements: r.elements, hsl_id: r.hsl_id }))
+  const { collectHslPointerNames } = await import("../lib/aio-math")
+  const pointerNames = collectHslPointerNames(cues, hslLite)
+  console.log(`HSLs resolved: ${hslLite.length}, HSL pointer expansion → ${pointerNames.size} AIO refs`)
+
   const needles = cues
     .flatMap((c) => c.value && c.value !== "*" && c.value.length >= 2 ? [c.value, `[${c.key}.${c.value}`] : [])
     .filter((s, i, a) => a.indexOf(s) === i)
-  let scopedAios = parsedAios
   const matchedNames = await findAiosByNeedles(needles, 500).catch(() => null)
-  if (matchedNames && matchedNames.length > 0) {
-    const set = new Set(matchedNames)
-    const filtered = parsedAios.filter((a) => set.has(a.fileName))
+
+  // Union: HSL pointers ∪ needle scan
+  const scopeNames = new Set<string>(pointerNames)
+  if (matchedNames) for (const n of matchedNames) scopeNames.add(n.toLowerCase())
+  let scopedAios = parsedAios
+  if (scopeNames.size > 0) {
+    const filtered = parsedAios.filter((a) => scopeNames.has((a.fileName || "").toLowerCase()))
     if (filtered.length > 0) scopedAios = filtered
   }
-  console.log(`scoped AIOs after needle scan: ${scopedAios.length}`)
+  console.log(`scoped AIOs after HSL∪needle union: ${scopedAios.length}`)
   const scopedCsvs: Record<string, number> = {}
   for (const a of scopedAios) {
     const o = a.elements.find((e) => e.key === "OriginalCSV")?.value ?? "?"
@@ -91,8 +101,6 @@ async function main() {
   }
   console.log("precise PRJ-003 needle scan per-CSV:", preciseCounts)
 
-  const hsls = await findHslsByNeedlesFull(cueValues).catch(() => [])
-  const hslLite = hsls.map((r) => ({ hsl_name: r.hsl_name, elements: r.elements, hsl_id: r.hsl_id }))
   const hslBoost = hslLite.length > 0 ? computeHslBoost(cues, hslLite) : undefined
   console.log(`HSLs resolved: ${hslLite.length}, boost map size: ${hslBoost?.size ?? 0}`)
 
