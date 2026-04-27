@@ -3897,9 +3897,11 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
 // ── Embedded Document Viewer ──────────────────────────────────────────
 //
 // Fetches a .docx from the given URL, converts it to HTML in the browser
-// via mammoth, and renders the result in a scrollable modal. No download
-// is triggered. The .docx file still lives in /public/docs/ for tooling
-// that wants the original.
+// via mammoth, and renders the result as a full-screen page that mirrors
+// the layout of the other in-app reference views (sticky header with a
+// Back button, content centered in a max-w-4xl column with prose
+// styling). No download is triggered; the .docx still lives in
+// /public/docs/ for tooling that wants the original.
 
 function EmbeddedDocViewer({ url, title, onClose }: { url: string; title: string; onClose: () => void }) {
   const [html, setHtml] = useState<string | null>(null)
@@ -3926,27 +3928,39 @@ function EmbeddedDocViewer({ url, title, onClose }: { url: string; title: string
     return () => { cancelled = true }
   }, [url])
 
+  // Lock body scroll while the viewer is mounted so the page underneath
+  // doesn't scroll behind the overlay.
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="max-w-5xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-6 py-4 border-b shrink-0">
-          <DialogTitle className="text-lg">{title}</DialogTitle>
-        </DialogHeader>
-        <div className="flex-1 overflow-auto px-8 py-6 bg-muted/20">
-          {error ? (
-            <p className="text-sm text-destructive">Could not render document: {error}</p>
-          ) : !html ? (
-            <div className="flex items-center justify-center h-full">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <div
-              className="docx-rendered prose prose-sm max-w-none bg-card rounded-lg shadow-sm border border-border p-8"
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
-          )}
+    <div className="fixed inset-0 z-50 bg-background overflow-auto">
+      <header className="border-b border-border bg-card sticky top-0 z-10">
+        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={onClose} className="gap-2">
+            <ArrowLeft className="w-4 h-4" />Back
+          </Button>
+          <h1 className="text-lg font-bold text-foreground truncate">{title}</h1>
         </div>
-      </DialogContent>
-    </Dialog>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-6 py-10">
+        {error ? (
+          <p className="text-sm text-destructive">Could not render document: {error}</p>
+        ) : !html ? (
+          <div className="flex items-center justify-center py-24">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <article
+            className="docx-rendered prose prose-sm dark:prose-invert max-w-none"
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        )}
+      </main>
+    </div>
   )
 }
