@@ -10,6 +10,28 @@ import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
 import { toast } from "sonner"
 
+// ── Error normalization ───────────────────────────────────────────
+//
+// Backend errors arrive in two shapes: plain strings ("404 Not Found",
+// "Backend unavailable") and JSON envelopes (the budget rate-limiter
+// returns {error, tenant_id, used_today, limit, percent_used,
+// message}). Calling .toLowerCase() on the latter throws and crashes
+// the React tree. asErrorString() coerces any shape to a single
+// human-readable string by preferring `message`, then `error`, then
+// JSON.stringify.
+function asErrorString(e: unknown): string {
+  if (e == null) return "unknown_error"
+  if (typeof e === "string") return e
+  if (e instanceof Error) return e.message || String(e)
+  if (typeof e === "object") {
+    const o = e as Record<string, unknown>
+    if (typeof o.message === "string" && o.message) return String(o.message)
+    if (typeof o.error === "string" && o.error) return String(o.error)
+    try { return JSON.stringify(o) } catch { return String(o) }
+  }
+  return String(e)
+}
+
 // ── Markdown table parser ─────────────────────────────────────────
 
 function parseMarkdownTable(block: string): { headers: string[]; rows: string[][] } | null {
@@ -315,10 +337,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     if (!result) {
       setChatMessages([...next, { role: "assistant", content: "❌ Backend unreachable. Check your Railway deployment." }])
     } else if ("error" in result) {
-      const isKeyMissing = result.error.toLowerCase().includes("api_key") || result.error.toLowerCase().includes("not configured")
+      const errMsg = asErrorString(result.error)
+      const errLower = errMsg.toLowerCase()
+      const isKeyMissing = errLower.includes("api_key") || errLower.includes("not configured")
       setChatMessages([...next, { role: "assistant", content: isKeyMissing
         ? "❌ Anthropic API key not configured.\n\nGo to System Admin → API Key tab and paste your key (starts with sk-ant-…)."
-        : `❌ ${result.error}` }])
+        : `❌ ${errMsg}` }])
     } else {
       const inTok = result.input_tokens ?? 0
       const outTok = result.output_tokens ?? 0
@@ -357,10 +381,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     if (!result) {
       setChatMessages([...next, { role: "assistant", content: "❌ Backend unreachable. Check your Railway deployment." }])
     } else if ("error" in result) {
-      const isKeyMissing = result.error.toLowerCase().includes("api_key") || result.error.toLowerCase().includes("not configured")
+      const errMsg = asErrorString(result.error)
+      const errLower = errMsg.toLowerCase()
+      const isKeyMissing = errLower.includes("api_key") || errLower.includes("not configured")
       setChatMessages([...next, { role: "assistant", content: isKeyMissing
         ? "❌ Anthropic API key not configured.\n\nGo to System Admin → API Key tab and paste your key (starts with sk-ant-…)."
-        : `❌ ${result.error}` }])
+        : `❌ ${errMsg}` }])
     } else {
       const inTok = result.input_tokens ?? 0
       const outTok = result.output_tokens ?? 0
@@ -516,10 +542,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
     if ("error" in result) {
-      const isKeyMissing = result.error.toLowerCase().includes("api_key") || result.error.toLowerCase().includes("not configured")
+      const errMsg = asErrorString(result.error)
+      const errLower = errMsg.toLowerCase()
+      const isKeyMissing = errLower.includes("api_key") || errLower.includes("not configured")
       setChatMessages([...next, { role: "assistant", content: isKeyMissing
         ? "❌ Anthropic API key not configured.\n\nGo to System Admin → API Key tab and paste your key (starts with sk-ant-…)."
-        : `❌ ${result.error}` }])
+        : `❌ ${errMsg}` }])
     } else {
       const inTok = result.input_tokens ?? 0
       const outTok = result.output_tokens ?? 0
