@@ -3823,6 +3823,14 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         desc: "Version 2 of the measurement report extended to all four ChatAIO modes: Recall, Live, Broad, and Raw. Includes per-mode pipeline traces, master side-by-side, cost modeling at Anthropic list prices (38.6× spread Recall→Broad), and a decision matrix.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
+                      {
+                        download: "/docs/Recall_Search_Trace_SarahMitchell.docx",
+                        filename: "Recall_Search_Trace_SarahMitchell.docx",
+                        icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
+                        title: "Recall Trace — Sarah Mitchell Query (End-to-End)",
+                        desc: "Single-query Recall Search trace against the Railway production deployment with the MRO short-circuit bypassed. Documents every MRO probe hit, every cue extracted, every HSL probed, and every AIO sent to the LLM, plus the verbatim final reply.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
                     ].map(({ view, download, filename, icon, title, desc, color }) => (
                       <button
                         key={view ?? download}
