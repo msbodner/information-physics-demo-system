@@ -46,12 +46,55 @@ export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: 
     })
   }, [aioRecords])
 
+  // Live field counts derived from the current AIO corpus. The
+  // `information_elements` table is a precomputed cache that drifts
+  // over time (e.g. after a corpus swap, fields from the old corpus
+  // linger with stale aio_count values pointing at AIOs that no longer
+  // exist). Computing here from the actual AIO data keeps the field
+  // picker honest: every entry shown corresponds to at least one
+  // AIO in the current dataset, and the displayed count is the real
+  // current count rather than the stale cache value.
+  const liveFieldCounts = useMemo<Map<string, number>>(() => {
+    const counts = new Map<string, number>()
+    for (const aio of allParsedAios) {
+      const seenInThisAio = new Set<string>()
+      for (const el of aio.elements) {
+        if (!el.key) continue
+        // Count once per AIO per field — matches information_elements
+        // semantics (aio_count = number of AIOs containing the field,
+        // not number of element occurrences).
+        if (seenInThisAio.has(el.key)) continue
+        seenInThisAio.add(el.key)
+        counts.set(el.key, (counts.get(el.key) ?? 0) + 1)
+      }
+    }
+    return counts
+  }, [allParsedAios])
+
+  // Effective field list: union of live AIO keys + info_elements rows
+  // that currently have at least one AIO referencing them. Each entry
+  // gets its element_id from the cache when available, otherwise a
+  // synthetic key derived from the field name (so the UI list is
+  // stable even when an in-AIO field isn't tracked in info_elements).
+  const effectiveFieldList = useMemo(() => {
+    const idByName = new Map<string, string>()
+    for (const el of infoElements) idByName.set(el.field_name, el.element_id)
+    return Array.from(liveFieldCounts.entries())
+      .filter(([, count]) => count > 0)
+      .map(([field_name, aio_count]) => ({
+        field_name,
+        aio_count,
+        element_id: idByName.get(field_name) ?? `synthetic:${field_name}`,
+      }))
+      .sort((a, b) => b.aio_count - a.aio_count || a.field_name.localeCompare(b.field_name))
+  }, [liveFieldCounts, infoElements])
+
   // Filter field names by search
   const filteredInfoElements = useMemo(() => {
-    if (!fieldSearchQuery.trim()) return infoElements
+    if (!fieldSearchQuery.trim()) return effectiveFieldList
     const q = fieldSearchQuery.toLowerCase()
-    return infoElements.filter((el) => el.field_name.toLowerCase().includes(q))
-  }, [infoElements, fieldSearchQuery])
+    return effectiveFieldList.filter((el) => el.field_name.toLowerCase().includes(q))
+  }, [effectiveFieldList, fieldSearchQuery])
 
   // Get unique values for the selected field name across all AIOs
   const fieldValues = useMemo<{ value: string; count: number }[]>(() => {
@@ -209,7 +252,7 @@ export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: 
             </div>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">{isLoadingElements ? "Loading..." : `Field Names (${filteredInfoElements.length})`}</CardTitle>
+                <CardTitle className="text-sm font-medium">{(isLoadingAios || isLoadingElements) && filteredInfoElements.length === 0 ? "Loading..." : `Field Names (${filteredInfoElements.length})`}</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="max-h-[500px] overflow-y-auto divide-y divide-border">
@@ -219,7 +262,7 @@ export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: 
                       <p className="text-xs text-muted-foreground">{el.aio_count} AIOs</p>
                     </button>
                   ))}
-                  {filteredInfoElements.length === 0 && !isLoadingElements && <p className="text-sm text-muted-foreground text-center py-8">No field names found</p>}
+                  {filteredInfoElements.length === 0 && !isLoadingElements && !isLoadingAios && <p className="text-sm text-muted-foreground text-center py-8">No field names found</p>}
                 </div>
               </CardContent>
             </Card>
