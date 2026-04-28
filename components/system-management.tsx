@@ -759,10 +759,44 @@ function MroDataPane() {
   // of HSLs that actually carry the [MRO.<uuid>] back-pointer in
   // hsl_member. Differences flag link-write failures or pruned HSLs.
   const [linkage, setLinkage] = useState<{ open: boolean; loading: boolean; mro?: MroObject; data?: MroLinkageResponse | null }>({ open: false, loading: false })
-  // One-shot repair for MROs with corrupted seed_hsls (display string
-  // instead of pipe-separated UUIDs — the pre-V4.5 manual Save MRO
-  // bug). Recovers UUIDs from hsl_member back-pointers when present.
+  // One-shot repair state for MROs with corrupted seed_hsls. The
+  // handler itself is declared AFTER `load` below — it depends on
+  // `load` to refresh the table after a successful repair, and putting
+  // the useCallback above the `load` declaration trips a temporal-
+  // dead-zone ReferenceError once minified ("Cannot access 'N' before
+  // initialization").
   const [isRepairing, setIsRepairing] = useState(false)
+  const [form, setForm] = useState<{
+    mro_key: string
+    query_text: string
+    intent: string
+    seed_hsls: string
+    matched_aios_count: number
+    result_text: string
+    context_bundle: string
+    confidence: string
+    policy_scope: string
+  }>({
+    mro_key: "", query_text: "", intent: "", seed_hsls: "",
+    matched_aios_count: 0, result_text: "", context_bundle: "",
+    confidence: "derived", policy_scope: "tenantA",
+  })
+  const [isSaving, setIsSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    setIsLoading(true)
+    // Summary projection — heavy fields hydrated on edit-open.
+    const rows = await listMroObjects(500, { summary: true })
+    setRecords(rows)
+    setIsLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  // One-shot repair handler. Declared AFTER `load` so its useCallback
+  // deps array doesn't reference a binding still in TDZ. Recovers
+  // UUIDs from hsl_member back-pointers for MROs whose seed_hsls
+  // field was corrupted by the pre-V4.5 manual Save MRO bug.
   const handleRepairBrokenMros = useCallback(async () => {
     if (isRepairing) return
     if (!window.confirm(
@@ -795,32 +829,6 @@ function MroDataPane() {
       setIsRepairing(false)
     }
   }, [isRepairing, load])
-  const [form, setForm] = useState<{
-    mro_key: string
-    query_text: string
-    intent: string
-    seed_hsls: string
-    matched_aios_count: number
-    result_text: string
-    context_bundle: string
-    confidence: string
-    policy_scope: string
-  }>({
-    mro_key: "", query_text: "", intent: "", seed_hsls: "",
-    matched_aios_count: 0, result_text: "", context_bundle: "",
-    confidence: "derived", policy_scope: "tenantA",
-  })
-  const [isSaving, setIsSaving] = useState(false)
-
-  const load = useCallback(async () => {
-    setIsLoading(true)
-    // Summary projection — heavy fields hydrated on edit-open.
-    const rows = await listMroObjects(500, { summary: true })
-    setRecords(rows)
-    setIsLoading(false)
-  }, [])
-
-  useEffect(() => { load() }, [load])
 
   const openEdit = async (rec: MroObject) => {
     setDialog({ open: true, record: rec, loading: true })
