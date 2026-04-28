@@ -3923,7 +3923,7 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
               { value: "hsl-data",      icon: <LayoutList className="w-4 h-4" />,      label: "HSL Data" },
               { value: "mro-data",      icon: <Brain className="w-4 h-4" />,           label: "MRO Data" },
               { value: "demo-reset",    icon: <ShieldAlert className="w-4 h-4" />,     label: "Demo Reset" },
-              { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Statistics Analytics" },
+              { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Stats" },
               { value: "apikey",        icon: <Key className="w-4 h-4" />,             label: "API Key" },
               { value: "models",        icon: <Cpu className="w-4 h-4" />,             label: "Models" },
               { value: "csvs",          icon: <FileSpreadsheet className="w-4 h-4" />, label: "Saved CSVs" },
