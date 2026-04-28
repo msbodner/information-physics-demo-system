@@ -917,6 +917,37 @@ export async function deleteMroObject(id: string): Promise<boolean> {
   return result !== null
 }
 
+// MRO ↔ HSL linkage. After a Recall or Live Search, the new MRO is
+// linked back into every contributing HSL by writing [MRO.<uuid>] into
+// the hsl_member side table. This call inverts that lookup so the UI
+// can audit whether the link writes actually landed for a given MRO.
+export interface MroLinkedHsl {
+  hsl_id: string
+  hsl_name: string
+  created_at: string | null
+  updated_at: string | null
+  member_count: number
+}
+export interface MroLinkageResponse {
+  mro_id: string
+  mro_ref: string
+  seed_hsl_ids: string[]
+  seed_count: number
+  linked_count: number
+  linked_hsls: MroLinkedHsl[]
+  // Diagnostic: HSLs the MRO claims as seeds (seed_hsls field) that
+  // are NOT carrying the [MRO.<uuid>] back-pointer (link write failed
+  // or HSL was pruned).
+  seed_minus_linked: string[]
+  // Diagnostic: HSLs that carry the back-pointer but aren't in the
+  // MRO's seed_hsls list (manual link, MRO save failed but link
+  // succeeded, or seed_hsls was edited later).
+  linked_minus_seed: string[]
+}
+export async function getMroLinkage(mroId: string): Promise<MroLinkageResponse | null> {
+  return safeFetch<MroLinkageResponse>(`/api/mro-objects/${encodeURIComponent(mroId)}/hsls`)
+}
+
 // V4.4 — MRO-assisted retrieval (first slice).
 // Used by the substrate pipeline before extracting cues, to (a) potentially
 // short-circuit on a near-duplicate prior, (b) seed cue extraction with

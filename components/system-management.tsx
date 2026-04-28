@@ -24,7 +24,7 @@ import {
   listHslData, createHslData, updateHslData, deleteHslData,
   listSavedPrompts, createSavedPrompt, updateSavedPrompt, deleteSavedPrompt,
   listInformationElements, createInformationElement, updateInformationElement, deleteInformationElement, rebuildInformationElements,
-  getApiKeySetting, updateApiKeySetting, getModelSettings, updateModelSettings, getBudgetSettings, updateBudgetSettings, loginUser, listIOs,
+  getApiKeySetting, updateApiKeySetting, getModelSettings, updateModelSettings, getBudgetSettings, updateBudgetSettings, getMroLinkage, type MroLinkageResponse, loginUser, listIOs,
   listChatStats, deleteChatStat, getMroForStat, type MroForStat,
   listMroObjects, getMroObject, updateMroObject, deleteMroObject,
   listDemoBackups, createDemoBackup, deleteDemoBackup, resetDemoData, restoreDemoBackup,
@@ -754,6 +754,11 @@ function MroDataPane() {
   const [filter, setFilter] = useState("")
   const [dialog, setDialog] = useState<{ open: boolean; record?: MroObject; loading: boolean }>({ open: false, loading: false })
   const [deleteConfirm, setDeleteConfirm] = useState<MroObject | null>(null)
+  // HSL linkage viewer — opened from each row's "Linkage" action.
+  // Shows seed_hsls (HSLs the MRO claims as origins) vs the live set
+  // of HSLs that actually carry the [MRO.<uuid>] back-pointer in
+  // hsl_member. Differences flag link-write failures or pruned HSLs.
+  const [linkage, setLinkage] = useState<{ open: boolean; loading: boolean; mro?: MroObject; data?: MroLinkageResponse | null }>({ open: false, loading: false })
   const [form, setForm] = useState<{
     mro_key: string
     query_text: string
@@ -898,6 +903,17 @@ function MroDataPane() {
                   <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(rec.updated_at).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost" size="sm" className="gap-1 h-7 px-2"
+                        onClick={async () => {
+                          setLinkage({ open: true, loading: true, mro: rec })
+                          const data = await getMroLinkage(rec.mro_id)
+                          setLinkage({ open: true, loading: false, mro: rec, data })
+                        }}
+                        title="Show HSLs that contributed to this MRO and any that carry the [MRO.<uuid>] back-pointer"
+                      >
+                        <Network className="w-3 h-3" />Linkage
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => openEdit(rec)} className="gap-1 h-7 px-2"><Pencil className="w-3 h-3" />Edit</Button>
                       <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(rec)} className="gap-1 h-7 px-2 text-destructive hover:text-destructive"><Trash2 className="w-3 h-3" />Delete</Button>
                     </div>
@@ -1008,6 +1024,115 @@ function MroDataPane() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => deleteConfirm && handleDelete(deleteConfirm)} className="gap-2"><Trash2 className="w-4 h-4" />Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* HSL Linkage viewer ─────────────────────────────────────────────
+          Shows the symmetric mapping for an MRO:
+            • seed_hsls — the HSL UUIDs the MRO claims as its origins
+              (set when the MRO was created from a Recall/Live search)
+            • linked_hsls — the HSLs that actually carry [MRO.<uuid>]
+              in their hsl_member side table (the back-pointers)
+          In healthy operation these two sets match. Differences flag
+          link-write failures (seed_minus_linked) or stale links
+          (linked_minus_seed). */}
+      <Dialog open={linkage.open} onOpenChange={(o) => !o && setLinkage({ open: false, loading: false })}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Network className="w-5 h-5" />MRO ↔ HSL Linkage
+            </DialogTitle>
+          </DialogHeader>
+          {linkage.loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : !linkage.data ? (
+            <p className="text-sm text-destructive py-6">Could not load linkage data.</p>
+          ) : (
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-xs">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-muted-foreground">MRO Key</span>
+                  <code className="font-mono text-foreground">{linkage.mro?.mro_key}</code>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-muted-foreground">MRO ref written into HSLs</span>
+                  <code className="font-mono text-foreground">{linkage.data.mro_ref}</code>
+                </div>
+              </div>
+
+              {/* Counts summary */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg border border-border p-3 text-center">
+                  <div className="text-2xl font-semibold text-foreground">{linkage.data.seed_count}</div>
+                  <div className="text-xs text-muted-foreground mt-1">Seed HSLs<br /><span className="opacity-70">(from MRO record)</span></div>
+                </div>
+                <div className="rounded-lg border border-border p-3 text-center">
+                  <div className="text-2xl font-semibold text-foreground">{linkage.data.linked_count}</div>
+                  <div className="text-xs text-muted-foreground mt-1">Linked HSLs<br /><span className="opacity-70">(carry the back-pointer)</span></div>
+                </div>
+                <div className="rounded-lg border border-border p-3 text-center">
+                  <div className={`text-2xl font-semibold ${linkage.data.seed_minus_linked.length === 0 && linkage.data.linked_minus_seed.length === 0 ? "text-emerald-600" : "text-amber-600"}`}>
+                    {linkage.data.seed_minus_linked.length === 0 && linkage.data.linked_minus_seed.length === 0
+                      ? "✓"
+                      : `${linkage.data.seed_minus_linked.length + linkage.data.linked_minus_seed.length}`}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">{linkage.data.seed_minus_linked.length === 0 && linkage.data.linked_minus_seed.length === 0 ? "Symmetric" : "Asymmetries"}</div>
+                </div>
+              </div>
+
+              {/* Asymmetry warnings */}
+              {linkage.data.seed_minus_linked.length > 0 && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 space-y-1">
+                  <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Seed HSLs missing back-pointer ({linkage.data.seed_minus_linked.length})</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400">These HSLs are listed in the MRO&apos;s seed_hsls field but don&apos;t carry [MRO.{linkage.mro?.mro_id?.slice(0, 8)}…] in hsl_member. Possible link-write failure or HSL was pruned after creation.</p>
+                  <ul className="text-xs font-mono text-amber-900 dark:text-amber-300 list-disc list-inside">
+                    {linkage.data.seed_minus_linked.slice(0, 10).map((id) => (<li key={id}>{id}</li>))}
+                    {linkage.data.seed_minus_linked.length > 10 && <li className="italic opacity-70">… and {linkage.data.seed_minus_linked.length - 10} more</li>}
+                  </ul>
+                </div>
+              )}
+              {linkage.data.linked_minus_seed.length > 0 && (
+                <div className="rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/20 p-3 space-y-1">
+                  <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">Linked HSLs not in seed list ({linkage.data.linked_minus_seed.length})</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-400">These HSLs carry the back-pointer but aren&apos;t in the MRO&apos;s seed_hsls field. Could be a manual link or a seed_hsls edit after creation.</p>
+                </div>
+              )}
+
+              {/* Linked HSL table */}
+              <div>
+                <p className="text-xs font-medium text-foreground mb-2">Linked HSLs ({linkage.data.linked_count})</p>
+                {linkage.data.linked_hsls.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic py-3">No HSLs carry the back-pointer. {linkage.data.seed_count > 0 ? "All link writes appear to have failed." : "This MRO was probably saved without an HSL traversal (Broad / Raw mode)."}</p>
+                ) : (
+                  <div className="border border-border rounded-lg overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-muted-foreground">HSL Name</th>
+                          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Members</th>
+                          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Updated</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {linkage.data.linked_hsls.map((h) => (
+                          <tr key={h.hsl_id} className="border-t border-border">
+                            <td className="px-3 py-2 font-mono">{h.hsl_name}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{h.member_count}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{h.updated_at ? new Date(h.updated_at).toLocaleString() : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLinkage({ open: false, loading: false })}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

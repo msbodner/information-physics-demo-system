@@ -452,6 +452,22 @@ export default function HomePage() {
 
           <ChatAioDialog open={showHomeChatAIO} onOpenChange={setShowHomeChatAIO} />
 
+          {/* Prominent ChatAIO CTA — moved ABOVE the feature cards so the
+              primary action sits at eye level with the hero, not buried
+              underneath the explainer. */}
+          {backendIsOnline && (
+            <div className="mb-12 flex justify-center">
+              <Button
+                size="lg"
+                onClick={() => setShowHomeChatAIO(true)}
+                className="gap-3 px-12 py-8 text-xl font-semibold shadow-lg hover:shadow-xl transition-shadow"
+              >
+                <MessageSquare className="w-6 h-6" />
+                Launch ChatAIO
+              </Button>
+            </div>
+          )}
+
           {/* Feature cards */}
           <div className="grid md:grid-cols-3 gap-6 mb-16">
             {[
@@ -468,20 +484,6 @@ export default function HomePage() {
               </div>
             ))}
           </div>
-
-          {/* Prominent ChatAIO CTA */}
-          {backendIsOnline && (
-            <div className="mb-16 flex justify-center">
-              <Button
-                size="lg"
-                onClick={() => setShowHomeChatAIO(true)}
-                className="gap-3 px-12 py-8 text-xl font-semibold shadow-lg hover:shadow-xl transition-shadow"
-              >
-                <MessageSquare className="w-6 h-6" />
-                Launch ChatAIO
-              </Button>
-            </div>
-          )}
 
           {/* Conversion process diagram */}
           <div className="mb-16">

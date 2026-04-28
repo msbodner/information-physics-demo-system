@@ -927,8 +927,8 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                   const opening = !showHistory
                   setShowHistory(opening)
                   if (opening && historyMode === "saved") loadSavedPrompts()
-                }} className="gap-1.5 h-9 px-3" title="Previous prompts">
-                  <History className="w-4 h-4" />
+                }} className="gap-1.5 h-9 px-3" title="Browse session prompts and saved prompts">
+                  <History className="w-4 h-4" />Prior Prompts
                 </Button>
                 {showHistory && (
                   <div className="absolute bottom-full mb-2 left-0 w-96 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden">

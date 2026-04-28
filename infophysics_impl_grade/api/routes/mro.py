@@ -343,6 +343,81 @@ def delete_mro_object(
     return {"deleted": mro_id}
 
 
+@router.get("/v1/mro-objects/{mro_id}/hsls")
+def list_mro_linked_hsls(
+    mro_id: str,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Return every HSL that has a back-link pointing at this MRO.
+
+    A successful Recall or Live Search creates an MRO and then writes
+    `[MRO.<mro_id>]` into the `hsl_member` side table for every HSL that
+    contributed to the answer. This endpoint inverts that lookup so an
+    operator can verify the link landed for a given query, audit which
+    HSLs were responsible for an MRO, and spot orphaned MROs whose
+    link writes silently failed.
+
+    Returns each HSL's id, name, member count from hsl_member, and the
+    MRO's own `seed_hsls` field (pipe-separated UUIDs captured at MRO
+    creation) so the UI can compare what the MRO claims it came from
+    against what HSLs actually carry the back-pointer.
+    """
+    tenant = x_tenant_id or "tenantA"
+    mro_ref = f"[MRO.{mro_id}]"
+    with db() as conn:
+        set_tenant(conn, tenant)
+        with conn.cursor() as cur:
+            # First confirm the MRO exists and pull its own seed_hsls.
+            cur.execute(
+                "SELECT mro_id, seed_hsls FROM mro_objects WHERE mro_id = %s",
+                (mro_id,),
+            )
+            mro_row = cur.fetchone()
+            if not mro_row:
+                raise HTTPException(status_code=404, detail="MRO object not found")
+            seed_hsls_field = mro_row[1] or ""
+
+            # Linked HSLs via the side table (authoritative).
+            cur.execute(
+                """
+                SELECT h.hsl_id, h.hsl_name, h.created_at, h.updated_at,
+                       (SELECT COUNT(*) FROM hsl_member m2
+                          WHERE m2.hsl_id = h.hsl_id) AS member_count
+                  FROM hsl_member m
+                  JOIN hsl_data h ON h.hsl_id = m.hsl_id
+                 WHERE m.member_kind = 'mro'
+                   AND m.member_value = %s
+                   AND h.tenant_id = %s
+              ORDER BY h.hsl_name
+                """,
+                (mro_ref, tenant),
+            )
+            linked = [
+                {
+                    "hsl_id": str(r[0]),
+                    "hsl_name": r[1],
+                    "created_at": r[2].isoformat() if r[2] else None,
+                    "updated_at": r[3].isoformat() if r[3] else None,
+                    "member_count": int(r[4] or 0),
+                }
+                for r in cur.fetchall()
+            ]
+
+    seed_ids = [s for s in seed_hsls_field.split("|") if s.strip()]
+    linked_ids = {h["hsl_id"] for h in linked}
+    seed_set = set(seed_ids)
+    return {
+        "mro_id": mro_id,
+        "mro_ref": mro_ref,
+        "seed_hsl_ids": seed_ids,
+        "seed_count": len(seed_ids),
+        "linked_count": len(linked),
+        "linked_hsls": linked,
+        "seed_minus_linked": [s for s in seed_ids if s not in linked_ids],
+        "linked_minus_seed": [h["hsl_id"] for h in linked if h["hsl_id"] not in seed_set],
+    }
+
+
 # ---------------------------------------------------------------------------
 # #11 MRO compaction (admin)
 # ---------------------------------------------------------------------------
