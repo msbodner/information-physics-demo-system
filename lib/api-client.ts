@@ -948,6 +948,27 @@ export async function getMroLinkage(mroId: string): Promise<MroLinkageResponse |
   return safeFetch<MroLinkageResponse>(`/api/mro-objects/${encodeURIComponent(mroId)}/hsls`)
 }
 
+// Admin one-shot repair: fixes MROs whose seed_hsls field was
+// corrupted by the pre-V4.5 manual Save MRO bug (display string
+// instead of UUIDs). For each broken MRO, recovers the UUID list
+// from hsl_member back-pointers when present, else clears the field.
+export interface MroSeedRepairResult {
+  tenant_id: string
+  scanned: number
+  skipped_valid: number
+  repaired: number
+  details: Array<{
+    mro_id: string
+    mro_key: string
+    before: string | null
+    after_count: number
+    recovered_from_backlinks: boolean
+  }>
+}
+export async function repairMroSeedHsls(): Promise<MroSeedRepairResult | null> {
+  return safeFetch<MroSeedRepairResult>("/api/mro-objects/repair-seed-hsls", { method: "POST" })
+}
+
 // V4.4 — MRO-assisted retrieval (first slice).
 // Used by the substrate pipeline before extracting cues, to (a) potentially
 // short-circuit on a near-duplicate prior, (b) seed cue extraction with

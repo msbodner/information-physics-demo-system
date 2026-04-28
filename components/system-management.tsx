@@ -24,7 +24,7 @@ import {
   listHslData, createHslData, updateHslData, deleteHslData,
   listSavedPrompts, createSavedPrompt, updateSavedPrompt, deleteSavedPrompt,
   listInformationElements, createInformationElement, updateInformationElement, deleteInformationElement, rebuildInformationElements,
-  getApiKeySetting, updateApiKeySetting, getModelSettings, updateModelSettings, getBudgetSettings, updateBudgetSettings, getMroLinkage, type MroLinkageResponse, loginUser, listIOs,
+  getApiKeySetting, updateApiKeySetting, getModelSettings, updateModelSettings, getBudgetSettings, updateBudgetSettings, getMroLinkage, repairMroSeedHsls, type MroLinkageResponse, loginUser, listIOs,
   listChatStats, deleteChatStat, getMroForStat, type MroForStat,
   listMroObjects, getMroObject, updateMroObject, deleteMroObject,
   listDemoBackups, createDemoBackup, deleteDemoBackup, resetDemoData, restoreDemoBackup,
@@ -759,6 +759,42 @@ function MroDataPane() {
   // of HSLs that actually carry the [MRO.<uuid>] back-pointer in
   // hsl_member. Differences flag link-write failures or pruned HSLs.
   const [linkage, setLinkage] = useState<{ open: boolean; loading: boolean; mro?: MroObject; data?: MroLinkageResponse | null }>({ open: false, loading: false })
+  // One-shot repair for MROs with corrupted seed_hsls (display string
+  // instead of pipe-separated UUIDs — the pre-V4.5 manual Save MRO
+  // bug). Recovers UUIDs from hsl_member back-pointers when present.
+  const [isRepairing, setIsRepairing] = useState(false)
+  const handleRepairBrokenMros = useCallback(async () => {
+    if (isRepairing) return
+    if (!window.confirm(
+      "Scan all MROs for corrupted seed_hsls fields and repair them?\n\n" +
+      "Each broken MRO gets its seed_hsls regenerated from hsl_member " +
+      "back-pointers (when present) or cleared (when no back-pointers " +
+      "exist). Valid MROs are left alone."
+    )) return
+    setIsRepairing(true)
+    try {
+      const result = await repairMroSeedHsls()
+      if (!result) {
+        toast.error("Repair failed — backend unavailable")
+        return
+      }
+      const recovered = result.details.filter((d) => d.recovered_from_backlinks).length
+      const cleared = result.repaired - recovered
+      if (result.repaired === 0) {
+        toast.success(`No broken MROs found — all ${result.scanned} are valid.`)
+      } else {
+        toast.success(
+          `Repair complete: ${result.repaired} MRO(s) fixed (${recovered} recovered from back-pointers, ${cleared} cleared) · ${result.skipped_valid} were already valid.`,
+          { duration: 8000 },
+        )
+      }
+      load()
+    } catch {
+      toast.error("Repair failed")
+    } finally {
+      setIsRepairing(false)
+    }
+  }, [isRepairing, load])
   const [form, setForm] = useState<{
     mro_key: string
     query_text: string
@@ -866,6 +902,16 @@ function MroDataPane() {
           onChange={(e) => setFilter(e.target.value)}
           className="max-w-xs h-9 text-sm"
         />
+        <Button
+          variant="outline"
+          onClick={handleRepairBrokenMros}
+          disabled={isRepairing}
+          className="gap-2"
+          title="Scan all MROs for corrupted seed_hsls (display strings or non-UUIDs) and repair them from hsl_member back-pointers."
+        >
+          {isRepairing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Atom className="w-4 h-4" />}
+          {isRepairing ? "Repairing…" : "Fix Broken MROs"}
+        </Button>
         <Button variant="outline" onClick={load} className="gap-2"><RefreshCw className="w-4 h-4" />Refresh</Button>
       </div>
 

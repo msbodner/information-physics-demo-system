@@ -440,7 +440,7 @@ export default function HomePage() {
                 in the action row only added clutter. */}
             {backendIsOnline && (
               <Button size="lg" variant="outline" onClick={() => setCurrentView("search-stats")} className="gap-2 px-8">
-                <BarChart2 className="w-4 h-4" />Search Stats
+                <BarChart2 className="w-4 h-4" />Search Statistics Analytics
               </Button>
             )}
             <Button size="lg" variant="outline" onClick={() => setCurrentView("guide")} className="gap-2 px-8">

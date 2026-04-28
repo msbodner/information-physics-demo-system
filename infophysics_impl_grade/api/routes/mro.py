@@ -343,6 +343,96 @@ def delete_mro_object(
     return {"deleted": mro_id}
 
 
+@router.post("/v1/mro-objects/repair-seed-hsls")
+def repair_mro_seed_hsls(
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Repair MROs whose seed_hsls field was corrupted with display text.
+
+    A pre-V4.5 bug in the manual "Save MRO" button wrote a human-
+    readable string (e.g. "629 HSLs") into the seed_hsls field instead
+    of pipe-separated HSL UUIDs. The same code path also skipped the
+    linkMroToHsl back-pointer writes, so those MROs show seed=N /
+    linked=0 / asymmetric in the new Linkage view.
+
+    Repair strategy, per affected MRO:
+      1. Look up every hsl_member row whose member_value is
+         [MRO.<mro_id>] (back-pointers that DID land — possibly from
+         a later auto-save path or partial success).
+      2. Set seed_hsls to those UUIDs joined by "|", OR clear it if
+         no back-pointers exist (the search left no recoverable trace).
+      3. Updated MROs are reported with a before/after sketch so the
+         operator knows what changed.
+
+    A seed_hsls value is considered "broken" when at least one of its
+    pipe-separated tokens fails the UUID format check. Empty strings
+    and well-formed UUID lists are left alone.
+    """
+    import re
+    UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+    def is_valid_seed_hsls(value: Optional[str]) -> bool:
+        if not value:
+            return True  # empty is fine
+        for token in value.split("|"):
+            t = token.strip()
+            if not t or not UUID_RE.match(t):
+                return False
+        return True
+
+    tenant = x_tenant_id or "tenantA"
+    repaired: list[dict] = []
+    skipped_valid = 0
+    with db() as conn:
+        set_tenant(conn, tenant)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT mro_id, mro_key, seed_hsls FROM mro_objects WHERE tenant_id = %s",
+                (tenant,),
+            )
+            rows = cur.fetchall()
+
+            for mro_id, mro_key, seed_hsls in rows:
+                if is_valid_seed_hsls(seed_hsls):
+                    skipped_valid += 1
+                    continue
+                # Pull back-pointers — these are the authoritative HSL set.
+                cur.execute(
+                    """
+                    SELECT m.hsl_id FROM hsl_member m
+                     WHERE m.member_kind = 'mro'
+                       AND m.member_value = %s
+                       AND m.tenant_id = %s
+                    """,
+                    (f"[MRO.{mro_id}]", tenant),
+                )
+                hsl_ids = [str(r[0]) for r in cur.fetchall()]
+                new_seed_hsls = "|".join(hsl_ids) if hsl_ids else ""
+                cur.execute(
+                    """
+                    UPDATE mro_objects
+                       SET seed_hsls = %s, updated_at = now()
+                     WHERE mro_id = %s
+                    """,
+                    (new_seed_hsls, str(mro_id)),
+                )
+                repaired.append({
+                    "mro_id": str(mro_id),
+                    "mro_key": mro_key,
+                    "before": seed_hsls,
+                    "after_count": len(hsl_ids),
+                    "recovered_from_backlinks": len(hsl_ids) > 0,
+                })
+        conn.commit()
+    return {
+        "tenant_id": tenant,
+        "scanned": len(rows),
+        "skipped_valid": skipped_valid,
+        "repaired": len(repaired),
+        "details": repaired,
+    }
+
+
 @router.get("/v1/mro-objects/{mro_id}/hsls")
 def list_mro_linked_hsls(
     mro_id: str,
