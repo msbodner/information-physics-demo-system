@@ -956,13 +956,28 @@ export interface MroSeedRepairResult {
   tenant_id: string
   scanned: number
   skipped_valid: number
-  repaired: number
+  repaired: number  // legacy: count of seed_hsls field repairs
+  // Pass A: corrupted seed_hsls field repairs (display strings, etc).
   details: Array<{
     mro_id: string
     mro_key: string
     before: string | null
     after_count: number
     recovered_from_backlinks: boolean
+  }>
+  // Pass B: missing back-pointer backfill (the Next.js 16 params bug).
+  seed_repaired?: number
+  backpointers_backfilled_for_mros?: number
+  backpointers_inserted_total?: number
+  skipped_already_linked?: number
+  backfill_details?: Array<{
+    mro_id: string
+    mro_key: string
+    seed_count: number
+    already_linked: number
+    missing_count: number
+    pruned_count: number
+    inserted: number
   }>
 }
 export async function repairMroSeedHsls(): Promise<MroSeedRepairResult | null> {

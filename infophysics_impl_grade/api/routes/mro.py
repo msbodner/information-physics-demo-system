@@ -347,33 +347,38 @@ def delete_mro_object(
 def repair_mro_seed_hsls(
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
 ):
-    """Repair MROs whose seed_hsls field was corrupted with display text.
+    """Repair the MRO ↔ HSL linkage in two complementary directions.
 
-    A pre-V4.5 bug in the manual "Save MRO" button wrote a human-
-    readable string (e.g. "629 HSLs") into the seed_hsls field instead
-    of pipe-separated HSL UUIDs. The same code path also skipped the
-    linkMroToHsl back-pointer writes, so those MROs show seed=N /
-    linked=0 / asymmetric in the new Linkage view.
+    Two failure modes have historically left MROs and their HSLs out
+    of sync, and this endpoint now handles both in a single sweep:
 
-    Repair strategy, per affected MRO:
-      1. Look up every hsl_member row whose member_value is
-         [MRO.<mro_id>] (back-pointers that DID land — possibly from
-         a later auto-save path or partial success).
-      2. Set seed_hsls to those UUIDs joined by "|", OR clear it if
-         no back-pointers exist (the search left no recoverable trace).
-      3. Updated MROs are reported with a before/after sketch so the
-         operator knows what changed.
+    Pass A — corrupted seed_hsls field
+      A pre-V4.5 bug in the manual "Save MRO" button wrote a human-
+      readable string (e.g. "629 HSLs") into seed_hsls instead of
+      pipe-separated UUIDs. For each such MRO, recover the UUID list
+      from hsl_member back-pointers when present, else clear it.
 
-    A seed_hsls value is considered "broken" when at least one of its
-    pipe-separated tokens fails the UUID format check. Empty strings
-    and well-formed UUID lists are left alone.
+    Pass B — missing back-pointers
+      A Next.js 16 params-shape regression sent every linkMroToHsl
+      call to /v1/hsl-data/undefined/link-mro and 503'd them. MROs
+      saved during that window have a valid pipe-separated seed_hsls
+      list but zero hsl_member back-pointers. For each MRO whose
+      seed_hsls UUIDs are NOT all already linked, write the missing
+      [MRO.<mro_id>] entries into hsl_member (idempotent ON CONFLICT
+      DO NOTHING; the legacy hsl_element_N column is left alone since
+      member_count_in_legacy_columns drift is fine — the side table
+      is authoritative).
+
+    Idempotent: re-running is safe — pass A skips well-formed MROs,
+    pass B's INSERT is ON CONFLICT DO NOTHING. Reports counts so the
+    operator can see what changed.
     """
     import re
     UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
     def is_valid_seed_hsls(value: Optional[str]) -> bool:
         if not value:
-            return True  # empty is fine
+            return True  # empty is fine — nothing to validate
         for token in value.split("|"):
             t = token.strip()
             if not t or not UUID_RE.match(t):
@@ -382,7 +387,9 @@ def repair_mro_seed_hsls(
 
     tenant = x_tenant_id or "tenantA"
     repaired: list[dict] = []
+    backfilled: list[dict] = []
     skipped_valid = 0
+    skipped_already_linked = 0
     with db() as conn:
         set_tenant(conn, tenant)
         with conn.cursor() as cur:
@@ -392,11 +399,10 @@ def repair_mro_seed_hsls(
             )
             rows = cur.fetchall()
 
+            # ── Pass A: fix corrupted seed_hsls ─────────────────────
             for mro_id, mro_key, seed_hsls in rows:
                 if is_valid_seed_hsls(seed_hsls):
-                    skipped_valid += 1
                     continue
-                # Pull back-pointers — these are the authoritative HSL set.
                 cur.execute(
                     """
                     SELECT m.hsl_id FROM hsl_member m
@@ -423,13 +429,80 @@ def repair_mro_seed_hsls(
                     "after_count": len(hsl_ids),
                     "recovered_from_backlinks": len(hsl_ids) > 0,
                 })
+
+            # ── Pass B: backfill missing back-pointers ──────────────
+            # Re-read the table so pass A's writes are visible.
+            cur.execute(
+                "SELECT mro_id, mro_key, seed_hsls FROM mro_objects WHERE tenant_id = %s",
+                (tenant,),
+            )
+            for mro_id, mro_key, seed_hsls in cur.fetchall():
+                if not seed_hsls or not is_valid_seed_hsls(seed_hsls):
+                    skipped_valid += 1
+                    continue
+                seed_ids = [t.strip() for t in seed_hsls.split("|") if t.strip()]
+                if not seed_ids:
+                    skipped_valid += 1
+                    continue
+                mro_ref = f"[MRO.{mro_id}]"
+                # Which seed HSLs already have the back-pointer?
+                cur.execute(
+                    """
+                    SELECT hsl_id FROM hsl_member
+                     WHERE member_kind = 'mro'
+                       AND member_value = %s
+                       AND tenant_id = %s
+                       AND hsl_id = ANY(%s::uuid[])
+                    """,
+                    (mro_ref, tenant, seed_ids),
+                )
+                already = {str(r[0]) for r in cur.fetchall()}
+                missing = [hid for hid in seed_ids if hid not in already]
+                if not missing:
+                    skipped_already_linked += 1
+                    continue
+                # Insert the missing back-pointers — idempotent on
+                # collision in case a parallel write raced ahead.
+                # Filter to HSLs that still exist in this tenant so a
+                # pruned-since-creation HSL doesn't fail the FK.
+                cur.execute(
+                    "SELECT hsl_id FROM hsl_data WHERE hsl_id = ANY(%s::uuid[]) AND tenant_id = %s",
+                    (missing, tenant),
+                )
+                live = [str(r[0]) for r in cur.fetchall()]
+                inserted = 0
+                if live:
+                    cur.executemany(
+                        """
+                        INSERT INTO hsl_member (hsl_id, member_value, member_kind, tenant_id)
+                        VALUES (%s, %s, 'mro', %s)
+                        ON CONFLICT DO NOTHING
+                        """,
+                        [(hid, mro_ref, tenant) for hid in live],
+                    )
+                    inserted = cur.rowcount
+                backfilled.append({
+                    "mro_id": str(mro_id),
+                    "mro_key": mro_key,
+                    "seed_count": len(seed_ids),
+                    "already_linked": len(already),
+                    "missing_count": len(missing),
+                    "pruned_count": len(missing) - len(live),
+                    "inserted": inserted,
+                })
         conn.commit()
     return {
         "tenant_id": tenant,
         "scanned": len(rows),
+        "seed_repaired": len(repaired),
+        "backpointers_backfilled_for_mros": len(backfilled),
+        "backpointers_inserted_total": sum(b["inserted"] for b in backfilled),
+        "skipped_already_linked": skipped_already_linked,
         "skipped_valid": skipped_valid,
+        # Legacy compat — UI still reads these top-level keys.
         "repaired": len(repaired),
         "details": repaired,
+        "backfill_details": backfilled,
     }
 
 

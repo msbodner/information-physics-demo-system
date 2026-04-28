@@ -812,15 +812,22 @@ function MroDataPane() {
         toast.error("Repair failed — backend unavailable")
         return
       }
+      const seedFixed = result.repaired // pass A — corrupted seed_hsls
       const recovered = result.details.filter((d) => d.recovered_from_backlinks).length
-      const cleared = result.repaired - recovered
-      if (result.repaired === 0) {
-        toast.success(`No broken MROs found — all ${result.scanned} are valid.`)
+      const cleared = seedFixed - recovered
+      const linksBackfilled = result.backpointers_inserted_total ?? 0
+      const mrosBackfilled = result.backpointers_backfilled_for_mros ?? 0
+      if (seedFixed === 0 && linksBackfilled === 0) {
+        toast.success(`No broken MROs found — all ${result.scanned} are linkage-symmetric.`, { duration: 8000 })
       } else {
-        toast.success(
-          `Repair complete: ${result.repaired} MRO(s) fixed (${recovered} recovered from back-pointers, ${cleared} cleared) · ${result.skipped_valid} were already valid.`,
-          { duration: 8000 },
-        )
+        const parts: string[] = []
+        if (seedFixed > 0) {
+          parts.push(`${seedFixed} seed_hsls field(s) fixed (${recovered} recovered, ${cleared} cleared)`)
+        }
+        if (linksBackfilled > 0) {
+          parts.push(`${linksBackfilled} back-pointer(s) inserted across ${mrosBackfilled} MRO(s)`)
+        }
+        toast.success(`Repair complete · ${parts.join(" · ")}`, { duration: 10000 })
       }
       load()
     } catch {
