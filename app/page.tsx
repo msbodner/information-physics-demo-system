@@ -376,10 +376,20 @@ export default function HomePage() {
 
         {/* Hero */}
         <section className="max-w-6xl mx-auto px-6 py-16 text-center">
-          <div className="max-w-3xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-900 text-white text-sm font-medium mb-6">
-              <Globe className="w-4 h-4" />Information Physics Standard Model
+          {/* Wide title tile — nearly spans the page width. Pulled out
+              of the inner max-w-3xl container so it can stretch; uses a
+              gradient navy with subtle shadow + ring to read as a
+              raised banner rather than a flat pill. Type scale steps
+              from text-3xl on phones up to text-5xl/6xl at md/lg. */}
+          <div className="mx-auto mb-8 max-w-5xl rounded-2xl bg-gradient-to-r from-[#0b2a4a] via-[#0f3460] to-[#0b2a4a] px-6 sm:px-10 py-6 sm:py-8 shadow-lg ring-1 ring-white/10">
+            <div className="flex items-center justify-center gap-3 sm:gap-5 text-white">
+              <Globe className="w-7 h-7 sm:w-9 sm:h-9 lg:w-11 lg:h-11 shrink-0 opacity-90" />
+              <h1 className="font-serif font-semibold tracking-tight leading-none text-3xl sm:text-4xl md:text-5xl lg:text-6xl">
+                Information Physics Standard Model
+              </h1>
             </div>
+          </div>
+          <div className="max-w-3xl mx-auto">
             <h2 className="text-4xl font-bold text-foreground mb-2">AIO/HSL/MRO Demo System V4.4</h2>
             <p className="text-lg text-muted-foreground mb-2">by InformationPhysics.ai</p>
             <p className="text-lg text-muted-foreground mb-10">
