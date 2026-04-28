@@ -113,7 +113,7 @@ railway service status --all
 
 ## Important Patterns
 
-- **Version string**: Currently V4.4 (`package.json` is source of truth). Grep the repo before bumping — known hardcoded sites include: `app/layout.tsx`, `app/page.tsx`, `components/chat-aio-dialog.tsx`, `components/user-guide.tsx`, `components/system-management.tsx`, `components/splash-screen.tsx`, `components/dashboard.tsx`, `components/app-sidebar.tsx`, `package.json`, `electron/package.json`, `electron/preload.js`, `electron/splash.html`. Historical references (e.g. "V4.3 added X", changelog entries in technotes) should NOT be retconned.
+- **Version string**: Currently V4.5 (`package.json` is source of truth). Grep the repo before bumping — known hardcoded sites include: `app/layout.tsx`, `app/page.tsx`, `components/chat-aio-dialog.tsx`, `components/user-guide.tsx`, `components/system-management.tsx`, `components/splash-screen.tsx`, `components/dashboard.tsx`, `components/app-sidebar.tsx`, `package.json`, `electron/package.json`, `electron/preload.js`, `electron/splash.html`. Historical references (e.g. "V4.3 added X", changelog entries in technotes) should NOT be retconned.
 - **Adding a new API endpoint**: Create FastAPI route in the appropriate `api/routes/*.py` (or add a new router and include it in `api/main.py`) → create Next.js proxy in `app/api/{name}/route.ts` → add typed client function in `lib/api-client.ts`
 - **Adding a System Admin tab**: Add `TabsTrigger` + `TabsContent` in `components/system-management.tsx`, create a new pane function
 - **SQL migrations**: Add numbered file in `infophysics_impl_grade/migrations/` (e.g., `012_new_table.sql`). Migrations run automatically on backend startup. Use `IF NOT EXISTS` for idempotency.
@@ -121,11 +121,30 @@ railway service status --all
 - **LLM model selection**: Every Anthropic call site goes through `get_default_model()` / `get_parse_model()` in `infophysics_impl_grade/api/llm.py`. Resolution order: `system_settings.{default_model,parse_model}` (set via System Management → Models tab) → env var (`ANTHROPIC_DEFAULT_MODEL`, `AIO_SEARCH_PARSE_MODEL`) → fallback (`claude-sonnet-4-6`). Never reintroduce hardcoded model strings.
 - **Benchmarks**: Two saved prompts in `lib/benchmarks.ts` and `scripts/benchmark_prompt.txt`. Run via the R&D **Benchmark 1 / Benchmark 2** buttons (UI), or `BENCHMARK=1 pnpm dlx tsx scripts/measure_modes.ts` (CLI). The runners must stay in sync with each other.
 
-## Recent material changes (post-V4.4 hotfixes)
+## V4.5 — what changed since V4.4
 
-- **Migration 029** — fixed the HSL inverted index. Previously `find-by-needles-full` returned 0 rows for typical cues because `ier_refresh_hsl()` only parsed element columns (which carry AIO row refs, not bracket tokens). The actual `[Key.Value]` lives in `hsl_data.hsl_name`. The migration parses both and backfills.
-- **AIO diversity cap** — `lib/aio-math.ts` now applies a cap-by-CSV when ranking the AIO neighborhood, so a CSV that holds 80% of the corpus (AIA305 in the demo) can't push out smaller operational CSVs (acc_rfis, acc_issues, acc_submittals, acc_vendors, acc_cost_codes). Without this, multi-CSV joins on a Project ID failed in Recall and Live mode.
-- **HSL aliasing** — `lib/hsl-aliases.ts` folds equivalent field names (`Project_ID`, `Project ID`, `Projects Assigned`, `Applicable Projects`, `Active Projects`) to a canonical `Project` for cue matching. Frontend-only for V1; can be promoted to the backend (a future migration) once the alias table stabilizes.
-- **System Management → Models tab** — runtime selection of default and parse-phase models from a dropdown of `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`. Saved to `system_settings`, takes effect on the next request.
-- **R&D → Benchmark buttons** — full-screen four-mode benchmark runner with side-by-side metrics, verbatim replies, and Print / Save-as-PDF.
-- **References tab** — embedded inline document viewer. The two technical reports and the Recall trace open as full-screen views (mammoth converts the .docx to HTML in the browser); no file downloads are triggered.
+V4.5 is a retrieval-quality + operability release. The four ChatAIO modes (Recall, Live, Broad, Raw) and the architecture they sit on are unchanged. What's new is the work needed to keep retrieval honest at scale and to give operators in-app controls for the things that previously required SQL.
+
+### Retrieval correctness
+
+- **Migration 029 — HSL inverted index population.** `ier_refresh_hsl()` was only parsing the element columns (which carry AIO row refs like `acc_rfis.csv - Row 162`, not `[Key.Value]` tokens). The actual bracket token lives in `hsl_data.hsl_name` (e.g. `[Project ID.PRJ-003].hsl`). Migration 029 extends the function to parse both and backfills every existing HSL. Before: cue-to-HSL probes returned 0. After: returned the right HSL set.
+- **Cap-by-CSV diversity in the AIO ranker.** Both pipelines (frontend Recall in `lib/aio-math.ts`, backend Live in `infophysics_impl_grade/api/search_helpers.py`) used a flat top-N cap on the matched AIO list. On corpora dominated by one CSV (the demo is 80% AIA305), that flat cap filled with AIA305 records and starved the operational CSVs (acc_rfis, acc_issues, acc_submittals, acc_vendors, acc_cost_codes). Result: multi-CSV joins on a shared key failed silently with "no matching records." Both paths now bucket by `OriginalCSV` first and take a fair per-CSV share before back-filling from the highest-ranked leftovers. The frontend (`diversifyByCSV`) and backend (`diversify_by_csv`) implementations mirror each other.
+- **HSL field-name aliasing.** `lib/hsl-aliases.ts` folds equivalent field names — `Project_ID`, `Project ID`, `Projects Assigned`, `Applicable Projects`, `Active Projects` — to a single canonical `Project` for cue matching. Frontend-only for V1 so the alias table can iterate without DB migrations; promote to the backend in a future migration once stable.
+- **Pipeline error hardening.** `lib/aio-chat-pipeline.ts` and the chat dialog used to call `chatResponse.error.toLowerCase()` blindly, which crashed when the backend returned a JSON error envelope (the budget rate-limiter does this). Now coerced to a string via a shared `asErrorString()` helper at every error site.
+
+### Operability
+
+- **System Management → Models tab.** Runtime LLM model selection. Dropdowns for `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5` (any other valid SKU works too). Two slots: a default model (used by all four modes plus summarize / entity-resolution) and an optional parse-phase override for Live Search. Saved to `system_settings`, no restart needed. Resolution order: `system_settings` → env var → fallback. All ~22 hardcoded `model="claude-sonnet-4-6"` strings in `chat.py` now route through `get_default_model()` / `get_parse_model()`.
+- **Daily Token Budget pane** (under the Models tab). Live progress bar showing `used_today / limit` with green/amber/red thresholds, plus inputs for per-tenant override and global default. Eliminates the "drop into psql to fix the budget" friction. Backed by `GET/PUT /v1/settings/budget`.
+- **R&D → Benchmark 1 / Benchmark 2 buttons.** In-app full-screen benchmark runner with side-by-side metrics, verbatim replies for all four modes, and Print / Save-as-PDF. Prompts ship in `lib/benchmarks.ts` and `scripts/benchmark_prompt.txt`. CLI parity: `BENCHMARK=1 pnpm dlx tsx scripts/measure_modes.ts`.
+- **References tab — embedded inline viewer.** The two Technical Reports and the Recall trace now open as full-screen pages instead of triggering .docx downloads. `mammoth` converts the .docx to HTML in the browser on click; the original .docx files still live in `public/docs/` for tooling.
+- **Cache bypass on interactive Live Search.** `aioSearchChat` and `aioSearchChatStream` accept an opt-in `bypassCache: true` flag that appends `?bypass_cache=true` to the proxy URL. The chat dialog and benchmark runner pass `true` so users iterating through the UI never see a stale cached reply mask a deployed retrieval fix.
+
+### UI polish
+
+- **Edge-to-edge "Information Physics Standard Model" banner** on the home page. Spans the full viewport with a navy gradient and responsive type scale (text-3xl → text-7xl).
+- **ChatAIO header recentered.** Title now centered with `font-serif` semibold at text-2xl/3xl. Five action buttons (Chat, PDF, Save MRO, View MROs, Guide) form a centered group below the title; Close pinned to the upper-right corner.
+
+### Distribution
+
+- **Electron code signing & notarization wired.** `electron/package.json` has `hardenedRuntime`, entitlements, and `notarize.teamId` (`P4CWP6XFVD`) configured. `electron/build/entitlements.mac.plist` carries the minimum entitlements needed for V8 JIT plus the embedded Python/Postgres binaries. `electron/.env.example` documents the `APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` triple. The build degrades gracefully when `.env` is absent (unsigned DMGs as before). With `.env` present and a `Developer ID Application` cert in Keychain, `npm run dist` produces signed + notarized + stapled DMGs that launch with no Gatekeeper warning.

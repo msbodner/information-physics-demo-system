@@ -356,7 +356,7 @@ export default function HomePage() {
                 <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
                   <Database className="w-5 h-5 text-primary-foreground" />
                 </div>
-                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.4</h1>
+                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.5</h1>
               </div>
               <div className="flex items-center gap-3">
                 <BackendStatusBadge />
@@ -374,23 +374,22 @@ export default function HomePage() {
           </div>
         </header>
 
-        {/* Hero */}
-        <section className="max-w-6xl mx-auto px-6 py-16 text-center">
-          {/* Wide title tile — nearly spans the page width. Pulled out
-              of the inner max-w-3xl container so it can stretch; uses a
-              gradient navy with subtle shadow + ring to read as a
-              raised banner rather than a flat pill. Type scale steps
-              from text-3xl on phones up to text-5xl/6xl at md/lg. */}
-          <div className="mx-auto mb-8 max-w-5xl rounded-2xl bg-gradient-to-r from-[#0b2a4a] via-[#0f3460] to-[#0b2a4a] px-6 sm:px-10 py-6 sm:py-8 shadow-lg ring-1 ring-white/10">
-            <div className="flex items-center justify-center gap-3 sm:gap-5 text-white">
-              <Globe className="w-7 h-7 sm:w-9 sm:h-9 lg:w-11 lg:h-11 shrink-0 opacity-90" />
-              <h1 className="font-serif font-semibold tracking-tight leading-none text-3xl sm:text-4xl md:text-5xl lg:text-6xl">
-                Information Physics Standard Model
-              </h1>
-            </div>
+        {/* Edge-to-edge title banner — sits between header and hero so
+            it spans the full viewport, not just the section's max-width.
+            No rounded corners since it now meets the page edges. */}
+        <div className="w-full bg-gradient-to-r from-[#0b2a4a] via-[#0f3460] to-[#0b2a4a] shadow-lg ring-1 ring-white/10 py-8 sm:py-10">
+          <div className="flex items-center justify-center gap-3 sm:gap-5 text-white px-6">
+            <Globe className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 shrink-0 opacity-90" />
+            <h1 className="font-serif font-semibold tracking-tight leading-none text-3xl sm:text-5xl md:text-6xl lg:text-7xl">
+              Information Physics Standard Model
+            </h1>
           </div>
+        </div>
+
+        {/* Hero */}
+        <section className="max-w-6xl mx-auto px-6 py-12 text-center">
           <div className="max-w-3xl mx-auto">
-            <h2 className="text-4xl font-bold text-foreground mb-2">AIO/HSL/MRO Demo System V4.4</h2>
+            <h2 className="text-4xl font-bold text-foreground mb-2">AIO/HSL/MRO Demo System V4.5</h2>
             <p className="text-lg text-muted-foreground mb-2">by InformationPhysics.ai</p>
             <p className="text-lg text-muted-foreground mb-10">
               Transform your CSV data into Associated Information Objects (AIOs) — the fundamental unit of information in the new Information Physics Standard Model.
@@ -559,7 +558,7 @@ export default function HomePage() {
             <button onClick={() => { setCurrentView("home"); handleClear() }} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
               <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center"><Database className="w-5 h-5 text-primary-foreground" /></div>
               <div className="text-left">
-                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.4</h1>
+                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V4.5</h1>
                 <p className="text-xs text-muted-foreground">by InformationPhysics.ai</p>
               </div>
             </button>

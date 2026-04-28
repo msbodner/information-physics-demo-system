@@ -383,7 +383,24 @@ electron/preload.js (Renderer Bridge)
 
 - macOS: Xcode command-line tools
 - Bundled binaries in `electron/resources/`: Python 3.12, PostgreSQL 16
-- Build via `scripts/build-resources.sh` then `npm run dist`
+- Build via `electron/scripts/build-resources.sh` then `npm run dist`
+
+### macOS Code Signing &amp; Notarization
+
+Configured but optional. The build degrades gracefully &mdash; without a Developer ID cert it produces unsigned DMGs (right-click &rarr; Open required on first launch). To produce signed + notarized DMGs:
+
+1. **Apple Developer Program membership** + a `Developer ID Application` certificate installed in Keychain (verify with `security find-identity -v -p codesigning`).
+2. **App-specific password** generated at appleid.apple.com &rarr; Sign-In and Security &rarr; App-Specific Passwords.
+3. **`electron/.env`** (gitignored) populated with:
+   ```
+   APPLE_ID=you@example.com
+   APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx
+   APPLE_TEAM_ID=P4CWP6XFVD
+   ```
+4. **`electron/build/entitlements.mac.plist`** carries the Hardened Runtime entitlements needed for V8 JIT plus the relaxations to launch the bundled Python / Postgres binaries (`disable-library-validation`, `disable-executable-page-protection`). Don&rsquo;t tighten without testing the embedded backend still launches.
+5. The `dist` script auto-sources `.env`, signs with the Keychain identity, and submits for notarization (~3&ndash;15 minutes). The result is a stapled DMG that launches with no Gatekeeper warning.
+
+**Common failure mode**: `&ldquo;The timestamp service is not available&rdquo;` &mdash; means outbound to RFC 3161 timestamp servers (`timestamp.apple.com`, `timestamp.entrust.net`, `rfc3161timestamp.globalsign.com`) is blocked by your network. Try a phone hotspot to bypass the firewall, or wait for IP-level rate limiting from Apple to clear.
 
 ### IPC Channels
 
@@ -417,12 +434,21 @@ electron/preload.js (Renderer Bridge)
 
 ### Version String
 
-Update the version number in these locations:
+Currently **V4.5**. Update the version number in these locations when bumping:
 - `app/layout.tsx`
-- `app/page.tsx`
-- `components/chat-aio-dialog.tsx`
+- `app/page.tsx` (header + footer + hero)
+- `components/chat-aio-dialog.tsx` (PDF subtitle/footer)
 - `components/user-guide.tsx`
-- `components/system-management.tsx`
+- `components/views/UserGuide.tsx`
+- `components/views/WorkflowDescription.tsx`
+- `components/system-management.tsx` (architecture footer)
+- `components/splash-screen.tsx` (badge + headline + tagline)
+- `components/dashboard.tsx`
+- `components/app-sidebar.tsx`
+- `package.json` and `electron/package.json`
+- `electron/splash.html`
+
+Historical references (e.g. &ldquo;V4.3 added X&rdquo;, &ldquo;refactored in V4.4&rdquo; in technotes) should NOT be retconned &mdash; only bump the live version markers.
 
 ### Environment Variables
 
@@ -430,7 +456,19 @@ Update the version number in these locations:
 |----------|---------|-------------|
 | `API_BASE` | `http://localhost:8080` | Backend URL |
 | `DATABASE_URL` | &mdash; | PostgreSQL connection string |
-| `ANTHROPIC_API_KEY` | &mdash; | Claude AI API key (or set via admin UI) |
+| `ANTHROPIC_API_KEY` | &mdash; | Claude AI API key (or set via System Management &rarr; API Key) |
+| `ANTHROPIC_DEFAULT_MODEL` | `claude-sonnet-4-6` | Default LLM (or set via System Management &rarr; Models). Resolution: `system_settings` &rarr; env &rarr; fallback. |
+| `AIO_SEARCH_PARSE_MODEL` | falls back to default | Optional override for the Live Search parse phase |
+| `BUDGET_*` | (see Daily Token Budget below) | Daily-budget knobs &mdash; prefer the System Management UI |
+
+### Daily Token Budget
+
+Per-tenant daily LLM-token cap, enforced in `infophysics_impl_grade/api/budget.py`. When spend hits 100% of the limit, all four ChatAIO modes return an `HTTPException(429)` with a `daily_token_budget_exhausted` envelope until the next UTC midnight. Two `system_settings` keys:
+
+- `daily_token_budget:<tenant_id>` &mdash; per-tenant override (preferred)
+- `daily_token_budget_per_tenant` &mdash; global default (empty disables the guardrail)
+
+Manage via **System Management &rarr; Models &rarr; Daily Token Budget** (live progress bar, integer inputs, no SQL needed). Backed by `GET/PUT /v1/settings/budget`. Counter resets at 00:00 UTC; usage is tracked in the `tenant_token_usage` table.
 
 ---
 

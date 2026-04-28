@@ -1,7 +1,7 @@
 {
   "name": "information-physics-demo-system",
-  "version": "4.4.0",
-  "description": "Information Physics Demo System — InformationPhysics.ai Desktop Application",
+  "version": "4.5.0",
+  "description": "Information Physics Demo System \u2014 InformationPhysics.ai Desktop Application",
   "author": "Michael Simon Bodner, Ph.D. <bodner.michael@gmail.com>",
   "main": "main.js",
   "scripts": {
@@ -23,27 +23,41 @@
       {
         "from": "resources/python",
         "to": "python",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "resources/backend",
         "to": "backend",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "resources/frontend",
         "to": "frontend",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "resources/postgres",
         "to": "postgres",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "category": "public.app-category.developer-tools",
       "icon": "icons/icon.icns",
