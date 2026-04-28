@@ -391,8 +391,8 @@ export default function HomePage() {
           <div className="max-w-3xl mx-auto">
             <h2 className="text-4xl font-bold text-foreground mb-2">AIO/HSL/MRO Demo System V4.5</h2>
             <p className="text-lg text-muted-foreground mb-2">by InformationPhysics.ai</p>
-            <p className="text-lg text-muted-foreground mb-10">
-              Transform your CSV data into Associated Information Objects (AIOs) — the fundamental unit of information in the new Information Physics Standard Model.
+            <p className="text-lg text-muted-foreground mb-10 text-center">
+              A fully operational prototype for the new Quantum Cognition Architecture — the next generation of Artificial Intelligence.
             </p>
           </div>
 

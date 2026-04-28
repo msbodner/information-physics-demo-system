@@ -39,9 +39,9 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
           </div>
           <h2 className="text-5xl font-bold text-foreground mb-3">AIO/HSL/MRO Demo System V4.5</h2>
           <p className="text-lg text-muted-foreground mb-2">by InformationPhysics.ai</p>
-          <p className="text-lg text-muted-foreground mb-10 leading-relaxed">
-            Transform your CSV data into Associated Information Objects (AIOs) — the fundamental
-            unit of information in the new Information Physics Standard Model.
+          <p className="text-lg text-muted-foreground mb-10 leading-relaxed text-center">
+            A fully operational prototype for the new Quantum Cognition Architecture — the next
+            generation of Artificial Intelligence.
           </p>
         </div>
 
