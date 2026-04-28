@@ -239,7 +239,21 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   const [mroList, setMroList] = useState<MroObject[]>([])
   const [mroLoading, setMroLoading] = useState(false)
   const [viewMro, setViewMro] = useState<MroObject | null>(null)
-  const [lastSearchMeta, setLastSearchMeta] = useState<{ matched_hsls: number; matched_aios: number; search_terms: string; seed_hsls: string } | null>(null)
+  // `lastSearchMeta` carries the data that handleSaveMro needs to
+  // persist a manual MRO save. `matched_hsl_ids` is the canonical list
+  // of HSL UUIDs that contributed to the answer — it goes verbatim
+  // into the MRO's `seed_hsls` (pipe-joined) AND drives linkMroToHsl()
+  // calls so the back-pointers actually land. Keeping a separate
+  // `seed_hsls_display` string for the human-readable bracket-notation
+  // context bundle (e.g. "629 HSLs") so we never confuse persistence
+  // payload with display payload again.
+  const [lastSearchMeta, setLastSearchMeta] = useState<{
+    matched_hsls: number
+    matched_aios: number
+    search_terms: string
+    matched_hsl_ids: string[]
+    seed_hsls_display: string
+  } | null>(null)
   const [recallAios, setRecallAios] = useState<ParsedAio[]>([])
   // V4.4 P3 — at dialog open we only fetch the deduped (Key, Value)
   // catalog parsed from HSL names (~tens of KB max) rather than the
@@ -466,7 +480,8 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       matched_hsls: meta.matched_hsls,
       matched_aios: meta.matched_aios,
       search_terms: typeof meta.search_terms === "string" ? meta.search_terms : JSON.stringify(meta.search_terms || {}),
-      seed_hsls: `${meta.matched_hsls} HSLs`,
+      matched_hsl_ids: meta.matched_hsl_ids ?? [],
+      seed_hsls_display: `${meta.matched_hsls} HSLs`,
     })
     setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "AIOSearch" })
 
@@ -588,6 +603,17 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         priors: result.cost.priors,
         mroSaved: result.mro_saved,
       })
+      // Mirror Live Search behavior: stash the matched HSL UUIDs and
+      // counts so the manual "Save MRO" button has real data to write
+      // (and link back-pointers) when the user clicks it after a
+      // Recall query.
+      setLastSearchMeta({
+        matched_hsls: matchedHslIdSet.size,
+        matched_aios: result.cost.neighborhood,
+        search_terms: JSON.stringify(result.cue_values ?? []),
+        matched_hsl_ids: result.matched_hsl_ids ?? [],
+        seed_hsls_display: `${matchedHslIdSet.size} HSLs (Recall)`,
+      })
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "Substrate" })
       createChatStat({
         search_mode: "Substrate", query_text: text,
@@ -671,7 +697,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       `[Query.${queryText}]`,
       `[Result.${resultText.replace(/\n/g, " ").slice(0, 2000)}]`,
       `[SearchTerms.${lastSearchMeta?.search_terms || "none"}]`,
-      `[SeedHSLs.${lastSearchMeta?.seed_hsls || "none"}]`,
+      `[SeedHSLs.${lastSearchMeta?.seed_hsls_display || "none"}]`,
       `[MatchedAIOs.${lastSearchMeta?.matched_aios || 0}]`,
       `[Confidence.derived]`,
       `[Timestamp.${new Date().toISOString()}]`,
@@ -688,20 +714,35 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       const raw = lastSearchMeta?.search_terms || "{}"
       searchTermsParsed = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>)
     } catch { /* keep empty */ }
+    // Persist UUIDs (pipe-joined) — not the human-readable count
+    // string. The Linkage view in System Management compares these
+    // against hsl_member back-pointers; if seed_hsls is a display
+    // string, every row reports asymmetry forever.
+    const hslIds = lastSearchMeta?.matched_hsl_ids ?? []
     try {
       const result = await createMroObject({
         mro_key: mroKey,
         query_text: queryText,
         intent: queryText.slice(0, 200),
-        seed_hsls: lastSearchMeta?.seed_hsls || "",
+        seed_hsls: hslIds.join("|"),
         matched_aios_count: lastSearchMeta?.matched_aios || 0,
         search_terms: searchTermsParsed,
         result_text: resultText,
         context_bundle: elements.join("\n"),
         confidence: "derived",
       })
-      if (result) toast.success("MRO saved successfully")
-      else toast.error("Failed to save MRO")
+      if (!result) {
+        toast.error("Failed to save MRO")
+        return
+      }
+      // Write the back-pointer into every contributing HSL so the
+      // Linkage view stays symmetric. Best-effort; failures log but
+      // don't fail the user-facing save.
+      if (result.mro_id && hslIds.length > 0) {
+        Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, result.mro_id)))
+          .catch((e) => { console.error("linkMroToHsl failed (manual Save MRO)", e) })
+      }
+      toast.success("MRO saved successfully")
     } catch (err) {
       console.error("MRO save error:", err)
       toast.error("Failed to save MRO")
