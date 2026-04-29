@@ -1519,12 +1519,42 @@ async def pdf_extract(file: UploadFile = File(...)):
     pdf_bytes = await file.read()
     if len(pdf_bytes) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
-    if len(pdf_bytes) > 20 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="PDF too large (max 20MB)")
+    if len(pdf_bytes) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="PDF too large (max 100MB)")
 
-    pdf_b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+    # Claude's PDF document block accepts at most 100 pages per request.
+    # For larger PDFs we split into ≤100-page chunks, extract each, and
+    # merge the resulting CSVs (first chunk's headers become canonical;
+    # later chunks contribute data rows only).
+    MAX_PAGES_PER_CALL = 100
+    try:
+        from pypdf import PdfReader, PdfWriter
+        reader_pdf = PdfReader(io.BytesIO(pdf_bytes))
+        total_pages = len(reader_pdf.pages)
+    except Exception as e:
+        logger.error("Failed to read PDF: %s", e)
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {str(e)}")
 
-    system_prompt = (
+    if total_pages == 0:
+        raise HTTPException(status_code=400, detail="PDF has no pages")
+
+    def _split_pdf(start: int, end: int) -> bytes:
+        """Return bytes for pages [start, end) (0-indexed)."""
+        writer = PdfWriter()
+        for i in range(start, end):
+            writer.add_page(reader_pdf.pages[i])
+        buf = io.BytesIO()
+        writer.write(buf)
+        return buf.getvalue()
+
+    chunk_ranges: list[tuple[int, int]] = []
+    if total_pages <= MAX_PAGES_PER_CALL:
+        chunk_ranges.append((0, total_pages))
+    else:
+        for s in range(0, total_pages, MAX_PAGES_PER_CALL):
+            chunk_ranges.append((s, min(s + MAX_PAGES_PER_CALL, total_pages)))
+
+    base_system_prompt = (
         "You are a document data extractor. Analyze the provided PDF document(s) and extract ALL structured data into CSV format.\n\n"
         "Rules:\n"
         "- Create a single CSV with consistent column headers\n"
@@ -1538,50 +1568,113 @@ async def pdf_extract(file: UploadFile = File(...)):
 
     try:
         import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model=get_default_model(),
-            max_tokens=8192,
-            system=system_prompt,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "document",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "application/pdf",
-                            "data": pdf_b64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": "Extract all structured data from this PDF into CSV format. Return only the CSV with headers.",
-                    },
-                ],
-            }],
-        )
     except Exception as e:
-        logger.error("PDF extraction failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"Claude API error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"anthropic SDK missing: {str(e)}")
+    client = anthropic.Anthropic(api_key=api_key)
 
-    csv_text = response.content[0].text.strip()
-    if csv_text.startswith("```"):
-        lines = csv_text.split("\n")
-        lines = [l for l in lines if not l.startswith("```")]
-        csv_text = "\n".join(lines).strip()
+    canonical_headers: list[str] = []
+    all_data_rows: list[list[str]] = []
 
-    reader = csv_mod.reader(io.StringIO(csv_text))
-    all_rows = list(reader)
-    headers = all_rows[0] if all_rows else []
-    rows = all_rows[1:] if len(all_rows) > 1 else []
+    for idx, (start, end) in enumerate(chunk_ranges):
+        chunk_bytes = _split_pdf(start, end) if len(chunk_ranges) > 1 else pdf_bytes
+        chunk_b64 = base64.standard_b64encode(chunk_bytes).decode("utf-8")
+
+        if canonical_headers:
+            sys_prompt = base_system_prompt + (
+                "\nIMPORTANT: This is a continuation chunk. You MUST use these exact column "
+                "headers as the first row, in this exact order:\n"
+                f"{','.join(canonical_headers)}\n"
+                "Map every record to these columns. Leave a field empty if the data is not "
+                "present in this chunk.\n"
+            )
+            user_text = (
+                f"Extract structured data from this PDF chunk (pages {start+1}-{end} "
+                f"of {total_pages}). Return only the CSV with the headers I specified."
+            )
+        else:
+            sys_prompt = base_system_prompt
+            user_text = (
+                f"Extract all structured data from this PDF into CSV format "
+                f"(pages {start+1}-{end} of {total_pages}). Return only the CSV with headers."
+                if len(chunk_ranges) > 1 else
+                "Extract all structured data from this PDF into CSV format. "
+                "Return only the CSV with headers."
+            )
+
+        try:
+            response = client.messages.create(
+                model=get_default_model(),
+                max_tokens=8192,
+                system=sys_prompt,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "document",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "application/pdf",
+                                "data": chunk_b64,
+                            },
+                        },
+                        {"type": "text", "text": user_text},
+                    ],
+                }],
+            )
+        except Exception as e:
+            logger.error("PDF extraction failed on chunk %d/%d: %s", idx + 1, len(chunk_ranges), e)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Claude API error on chunk {idx+1}/{len(chunk_ranges)}: {str(e)}",
+            )
+
+        chunk_csv = response.content[0].text.strip()
+        if chunk_csv.startswith("```"):
+            lines = chunk_csv.split("\n")
+            lines = [l for l in lines if not l.startswith("```")]
+            chunk_csv = "\n".join(lines).strip()
+
+        chunk_rows = list(csv_mod.reader(io.StringIO(chunk_csv)))
+        if not chunk_rows:
+            continue
+        chunk_headers = chunk_rows[0]
+        chunk_data = chunk_rows[1:]
+
+        if not canonical_headers:
+            canonical_headers = chunk_headers
+            all_data_rows.extend(chunk_data)
+        else:
+            # Map this chunk's rows into the canonical header order.
+            # Best-effort: same headers in same order is the happy path
+            # (because we instructed Claude to reuse them); if a chunk
+            # drifts, align by header name and pad missing cols with "".
+            if chunk_headers == canonical_headers:
+                all_data_rows.extend(chunk_data)
+            else:
+                idx_map = {h: i for i, h in enumerate(chunk_headers)}
+                for r in chunk_data:
+                    aligned = [
+                        r[idx_map[h]] if h in idx_map and idx_map[h] < len(r) else ""
+                        for h in canonical_headers
+                    ]
+                    all_data_rows.append(aligned)
+
+    # Re-serialize merged CSV.
+    out_buf = io.StringIO()
+    writer = csv_mod.writer(out_buf)
+    if canonical_headers:
+        writer.writerow(canonical_headers)
+    writer.writerows(all_data_rows)
+    csv_text = out_buf.getvalue().strip()
 
     return {
         "csv_text": csv_text,
-        "headers": headers,
-        "rows": rows,
-        "document_count": len(rows),
+        "headers": canonical_headers,
+        "rows": all_data_rows,
+        "document_count": len(all_data_rows),
         "filename": file.filename,
+        "page_count": total_pages,
+        "chunk_count": len(chunk_ranges),
     }
 
 

@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends libpq-dev && rm
 
 # Install Python dependencies
 COPY pyproject.toml .
-RUN pip install --no-cache-dir fastapi "uvicorn[standard]" pydantic "psycopg[binary,pool]" python-dotenv "anthropic>=0.25" "bcrypt>=4.0" "python-multipart>=0.0.6"
+RUN pip install --no-cache-dir fastapi "uvicorn[standard]" pydantic "psycopg[binary,pool]" python-dotenv "anthropic>=0.25" "bcrypt>=4.0" "python-multipart>=0.0.6" "pypdf>=4.0"
 
 # Copy application code
 COPY api/ ./api/

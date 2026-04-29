@@ -50,7 +50,8 @@ if [ -n "$PYTHON_URL" ]; then
   echo "  Installing Python packages..."
   "$RESOURCES/python/bin/python3.12" -m pip install --no-cache-dir \
     fastapi "uvicorn[standard]" pydantic "psycopg[binary,pool]" \
-    python-dotenv "anthropic>=0.25" "bcrypt>=4.0" "python-multipart>=0.0.6"
+    python-dotenv "anthropic>=0.25" "bcrypt>=4.0" "python-multipart>=0.0.6" \
+    "pypdf>=4.0"
   echo "  ✅ Python 3.12 ready"
 fi
 
