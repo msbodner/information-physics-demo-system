@@ -10,6 +10,7 @@
     "dist:mac": "bash -c 'set -a; [ -f .env ] && source .env; set +a; electron-builder --mac'",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
+    "dist:cloud": "bash scripts/build-cloud-dmg.sh",
     "prepare-resources": "bash scripts/build-resources.sh"
   },
   "build": {
