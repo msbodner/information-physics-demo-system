@@ -4182,6 +4182,13 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         desc: "Single-query Recall Search trace against the Railway production deployment with the MRO short-circuit bypassed. Documents every MRO probe hit, every cue extracted, every HSL probed, and every AIO sent to the LLM, plus the verbatim final reply.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
+                      {
+                        embed: "/docs/Cue_Extraction_Technote_V45.docx",
+                        icon: <BookOpen className="w-6 h-6 text-indigo-600" />,
+                        title: "Technical Notes — Cue Extraction (V4.5)",
+                        desc: "Confidential / Trade-Secret reference: deterministic query → element-cue translation, the four-pass extraction algorithm, canonical-field aliasing, HSL inverted-index probe, exact + trigram-fuzzy paths, substrate cap and Jaccard dedup. Documents the four V4.5 retrieval-correctness fixes (mig 029 / diversity / aliasing / mig 031) end-to-end. Subject to NDA on file.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
                     ].map(({ view, download, embed, filename, icon, title, desc, color }) => (
                       <button
                         key={view ?? download ?? embed}
