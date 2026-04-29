@@ -1147,12 +1147,18 @@ export interface PdfExtractResult {
   filename: string
 }
 
-export async function extractPdfToCsv(file: File): Promise<PdfExtractResult | null> {
+export async function extractPdfToCsv(
+  file: File,
+): Promise<PdfExtractResult | { error: string } | null> {
   try {
     const formData = new FormData()
     formData.append("file", file)
     const res = await fetch("/api/op/pdf-extract", { method: "POST", body: formData })
-    if (!res.ok) return null
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      const detail: string = body?.detail ?? body?.error ?? `HTTP ${res.status}`
+      return { error: detail }
+    }
     return res.json()
   } catch {
     return null

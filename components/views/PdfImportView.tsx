@@ -24,10 +24,24 @@ export function PdfImportView({ onBack, onSysAdmin, onImportCsv }: { onBack: () 
     setResult(null)
     const data = await extractPdfToCsv(file)
     setIsProcessing(false)
-    if (data && data.headers.length > 0) {
+    if (!data) {
+      setError("Backend unreachable. Check that the API service is running.")
+      return
+    }
+    if ("error" in data) {
+      const detail = data.error
+      const lower = detail.toLowerCase()
+      if (lower.includes("api_key") || lower.includes("not configured")) {
+        setError("Anthropic API key not configured. Open System Admin → API Key and paste your key (starts with sk-ant-…).")
+      } else {
+        setError(`PDF extraction failed: ${detail}`)
+      }
+      return
+    }
+    if (data.headers.length > 0) {
       setResult(data)
     } else {
-      setError("Failed to extract data from PDF. Make sure the Anthropic API key is configured in System Admin.")
+      setError("PDF extraction returned no rows. The PDF may be image-only or empty — try a text-based PDF.")
     }
   }, [])
 
