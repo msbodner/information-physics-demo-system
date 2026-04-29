@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useMemo, useEffect } from "react"
-import { ArrowLeft, Search, X, Download, Database, Layers, FileText, Atom, Settings, FileSpreadsheet, Eye, Upload, MessageSquare, Gauge } from "lucide-react"
+import { ArrowLeft, Search, X, Download, Database, Layers, FileText, Atom, Settings, FileSpreadsheet, Eye, Upload, MessageSquare, Gauge, BookOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -11,7 +11,9 @@ import { parseAioLine, parseCSV, csvToAio, downloadBlob, type ConvertedFile, typ
 import { summarizeAIOs, resolveEntities, listHslData, createIO, createHslData, listAioData, listInformationElements, createInformationElement, type IORecord, type EntityItem, type HslDataRecord, type AioDataRecord, type InformationElement } from "@/lib/api-client"
 import { ChatAioDialog } from "@/components/chat-aio-dialog"
 import { BenchmarkRunner } from "@/components/benchmark-runner"
+import { BenchmarkGuide } from "@/components/benchmark-guide"
 import { BENCHMARKS, type Benchmark } from "@/lib/benchmarks"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: { onBack: () => void; backendIsOnline: boolean; onSysAdmin: () => void }) {
   const [aioRecords, setAioRecords] = useState<AioDataRecord[]>([])
@@ -26,6 +28,7 @@ export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: 
   const [showFileViewer, setShowFileViewer] = useState(false)
   const [showDetailsAio, setShowDetailsAio] = useState<ParsedAio | null>(null)
   const [activeBenchmark, setActiveBenchmark] = useState<Benchmark | null>(null)
+  const [showBenchmarkGuide, setShowBenchmarkGuide] = useState(false)
 
   // Load AIOs and Information Elements
   useEffect(() => {
@@ -219,19 +222,39 @@ export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: 
             <h1 className="text-lg font-bold text-foreground">R &amp; D — Compound HSL Builder</h1>
           </div>
           <div className="flex items-center gap-2">
-            {BENCHMARKS.map((bm, i) => (
-              <Button
-                key={bm.id}
-                variant="outline"
-                size="sm"
-                onClick={() => setActiveBenchmark(bm)}
-                disabled={!backendIsOnline}
-                className="gap-2"
-                title={bm.description}
-              >
-                <Gauge className="w-4 h-4" />Benchmark {i + 1}
-              </Button>
-            ))}
+            {/* Benchmark picker — single dropdown driving the
+                BenchmarkRunner. Replaces the per-benchmark buttons that
+                were here before; with the catalog at 10 entries a row
+                of buttons no longer fits. */}
+            <Select
+              value=""
+              onValueChange={(id) => {
+                const bm = BENCHMARKS.find((b) => b.id === id)
+                if (bm) setActiveBenchmark(bm)
+              }}
+              disabled={!backendIsOnline}
+            >
+              <SelectTrigger className="w-56 h-9 gap-2" aria-label="Select benchmark to run">
+                <Gauge className="w-4 h-4 shrink-0" />
+                <SelectValue placeholder="Benchmark…" />
+              </SelectTrigger>
+              <SelectContent>
+                {BENCHMARKS.map((bm) => (
+                  <SelectItem key={bm.id} value={bm.id} title={bm.description}>
+                    {bm.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowBenchmarkGuide(true)}
+              className="gap-2"
+              title="Reference card: which benchmark to run, in which mode, and what to look for"
+            >
+              <BookOpen className="w-4 h-4" />Benchmark Guide
+            </Button>
             <Button variant="outline" size="sm" onClick={onSysAdmin} className="gap-2"><Settings className="w-4 h-4" />System Admin</Button>
           </div>
         </div>
@@ -239,6 +262,9 @@ export function ResearchAndDevelopment({ onBack, backendIsOnline, onSysAdmin }: 
 
       {activeBenchmark && (
         <BenchmarkRunner benchmark={activeBenchmark} onClose={() => setActiveBenchmark(null)} />
+      )}
+      {showBenchmarkGuide && (
+        <BenchmarkGuide onClose={() => setShowBenchmarkGuide(false)} />
       )}
 
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
