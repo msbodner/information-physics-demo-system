@@ -205,6 +205,81 @@ export function computeHslBoost(
   return boost
 }
 
+// ── 2c. Element-set Jaccard dedup ────────────────────────────────────
+
+/**
+ * Build a set of `[Key.Value]` raw forms from a parsed AIO. We
+ * deliberately exclude provenance-only elements (`OriginalCSV`,
+ * `FileDate`, `FileTime`) — two AIOs that are otherwise identical
+ * but ingested from different files should still collapse into one
+ * substrate slot, not be treated as legitimately different records.
+ */
+const PROVENANCE_KEYS = new Set(["originalcsv", "filedate", "filetime"])
+
+function aioElementSet(a: ParsedAio): Set<string> {
+  const out = new Set<string>()
+  for (const el of a.elements) {
+    if (!el.key) continue
+    const k = el.key.toLowerCase()
+    if (PROVENANCE_KEYS.has(k)) continue
+    out.add(`${k}.${(el.value ?? "").toLowerCase()}`)
+  }
+  return out
+}
+
+/**
+ * Jaccard similarity between two AIO element sets. |A ∩ B| / |A ∪ B|.
+ * Pure. O(|A| + |B|).
+ */
+function jaccardOf(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 && b.size === 0) return 1
+  let inter = 0
+  // Iterate the smaller set for cache locality.
+  const [small, big] = a.size <= b.size ? [a, b] : [b, a]
+  for (const v of small) if (big.has(v)) inter++
+  const union = a.size + b.size - inter
+  return union === 0 ? 0 : inter / union
+}
+
+/**
+ * Drop near-duplicate AIOs from the substrate. Earlier-ranked AIOs
+ * win — for each candidate, if its element-set Jaccard similarity
+ * against ANY already-kept AIO meets or exceeds `threshold`, the
+ * candidate is dropped.
+ *
+ * Provenance keys (OriginalCSV, FileDate, FileTime) are excluded
+ * from the comparison so cross-CSV duplicates of the same entity
+ * collapse correctly.
+ *
+ * Default threshold (0.85) is conservative: AIOs that legitimately
+ * differ on a few fields (a status change, a different date, a
+ * single replaced value) stay distinct. Tune down for more
+ * aggressive collapsing, up for stricter "byte-near only" behavior.
+ *
+ * O(N²) on the input size — fine for the 40-AIO substrate cap, would
+ * need indexing if used on larger sets.
+ */
+export function dedupByJaccard(
+  aios: ParsedAio[],
+  threshold: number = 0.85,
+): ParsedAio[] {
+  if (aios.length <= 1 || threshold >= 1) return aios.slice()
+  const kept: ParsedAio[] = []
+  const keptSets: Set<string>[] = []
+  for (const candidate of aios) {
+    const candSet = aioElementSet(candidate)
+    let isDup = false
+    for (const ks of keptSets) {
+      if (jaccardOf(candSet, ks) >= threshold) { isDup = true; break }
+    }
+    if (!isDup) {
+      kept.push(candidate)
+      keptSets.push(candSet)
+    }
+  }
+  return kept
+}
+
 // ── 1. Cue extraction ─────────────────────────────────────────────────
 
 /**
@@ -638,6 +713,16 @@ export function assembleBundle(
     /** Original natural-language query — threaded through to rankMROs so
      *  the text-similarity feature lights up on paraphrases. */
     queryText?: string
+    /** Element-set Jaccard dedup at substrate-build time. Default ON.
+     *  Set to false to disable for diagnostics or when you want to
+     *  see every retrieved AIO regardless of redundancy. */
+    jaccardDedup?: boolean
+    /** Similarity threshold above which a later AIO is considered a
+     *  near-duplicate of an earlier one. 0.85 = conservative
+     *  (legitimate field differences keep the AIO); 0.95 = very
+     *  aggressive (only byte-near records collapse); 0.50 = loose
+     *  (fragments of the same entity collapse, may lose nuance). */
+    jaccardThreshold?: number
   } = {},
 ): ContextBundle {
   const maxPriors = options.maxPriors ?? 3
@@ -684,7 +769,21 @@ export function assembleBundle(
   // multi-CSV join queries. diversifyByCSV takes a fair share from each
   // unique OriginalCSV first, then backfills with the highest-scored
   // leftovers to reach the cap.
-  const seedAios = diversifyByCSV(ranked, getOriginalCSV, maxAios)
+  const capped = diversifyByCSV(ranked, getOriginalCSV, maxAios)
+
+  // Step 4b — element-set Jaccard dedup. When the same entity is
+  // represented across multiple CSVs (e.g. a project appearing in both
+  // acc_projects.csv and AIA305 Sample.csv), both representations
+  // make it through HSL gating + needle scan + diversity cap. Without
+  // this step, the LLM sees ~85% identical bracket-token sets twice
+  // and burns tokens reconciling the redundancy. dedupByJaccard
+  // collapses near-duplicates: input rank wins (first seen kept),
+  // later AIOs with similarity ≥ threshold against any kept AIO are
+  // dropped. Default 0.85 is conservative — different statuses or
+  // dates legitimately differ on a few elements and stay.
+  const seedAios = options.jaccardDedup === false
+    ? capped
+    : dedupByJaccard(capped, options.jaccardThreshold ?? 0.85)
 
   return {
     mro_priors: priors,

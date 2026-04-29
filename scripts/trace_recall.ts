@@ -209,6 +209,36 @@ async function main() {
   fs.writeFileSync(out, JSON.stringify(trace, null, 2))
   console.log(`\nWROTE ${out}`)
   console.log(`  cues=${trace.cues.count}  hsls=${trace.hsls.matched_count}  aios_sent=${trace.aios.sent_to_llm.length}  priors=${trace.mro_search.priors_used.length}  in/out=${trace.llm.input_tokens}/${trace.llm.output_tokens}`)
+
+  // ── Cue → HSL → CSV chain summary ────────────────────────────────
+  // Compact stdout view of the per-cue match map. Lets the operator
+  // see at a glance which cues found anchors in the HSL layer and
+  // which ones fell through to the AIO needle-scan fallback.
+  const withHits = perCueHsls.filter((c) => c.hsls.length > 0)
+  const noHits = perCueHsls.filter((c) => c.hsls.length === 0)
+  console.log(`\n── Cue → HSL chain ─────────────────────────────────────`)
+  console.log(`  ${withHits.length}/${perCueHsls.length} cues lit ≥1 HSL  ·  ${noHits.length} fell through to AIO needle scan`)
+  // Show top 10 cues by HSL fan-out so high-coverage anchors stand out.
+  const ranked = [...withHits].sort((a, b) => b.hsls.length - a.hsls.length).slice(0, 10)
+  for (const entry of ranked) {
+    const csvCounts = new Map<string, number>()
+    for (const h of entry.hsls) {
+      for (const el of (h.sample_elements ?? []) as string[]) {
+        const root = el.split(" - Row")[0] ?? el
+        csvCounts.set(root, (csvCounts.get(root) ?? 0) + 1)
+      }
+    }
+    const topCsvs = Array.from(csvCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([k, v]) => `${k}(${v})`)
+      .join(" ")
+    const cueLabel = entry.cue.length > 40 ? entry.cue.slice(0, 37) + "…" : entry.cue
+    console.log(`  ${entry.hsls.length.toString().padStart(3)} HSLs  ${cueLabel.padEnd(42)} → ${topCsvs}`)
+  }
+  if (withHits.length > 10) {
+    console.log(`  … and ${withHits.length - 10} more cues with HSL hits (see /tmp/recall_trace.json hsls.per_cue)`)
+  }
 }
 
 main().catch((e) => { console.error("FATAL:", e); process.exit(1) })

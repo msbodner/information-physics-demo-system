@@ -592,15 +592,33 @@ export async function listHslKeyValuePairs(
  */
 export async function findHslsByNeedlesFull(
   values: string[],
-  opts: { signal?: AbortSignal } = {},
+  opts: {
+    signal?: AbortSignal
+    /** Switch from exact-match to trigram similarity. Backed by the
+     *  GIN index in migration 031. Tolerates typos, declensions, and
+     *  partial-token matches. ~10–30% slower per query than exact. */
+    fuzzy?: boolean
+    /** Trigram similarity threshold (0.05–0.95). Default 0.30 = good
+     *  for "Mitchell" ↔ "Mitchel" / "Sara" ↔ "Sarah". 0.50+ for
+     *  near-exact only. Ignored when fuzzy is false. */
+    similarity?: number
+  } = {},
 ): Promise<HslDataRecord[]> {
   if (!values || values.length === 0) return []
+  // Fuzzy is ON by default — better recall on typos, declensions,
+  // partial tokens, and field-name variants than exact match. Backed
+  // by the GIN trigram index from migration 031. Pass `fuzzy: false`
+  // explicitly for diagnostics that need byte-exact behavior.
+  const useFuzzy = opts.fuzzy !== false
+  const body: Record<string, unknown> = { values }
+  if (useFuzzy) body.fuzzy = true
+  if (opts.similarity !== undefined) body.similarity = opts.similarity
   const result = await safeFetch<HslDataRecord[]>(
     "/api/hsl-data/find-by-needles-full",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ values }),
+      body: JSON.stringify(body),
       ...(opts.signal ? { signal: opts.signal } : {}),
     },
   )

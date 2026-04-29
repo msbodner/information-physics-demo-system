@@ -77,6 +77,14 @@ class HslFindByNeedlesRequest(BaseModel):
 
 class HslFindByNeedlesFullRequest(BaseModel):
     values: List[str]
+    # When true, switch from exact-match (value_lower = ANY(...)) to
+    # trigram similarity (value_lower % ANY(...)) for typo / partial-
+    # token tolerance. Backed by the GIN index added in migration 031.
+    fuzzy: Optional[bool] = False
+    # Per-request similarity threshold for the trigram operator.
+    # Postgres default is 0.30 — anything from 0.10 (very loose) to
+    # 0.70 (near-exact) is reasonable. Ignored when fuzzy=False.
+    similarity: Optional[float] = None
 
 
 class HslKeyValuePair(BaseModel):
@@ -366,11 +374,32 @@ def find_hsls_by_needles_full(
     with db() as conn:
         set_tenant(conn, tenant)
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT DISTINCT hsl_id FROM information_element_refs "
-                "WHERE hsl_id IS NOT NULL AND value_lower = ANY(%s)",
-                (values,),
-            )
+            if payload.fuzzy:
+                # Per-transaction tunable threshold for the `%` operator.
+                # Postgres default is 0.3; clamp anything the caller
+                # supplies into [0.05, 0.95] so neither extreme breaks
+                # the query (0 ≈ "match everything", 1 ≈ "exact equality
+                # but slower than =").
+                if payload.similarity is not None:
+                    sim = max(0.05, min(0.95, float(payload.similarity)))
+                    cur.execute("SELECT set_limit(%s)", (sim,))
+                # Trigram similarity per-cue, then DISTINCT across the
+                # whole cue list. Slightly slower than the equality
+                # path but uses the GIN index from migration 031.
+                cur.execute(
+                    """
+                    SELECT DISTINCT hsl_id FROM information_element_refs
+                     WHERE hsl_id IS NOT NULL
+                       AND value_lower %% ANY(%s)
+                    """,
+                    (values,),
+                )
+            else:
+                cur.execute(
+                    "SELECT DISTINCT hsl_id FROM information_element_refs "
+                    "WHERE hsl_id IS NOT NULL AND value_lower = ANY(%s)",
+                    (values,),
+                )
             hsl_ids = [str(r[0]) for r in cur.fetchall()]
             if not hsl_ids:
                 return []
