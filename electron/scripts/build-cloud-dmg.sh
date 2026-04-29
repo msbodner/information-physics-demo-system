@@ -48,6 +48,33 @@ for d in python postgres backend; do
   fi
 done
 
+# Tag the cloud variant as "V4.5C" everywhere it's user-visible
+# (splash screen, Next.js HTML titles, sidebar/dashboard chrome). The
+# bundled frontend was already built with "V4.5"; sed-swap it across
+# resources/frontend and splash.html, then revert on EXIT.
+CLOUD_TAG="V4.5C"
+CLOUD_TAG_FROM="V4.5"
+SWAP_LIST_FILE="$(mktemp)"
+grep -rl "$CLOUD_TAG_FROM" resources/frontend splash.html 2>/dev/null > "$SWAP_LIST_FILE" || true
+SWAP_COUNT=$(wc -l < "$SWAP_LIST_FILE" | tr -d ' ')
+
+revert_cloud_tag() {
+  if [ -s "$SWAP_LIST_FILE" ]; then
+    echo "↩  reverting ${SWAP_COUNT} files: $CLOUD_TAG → $CLOUD_TAG_FROM…"
+    while IFS= read -r f; do
+      [ -f "$f" ] && sed -i '' "s/$CLOUD_TAG/$CLOUD_TAG_FROM/g" "$f"
+    done < "$SWAP_LIST_FILE"
+  fi
+  rm -f "$SWAP_LIST_FILE"
+}
+# Compose the existing `restore` trap with the version-string revert.
+trap 'restore; revert_cloud_tag' EXIT
+
+echo "🏷  applying cloud-variant tag: $CLOUD_TAG_FROM → $CLOUD_TAG ($SWAP_COUNT files)…"
+while IFS= read -r f; do
+  [ -f "$f" ] && sed -i '' "s/$CLOUD_TAG_FROM/$CLOUD_TAG/g" "$f"
+done < "$SWAP_LIST_FILE"
+
 # Override artifactName + volume label so the cloud variant lands
 # alongside the full variant in dist/ without clobbering it AND
 # mounts as a distinct volume. Without `dmg.title`, both variants
@@ -57,10 +84,10 @@ done
 echo "🔨 running electron-builder for cloud variant…"
 CSC_IDENTITY_AUTO_DISCOVERY=false \
   npx electron-builder \
-    -c.artifactName='${productName}-${version}-cloud-${arch}.${ext}' \
-    -c.dmg.artifactName='${productName}-${version}-cloud-${arch}.${ext}' \
-    -c.mac.artifactName='${productName}-${version}-cloud-${arch}.${ext}' \
-    -c.dmg.title='${productName} ${version} (Cloud)' \
+    -c.artifactName='${productName}-4.5C-cloud-${arch}.${ext}' \
+    -c.dmg.artifactName='${productName}-4.5C-cloud-${arch}.${ext}' \
+    -c.mac.artifactName='${productName}-4.5C-cloud-${arch}.${ext}' \
+    -c.dmg.title='${productName} 4.5C (Cloud)' \
     --mac
 
 echo "✅ cloud DMGs built. Restoring stashed resources…"
