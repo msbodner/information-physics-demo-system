@@ -229,6 +229,14 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   const [isChatLoading, setIsChatLoading] = useState(false)
   const [promptHistory, setPromptHistory] = useState<string[]>([])
   const [showHistory, setShowHistory] = useState(false)
+  // "Force fresh" toggle for Recall Search. When true, runChatPipeline
+  // skips its MRO short-circuit at score ≥ 0.85 and runs the full
+  // retrieval through to the LLM. Priors still seed cues and inject
+  // at the 0.50 bundle-augment threshold; only the zero-token early
+  // return is suppressed. Default off (production behavior — use
+  // the cache); operators flip it for one-off diagnostics or to
+  // re-run a query whose cached MRO is stale.
+  const [forceFresh, setForceFresh] = useState(false)
   const [historyMode, setHistoryMode] = useState<"session" | "saved">("session")
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([])
   const [isSavedLoading, setIsSavedLoading] = useState(false)
@@ -538,6 +546,11 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       maxPriors: 3,
       maxAios: 40,
       saveMRO: true,
+      // Honor the operator's "Force fresh" toggle. When enabled, the
+      // pipeline skips its zero-token MRO short-circuit and runs the
+      // full retrieval. Priors still inform the bundle at the 0.50
+      // threshold; only the cache early-return is suppressed.
+      bypassMroCache: forceFresh,
       cachedMros: recallCache?.mros,
       hslCatalog,
       resolveHsls: async (cueValues, signal) => {
@@ -651,7 +664,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         }
       }
     }
-  }, [chatInput, chatMessages, isChatLoading, recallAios, hslCatalog, recallCache])
+  }, [chatInput, chatMessages, isChatLoading, recallAios, hslCatalog, recallCache, forceFresh])
 
   const handleDownloadChat = useCallback(() => {
     if (chatMessages.length === 0) return
@@ -1039,7 +1052,25 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                 disabled={isChatLoading} />
             </div>
             {/* Row 2: action buttons — Substrate is the default (Enter key) */}
-            <div className="flex gap-2 justify-end">
+            <div className="flex gap-2 justify-end items-center">
+              {/* Force-fresh toggle for Recall. Off by default (production
+                  uses the MRO cache for cost discipline); flip on for one-
+                  off diagnostics or when a stale cached answer is masking
+                  a deployed retrieval fix. Affects only Recall — Live and
+                  Raw never short-circuit on MROs anyway. */}
+              <label
+                className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer h-9 px-2 rounded-md border border-border hover:bg-muted/40"
+                title="When checked, Recall skips its MRO short-circuit (score ≥ 0.85) and always runs the full retrieval through to the LLM. Priors still seed cues and inject at the 0.50 threshold; only the zero-token cache hit is suppressed."
+              >
+                <input
+                  type="checkbox"
+                  checked={forceFresh}
+                  onChange={(e) => setForceFresh(e.target.checked)}
+                  disabled={isChatLoading}
+                  className="h-3.5 w-3.5 accent-purple-600 cursor-pointer"
+                />
+                Force fresh
+              </label>
               <Button size="sm" onClick={handleRecallSearch}
                 disabled={!chatInput.trim() || isChatLoading || !recallReady}
                 className="gap-2 shrink-0 h-9 bg-purple-600 hover:bg-purple-700 text-white"
