@@ -4337,11 +4337,34 @@ function EmbeddedDocViewer({ url, title, onClose }: { url: string; title: string
   return (
     <div className="fixed inset-0 z-50 bg-background overflow-auto">
       <header className="border-b border-border bg-card sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center gap-4">
+        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={onClose} className="gap-2">
             <ArrowLeft className="w-4 h-4" />Back
           </Button>
-          <h1 className="text-lg font-bold text-foreground truncate">{title}</h1>
+          <h1 className="text-lg font-bold text-foreground truncate flex-1">{title}</h1>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              // Trigger a real .docx download from the same URL the
+              // inline preview is rendering from. The browser uses the
+              // server's filename or the URL basename — we set
+              // `download` explicitly so the file lands with a
+              // recognizable name even if the server sends an opaque
+              // Content-Disposition.
+              const a = document.createElement("a")
+              a.href = url
+              const filename = url.split("/").pop() || "document.docx"
+              a.download = filename
+              document.body.appendChild(a)
+              a.click()
+              document.body.removeChild(a)
+            }}
+            className="gap-2"
+            title="Save this document as a standalone .docx file"
+          >
+            <FileDown className="w-4 h-4" />Download .docx
+          </Button>
         </div>
       </header>
 
