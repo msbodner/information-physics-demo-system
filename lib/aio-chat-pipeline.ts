@@ -240,6 +240,13 @@ export async function runChatPipeline(
     maxPriors?: number
     maxAios?: number
     saveMRO?: boolean
+    /** When true, skip the MRO short-circuit at score ≥ 0.85. Cues
+     *  are still seeded from prior MROs and bundle-augmented priors
+     *  still inject at score ≥ 0.50 — only the early-return cache
+     *  hit is suppressed. Used by the benchmark runner so every
+     *  measured run actually exercises the LLM and reports tokens.
+     *  Default false (production behavior — use the cache). */
+    bypassMroCache?: boolean
     history?: ChatMessage[]
     /** Pre-loaded MRO objects — avoids a network round-trip on every call. */
     cachedMros?: ReturnType<typeof listMroObjects> extends Promise<infer T> ? T : never
@@ -294,7 +301,12 @@ export async function runChatPipeline(
   // result text. Callers that need a guaranteed fresh save can pass
   // saveMRO:false to indicate "I'll handle persistence" — but the
   // common case (ChatAIO) wants the cache.
-  if (shouldShortCircuitOnMro(topMroHit)) {
+  //
+  // bypassMroCache:true suppresses the short-circuit entirely (used
+  // by the benchmark runner so every run measures actual LLM cost).
+  // Priors still seed cues and still inject at the 0.50 threshold;
+  // only the zero-token early-return is skipped.
+  if (!options.bypassMroCache && shouldShortCircuitOnMro(topMroHit)) {
     const fullPrior = await getMroObject(topMroHit.mro_id, { signal: options.signal }).catch(() => null)
     const replyText = fullPrior?.result_text || topMroHit.result_summary
     if (replyText) {

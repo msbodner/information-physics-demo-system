@@ -295,6 +295,13 @@ async function runRecall(query: string): Promise<ModeResult> {
       maxPriors: 3,
       maxAios: 40,
       saveMRO: false,
+      // Benchmark UI must actually exercise the LLM and report real
+      // tokens. Without this, every re-run of a benchmark whose
+      // matching MRO already exists short-circuits at score ≥ 0.85
+      // and reports 0 input/0 output tokens — useless for
+      // measurement. Priors still seed cues and inject at 0.50; only
+      // the zero-token early-return is suppressed.
+      bypassMroCache: true,
       hslCatalog: catalog,
       resolveHsls: async (cueValues, signal) => {
         const rows = await findHslsByNeedlesFull(cueValues, { signal })
