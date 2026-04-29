@@ -12,7 +12,7 @@ const isDev = !app.isPackaged;
 
 // Cloud mode: use Railway backend instead of local PostgreSQL + FastAPI
 const CLOUD_BACKEND_URL = "https://infophysics-api-production-bc95.up.railway.app";
-const CLOUD_MODE = false; // Set to false to run fully local (requires bundled PostgreSQL)
+const CLOUD_MODE = true; // Set to false to run fully local (requires bundled PostgreSQL)
 
 // Resource paths differ between dev and packaged app
 function resourcePath(sub) {
@@ -154,6 +154,19 @@ function pgExecEnv() {
   if (fs.existsSync(pgShare)) {
     env.PGSHAREDIR = pgShare;
   }
+  // Force a clean POSIX locale before launch. Without these vars,
+  // macOS CoreFoundation auto-loads in the parent process and spawns
+  // background threads while resolving the system locale; Postgres
+  // then refuses to fork with:
+  //   FATAL: postmaster became multithreaded during startup
+  //   HINT:  Set the LC_ALL environment variable to a valid locale.
+  // Setting LC_ALL=C (and friends) sidesteps the locale lookup
+  // entirely and keeps the postmaster single-threaded across fork.
+  // The cluster was initdb'd with --locale=C anyway, so this matches
+  // and doesn't introduce any encoding mismatch with stored data.
+  env.LC_ALL = "C";
+  env.LANG = "C";
+  env.LC_CTYPE = "C";
   return env;
 }
 

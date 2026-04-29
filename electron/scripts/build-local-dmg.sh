@@ -38,20 +38,29 @@ for d in frontend python postgres backend; do
 done
 
 MAIN_JS="main.js"
-BACKUP="$MAIN_JS.cloud-mode-backup"
+
+# Pre-flight: source must start with CLOUD_MODE=true. If it doesn't,
+# something previously left it in a bad state (a prior build's restore
+# trap that ran with main.js already false would no-op the cleanup).
+# Refuse to proceed rather than ship a build whose CLOUD_MODE state
+# we can't predict.
+if ! grep -q '^const CLOUD_MODE = true;' "$MAIN_JS"; then
+  echo "❌ $MAIN_JS does not start with CLOUD_MODE=true — refusing to build."
+  echo "   Restore it manually and retry:"
+  echo "     sed -i '' 's/^const CLOUD_MODE = false;/const CLOUD_MODE = true;/' $MAIN_JS"
+  exit 1
+fi
 
 restore_main_js() {
-  if [ -f "$BACKUP" ]; then
-    echo "↩  restoring $MAIN_JS (CLOUD_MODE = true)…"
-    mv "$BACKUP" "$MAIN_JS"
-  fi
+  echo "↩  forcing $MAIN_JS back to CLOUD_MODE=true…"
+  # Active restore via sed instead of relying on a backup file.
+  # Idempotent: if it's already true (build aborted before flip) this
+  # is a no-op; if it's false (normal case) it flips back.
+  sed -i '' 's/^const CLOUD_MODE = false;/const CLOUD_MODE = true;/' "$MAIN_JS"
 }
 trap restore_main_js EXIT
 
 echo "📦 flipping CLOUD_MODE → false in $MAIN_JS…"
-cp "$MAIN_JS" "$BACKUP"
-# In-place edit: change `const CLOUD_MODE = true;` → `const CLOUD_MODE = false;`
-# BSD sed (macOS default) requires the empty backup arg.
 sed -i '' 's/^const CLOUD_MODE = true;/const CLOUD_MODE = false;/' "$MAIN_JS"
 
 # Verify the edit landed — abort if not, rather than ship a cloud
@@ -68,6 +77,8 @@ fi
 SHIM_DIR="$(mktemp -d)"
 ln -sf "$(command -v python3)" "$SHIM_DIR/python"
 export PATH="$SHIM_DIR:$PATH"
+# Re-arm the trap to also clean up the shim. The earlier `trap
+# restore_main_js EXIT` is replaced wholesale here.
 trap 'restore_main_js; rm -rf "$SHIM_DIR"' EXIT
 
 echo "🔨 running electron-builder for local variant…"
