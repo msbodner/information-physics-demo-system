@@ -23,18 +23,42 @@ const TENANT_ID = process.env.IP_TENANT_ID ?? "tenantA"
 // We want measured LLM tokens, not "served_from_cache: true".
 const SALT = Math.random().toString(36).slice(2, 8)
 // Resolution order:
-//   1. BENCHMARK=1               → load scripts/benchmark_prompt.txt (the
-//                                  multi-CSV PRJ-003 join benchmark; designed
-//                                  to exercise HSL pointer index + AIO needle
-//                                  scan + MRO priors + filter semantics).
+//   1. BENCHMARK=N (1..10)      → load BENCHMARKS[N-1] from
+//                                  lib/benchmarks.ts. The catalog is the
+//                                  single source of truth for both the UI
+//                                  Benchmark dropdown and the CLI scripts.
+//                                  Falls back to scripts/benchmark_prompt.txt
+//                                  when N=1 and the lib import fails.
 //   2. IP_QUERY="..."           → use that exact string.
 //   3. fallback                 → Sarah Mitchell named-entity probe.
 import * as _fs from "node:fs"
 import * as _path from "node:path"
 function loadBaseQuery(): string {
-  if (process.env.BENCHMARK === "1") {
-    const p = _path.resolve(__dirname, "benchmark_prompt.txt")
-    return _fs.readFileSync(p, "utf8").trim()
+  // BENCHMARK=N selects BENCHMARKS[N-1] from lib/benchmarks.ts. Falls
+  // back to scripts/benchmark_prompt.txt when N=1 and the lib lookup
+  // fails (legacy compat for fresh checkouts where the import path
+  // hasn't been wired yet). Then IP_QUERY override, then the
+  // hardcoded Sarah-Mitchell default.
+  const benchEnv = (process.env.BENCHMARK ?? "").trim()
+  if (benchEnv) {
+    try {
+      // Lazy import so the script still runs when this dependency
+      // tree fails to resolve (e.g. tsx run from outside the repo).
+      const { BENCHMARKS } = require("../lib/benchmarks")
+      const idx = parseInt(benchEnv, 10) - 1
+      if (Number.isFinite(idx) && idx >= 0 && idx < BENCHMARKS.length) {
+        const bm = BENCHMARKS[idx]
+        console.log(`benchmark: [${idx + 1}] ${bm.title}`)
+        return bm.prompt
+      }
+      console.warn(`benchmark: BENCHMARK=${benchEnv} out of range (1..${BENCHMARKS.length}); falling back`)
+    } catch (e) {
+      console.warn(`benchmark: lib/benchmarks import failed (${(e as Error).message}); falling back`)
+    }
+    if (benchEnv === "1") {
+      const p = _path.resolve(__dirname, "benchmark_prompt.txt")
+      return _fs.readFileSync(p, "utf8").trim()
+    }
   }
   return process.env.IP_QUERY
     ?? "What roles does Sarah Mitchell hold. List projects and financials for each."

@@ -142,15 +142,19 @@ export function BenchmarkGuide({ onClose }: { onClose: () => void }) {
             Every benchmark in this catalog is also runnable from the command line:
           </p>
           <pre className="text-xs bg-muted rounded p-3 overflow-x-auto">{`# Run any benchmark across all four modes (uses Railway production)
-BENCHMARK=1 pnpm dlx tsx scripts/measure_modes.ts
+BENCHMARK=4 pnpm dlx tsx scripts/measure_modes.ts        # Priya Nair workload
+BENCHMARK=7 pnpm dlx tsx scripts/measure_modes.ts        # Fuzzy match stress
 
 # Deep Recall trace with MRO short-circuit bypassed
-BENCHMARK=1 MRO_BYPASS=1 pnpm dlx tsx scripts/trace_recall.ts`}</pre>
+BENCHMARK=3 MRO_BYPASS=1 pnpm dlx tsx scripts/trace_recall.ts
+
+# Ad-hoc one-off prompt without using the catalog
+IP_QUERY="…your prompt…" pnpm dlx tsx scripts/measure_modes.ts`}</pre>
           <p className="text-xs text-muted-foreground mt-2 italic">
-            The <code className="bg-muted px-1 rounded">BENCHMARK</code> env var currently selects only
-            Benchmark 1 (the saved <code className="bg-muted px-1 rounded">scripts/benchmark_prompt.txt</code>).
-            To run others from the CLI, override <code className="bg-muted px-1 rounded">IP_QUERY</code>
-            with the prompt body of your choice, or extend the script to read by id.
+            <code className="bg-muted px-1 rounded">BENCHMARK=N</code> selects benchmark N from the catalog
+            above (1–{BENCHMARKS.length}). The CLI scripts and the R&amp;D dropdown both read from
+            <code className="bg-muted px-1 rounded ml-1">lib/benchmarks.ts</code> — adding a new entry there
+            makes it appear in both places automatically.
           </p>
         </section>
       </main>
