@@ -48,15 +48,19 @@ for d in python postgres backend; do
   fi
 done
 
-# Override artifactName so the cloud variant lands alongside the full
-# variant in dist/ without clobbering it. Also disable signing —
-# parity with the default unsigned dist build.
+# Override artifactName + volume label so the cloud variant lands
+# alongside the full variant in dist/ without clobbering it AND
+# mounts as a distinct volume. Without `dmg.title`, both variants
+# share the volume label `${productName} ${version}-${arch}`, which
+# means macOS can't mount both at the same time. Also disable
+# signing — parity with the default unsigned dist build.
 echo "🔨 running electron-builder for cloud variant…"
 CSC_IDENTITY_AUTO_DISCOVERY=false \
   npx electron-builder \
     -c.artifactName='${productName}-${version}-cloud-${arch}.${ext}' \
     -c.dmg.artifactName='${productName}-${version}-cloud-${arch}.${ext}' \
     -c.mac.artifactName='${productName}-${version}-cloud-${arch}.${ext}' \
+    -c.dmg.title='${productName} ${version} (Cloud)' \
     --mac
 
 echo "✅ cloud DMGs built. Restoring stashed resources…"
