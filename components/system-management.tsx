@@ -4189,6 +4189,48 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         desc: "Confidential / Trade-Secret reference: deterministic query → element-cue translation, the four-pass extraction algorithm, canonical-field aliasing, HSL inverted-index probe, exact + trigram-fuzzy paths, substrate cap and Jaccard dedup. Documents the four V4.5 retrieval-correctness fixes (mig 029 / diversity / aliasing / mig 031) end-to-end. Subject to NDA on file.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
+                      {
+                        embed: "/docs/MRO_Lifecycle_Linkage_Technote_V45.docx",
+                        icon: <BookOpen className="w-6 h-6 text-indigo-600" />,
+                        title: "Technical Notes — MRO Lifecycle & Linkage (V4.5)",
+                        desc: "Memory Result Object creation, persistence, retrieval, reuse, and audit. Covers the three threshold tiers (short-circuit / bundle-augment / cue-seed), the link-mro endpoint, the Linkage audit view, and the three V4.5 failure modes resolved (Next.js 16 Promise params, Save MRO display string, Fix Broken MROs dual-pass repair). Subject to NDA on file.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
+                      {
+                        embed: "/docs/Diversity_Dedup_Technote_V45.docx",
+                        icon: <BookOpen className="w-6 h-6 text-indigo-600" />,
+                        title: "Technical Notes — Substrate Diversity & Dedup (V4.5)",
+                        desc: "Cap-by-CSV diversity (frontend lib/aio-math.ts + backend api/search_helpers.py mirror) and element-set Jaccard dedup at substrate-build time. Documents the AIA305-dominance failure mode, the threshold tuning matrix (0.50 → 0.95), and the provenance-key exclusion rule. Subject to NDA on file.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
+                      {
+                        embed: "/docs/Benchmark_Catalog_V45.docx",
+                        icon: <BookOpen className="w-6 h-6 text-indigo-600" />,
+                        title: "Benchmark Catalog Reference (V4.5)",
+                        desc: "Print-friendly version of the in-app Benchmark Guide. All 10 saved prompts reproduced verbatim with mode recommendations, evaluation rubrics, and CLI parity instructions. Single source of truth in lib/benchmarks.ts; this document is generated from the same array.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
+                      {
+                        embed: "/docs/Release_Notes_V45.docx",
+                        icon: <BookOpen className="w-6 h-6 text-indigo-600" />,
+                        title: "V4.5 Release Notes",
+                        desc: "Operator-facing changelog. Retrieval correctness (migrations 029/031, cap-by-CSV, HSL aliasing, Jaccard dedup), operability (Models tab, Daily Token Budget, Benchmark dropdown, embedded report viewer, Linkage view, Fix Broken MROs), UI polish, distribution (three DMG variants + signing infrastructure), shipped migrations, new endpoints, and the eight silent regressions caught and fixed.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
+                      {
+                        embed: "/docs/Local_DMG_Operations_Guide_V45.docx",
+                        icon: <BookOpen className="w-6 h-6 text-indigo-600" />,
+                        title: "Local DMG — Operations Guide (V4.5)",
+                        desc: "Self-contained Information Physics deployment: install, runtime, troubleshooting. First-launch sequence, default credentials, ANTHROPIC_API_KEY at build time, file locations, common issues (the LC_ALL=C locale fix, pgdata wipe, port conflicts), backup/restore, privacy properties.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
+                      {
+                        embed: "/docs/Architecture_Overview_V45.docx",
+                        icon: <BookOpen className="w-6 h-6 text-indigo-600" />,
+                        title: "Information Physics — Architecture Overview (V4.5)",
+                        desc: "The three-layer model (AIO/HSL/MRO), four ChatAIO modes (Recall/Live/Broad/Raw), and the three trade-secret invariants that distinguish this from a conventional embedding-RAG implementation. Includes the demo dataset profile and roadmap. Buyer-side and counsel-friendly framing alongside the engineering substance.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
                     ].map(({ view, download, embed, filename, icon, title, desc, color }) => (
                       <button
                         key={view ?? download ?? embed}
