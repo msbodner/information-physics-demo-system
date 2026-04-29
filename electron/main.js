@@ -12,7 +12,7 @@ const isDev = !app.isPackaged;
 
 // Cloud mode: use Railway backend instead of local PostgreSQL + FastAPI
 const CLOUD_BACKEND_URL = "https://infophysics-api-production-bc95.up.railway.app";
-const CLOUD_MODE = true; // Set to false to run fully local (requires bundled PostgreSQL)
+const CLOUD_MODE = false; // Set to false to run fully local (requires bundled PostgreSQL)
 
 // Resource paths differ between dev and packaged app
 function resourcePath(sub) {

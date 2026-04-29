@@ -11,6 +11,7 @@
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
     "dist:cloud": "bash scripts/build-cloud-dmg.sh",
+    "dist:local": "bash scripts/build-local-dmg.sh",
     "prepare-resources": "bash scripts/build-resources.sh"
   },
   "build": {
