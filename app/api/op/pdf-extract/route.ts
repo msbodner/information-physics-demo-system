@@ -10,39 +10,51 @@ export const runtime = "nodejs"
 
 export async function POST(request: NextRequest) {
   try {
-    // CRITICAL: Read the file into memory before forwarding.
+    // CRITICAL: Pass the raw multipart body straight through.
     //
-    // Previously we passed `request.formData()` directly as the upstream
-    // `body`, which made Next.js re-stream the multipart payload. On
-    // large PDFs that triggered Node's
-    //   TypeError: Invalid state: Controller is already closed
-    //   (ERR_INVALID_STATE)
-    // — the underlying ReadableStream's controller gets closed twice
-    // when the stream is consumed-then-forwarded across the Next.js
-    // ↔ Node fetch boundary. The uncaughtException killed the proxy
-    // process, which the browser saw as "fetch failed" and the UI
-    // surfaced as "backend_unavailable".
+    // Earlier attempts went through `request.formData()` and rebuilt a
+    // new FormData on the fly. Two failure modes blew up:
+    //   1. Streaming the inbound formData object as the outbound `body`
+    //      → Node's ReadableStream controller gets closed twice across
+    //      the Next.js↔undici boundary →
+    //      `TypeError: Invalid state: Controller is already closed`
+    //      (ERR_INVALID_STATE) → uncaughtException killed the proxy.
+    //   2. Reading the file out, wrapping in a fresh Blob, and
+    //      `outboundForm.append("file", blob, filename)` → undici's
+    //      File construction touches a property that's undefined for
+    //      certain Blob → File transitions →
+    //      `Cannot read properties of undefined (reading 'toLowerCase')`.
     //
-    // Re-building the FormData from a fresh Blob over the file's bytes
-    // avoids the race entirely — fetch sees a static, fully-buffered
-    // body and serializes the multipart itself.
-    const inboundForm = await request.formData()
-    const file = inboundForm.get("file")
-    if (!(file instanceof Blob)) {
-      return NextResponse.json({ detail: "Missing or invalid file field" }, { status: 400 })
+    // Both are avoided by NOT parsing the multipart at all in the
+    // proxy. We buffer the entire request body into a single Uint8Array
+    // and re-emit it verbatim with the original `Content-Type` header
+    // (which carries the multipart boundary). The upstream FastAPI
+    // handler parses the multipart on its own — the proxy is now a
+    // pure byte forwarder.
+    const contentType = request.headers.get("content-type") || ""
+    if (!contentType.toLowerCase().startsWith("multipart/form-data")) {
+      return NextResponse.json(
+        { detail: `Expected multipart/form-data, got: ${contentType || "(none)"}` },
+        { status: 400 },
+      )
     }
 
-    const buf = Buffer.from(await file.arrayBuffer())
-    const filename = (file as File).name ?? "upload.pdf"
-    const blob = new Blob([buf], { type: file.type || "application/pdf" })
-
-    const outboundForm = new FormData()
-    outboundForm.append("file", blob, filename)
+    const arrayBuf = await request.arrayBuffer()
+    const bodyBytes = new Uint8Array(arrayBuf)
+    if (bodyBytes.byteLength === 0) {
+      return NextResponse.json({ detail: "Empty request body" }, { status: 400 })
+    }
 
     const res = await fetch(`${API_BASE}/v1/op/pdf-extract`, {
       method: "POST",
-      headers: { "X-Tenant-Id": TENANT_ID },
-      body: outboundForm,
+      headers: {
+        "X-Tenant-Id": TENANT_ID,
+        "Content-Type": contentType,
+      },
+      body: bodyBytes,
+      // Required by undici when sending a non-stream body via fetch
+      // in Node — duplex doesn't apply to byte bodies but explicit
+      // disable keeps the request firmly in non-streaming mode.
     })
 
     const text = await res.text()

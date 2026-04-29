@@ -124,13 +124,57 @@ else
   echo "ℹ️  ANTHROPIC_API_KEY not set — local DMG will require manual API key configuration on first launch."
 fi
 
+# Tag the local variant as "V4.5L" everywhere it's user-visible (splash
+# screen, Next.js HTML titles, sidebar/dashboard chrome). The bundled
+# frontend was already built with "V4.5"; we sed-swap that string to
+# "V4.5L" across resources/frontend before packing, then restore after.
+#
+# Pre-flight: only swap if there's a "V4.5" to swap (idempotent / safe
+# if the build is run twice in a row).
+LOCAL_TAG="V4.5L"
+LOCAL_TAG_FROM="V4.5"
+
+# Snapshot which files contained the source string so we can revert
+# only those files (and skip files that were already "V4.5L" from a
+# half-finished prior run).
+SWAP_LIST_FILE="$(mktemp)"
+grep -rl "$LOCAL_TAG_FROM" resources/frontend splash.html 2>/dev/null > "$SWAP_LIST_FILE" || true
+SWAP_COUNT=$(wc -l < "$SWAP_LIST_FILE" | tr -d ' ')
+
+revert_local_tag() {
+  if [ -s "$SWAP_LIST_FILE" ]; then
+    echo "↩  reverting ${SWAP_COUNT} files: $LOCAL_TAG → $LOCAL_TAG_FROM…"
+    while IFS= read -r f; do
+      [ -f "$f" ] && sed -i '' "s/$LOCAL_TAG/$LOCAL_TAG_FROM/g" "$f"
+    done < "$SWAP_LIST_FILE"
+  fi
+  rm -f "$SWAP_LIST_FILE"
+}
+
+echo "🏷  applying local-variant tag: $LOCAL_TAG_FROM → $LOCAL_TAG ($SWAP_COUNT files)…"
+while IFS= read -r f; do
+  [ -f "$f" ] && sed -i '' "s/$LOCAL_TAG_FROM/$LOCAL_TAG/g" "$f"
+done < "$SWAP_LIST_FILE"
+
+# Update the EXIT trap so the version-string revert always runs in
+# addition to the prior cleanups.
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  trap 'restore_main_js; rm -rf "$SHIM_DIR"; cleanup_generated_migration; revert_local_tag' EXIT
+else
+  trap 'restore_main_js; rm -rf "$SHIM_DIR"; revert_local_tag' EXIT
+fi
+
 echo "🔨 running electron-builder for local variant…"
+# DMG filename ends with "-4.5L-local-${arch}.dmg" — override the
+# version segment of the artifactName template directly with a literal,
+# rather than fighting electron-builder's semver requirement on the
+# top-level "version" field (4.5.0 stays valid in package.json).
 CSC_IDENTITY_AUTO_DISCOVERY=false \
   npx electron-builder \
-    -c.artifactName='${productName}-${version}-local-${arch}.${ext}' \
-    -c.dmg.artifactName='${productName}-${version}-local-${arch}.${ext}' \
-    -c.mac.artifactName='${productName}-${version}-local-${arch}.${ext}' \
-    -c.dmg.title='${productName} ${version} (Local)' \
+    -c.artifactName='${productName}-4.5L-local-${arch}.${ext}' \
+    -c.dmg.artifactName='${productName}-4.5L-local-${arch}.${ext}' \
+    -c.mac.artifactName='${productName}-4.5L-local-${arch}.${ext}' \
+    -c.dmg.title='${productName} 4.5L (Local)' \
     --mac
 
 echo "✅ local DMGs built. Restoring $MAIN_JS…"
