@@ -28,6 +28,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Source .env if present so ANTHROPIC_API_KEY (and the Apple signing
+# vars, if used) flow into this shell. Existing env-var values win.
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
+
 # Sanity: every resource folder must be present — the local build
 # needs all of them.
 for d in frontend python postgres backend; do
@@ -80,6 +89,40 @@ export PATH="$SHIM_DIR:$PATH"
 # Re-arm the trap to also clean up the shim. The earlier `trap
 # restore_main_js EXIT` is replaced wholesale here.
 trap 'restore_main_js; rm -rf "$SHIM_DIR"' EXIT
+
+# Seed the Anthropic API key into a generated migration so the local
+# DMG's freshly-initdb'd Postgres ships with the key already set in
+# system_settings. Without this, every ChatAIO call 503's with
+# "ANTHROPIC_API_KEY not configured" until the operator pastes the
+# key into System Management → API Key.
+#
+# The migration file is written into resources/backend/migrations/
+# (gitignored — won't ever enter version control), packed into the
+# DMG, and removed post-build. Filename is 990_… so it sorts AFTER
+# every committed migration.
+GENERATED_MIGRATION="resources/backend/migrations/990_seed_anthropic_api_key.sql"
+cleanup_generated_migration() {
+  rm -f "$GENERATED_MIGRATION"
+}
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  echo "🔑 baking ANTHROPIC_API_KEY into bundled migrations…"
+  # Single-quote escape: ' → '' for SQL literal safety.
+  ESCAPED_KEY="${ANTHROPIC_API_KEY//\'/\'\'}"
+  cat > "$GENERATED_MIGRATION" <<SQL
+-- 990_seed_anthropic_api_key.sql (BUILD-TIME GENERATED — DO NOT COMMIT)
+-- Seed system_settings with an Anthropic API key so the local DMG can
+-- serve ChatAIO queries immediately on first launch. Idempotent —
+-- ON CONFLICT DO NOTHING leaves any operator-set value intact.
+INSERT INTO system_settings (key, value, updated_at)
+VALUES ('anthropic_api_key', '${ESCAPED_KEY}', now())
+ON CONFLICT (key) DO NOTHING;
+SQL
+  # Make sure the generated file is wiped on EVERY exit path, not
+  # just success — even if electron-builder crashes mid-pack.
+  trap 'restore_main_js; rm -rf "$SHIM_DIR"; cleanup_generated_migration' EXIT
+else
+  echo "ℹ️  ANTHROPIC_API_KEY not set — local DMG will require manual API key configuration on first launch."
+fi
 
 echo "🔨 running electron-builder for local variant…"
 CSC_IDENTITY_AUTO_DISCOVERY=false \
