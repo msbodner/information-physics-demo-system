@@ -99,7 +99,7 @@ class SummarizeRequest(BaseModel):
     io_id: Optional[str] = None
     aio_texts: Optional[List[str]] = None
     scope: str = "corpus"
-    model_ref: str = "claude-sonnet-4-6"
+    model_ref: str = Field(default_factory=get_default_model)
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -197,7 +197,7 @@ class CompareModeResult(BaseModel):
 
 class CompareModesResponse(BaseModel):
     results: List[CompareModeResult]
-    model_ref: str = "claude-sonnet-4-6"
+    model_ref: str = Field(default_factory=get_default_model)
 
 
 # ---------------------------------------------------------------------------

@@ -169,6 +169,15 @@ export interface AioSearchResponse {
   search_terms: Record<string, unknown>
   input_tokens: number
   output_tokens: number
+  // Cache metadata (#8 query_hash micro-cache)
+  served_from_cache?: boolean
+  cache_id?: string
+  cached_mro_id?: string
+  // Provenance metadata (#9 citation post-pass)
+  sources_used?: Record<string, unknown>
+  // Server-applied retrieval-time policies (#2/#3)
+  applied_filters?: string
+  exclusions?: string[]
 }
 
 export async function aioSearchChat(
@@ -1077,11 +1086,16 @@ export async function bumpMroTrust(parentMroIds: string[], delta: number = 1.0):
  * Append [MRO.<mroId>] to the next free element slot in the given HSL record.
  * Returns true if the link was written, false if already linked or no free slot.
  */
-export async function linkMroToHsl(hslId: string, mroId: string): Promise<boolean> {
+export async function linkMroToHsl(
+  hslId: string,
+  mroId: string,
+  opts: { signal?: AbortSignal } = {},
+): Promise<boolean> {
   const result = await safeFetch<{ updated: boolean }>(`/api/hsl-data/${hslId}/link-mro`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mro_id: mroId }),
+    signal: opts.signal,
   })
   return result?.updated === true
 }

@@ -50,13 +50,25 @@ def test_p6_parse_cache_uses_distinct_mode():
 # ── P7: env-driven parse model ─────────────────────────────────────
 
 def test_p7_parse_model_is_env_configurable():
+    """V4.5: parse-phase model is selectable via system_settings →
+    AIO_SEARCH_PARSE_MODEL env → default. The selection is now
+    centralized in api.llm.get_parse_model(), called from
+    _aio_search_prepare instead of inlining os.environ.get().
+    """
     src = _src()
     body = src.split("def _aio_search_prepare", 1)[-1].split("\ndef ", 1)[0]
-    assert 'os.environ.get("AIO_SEARCH_PARSE_MODEL"' in body, (
-        "parse model must be readable from AIO_SEARCH_PARSE_MODEL env"
+    # _aio_search_prepare must call get_parse_model() to honor the
+    # resolution chain.
+    assert "get_parse_model()" in body, (
+        "_aio_search_prepare must call get_parse_model() (V4.5 model selection)"
     )
-    # Default stays Sonnet — flipping to Haiku must be opt-in.
-    assert '"claude-sonnet-4-6"' in body
+    # That helper must read AIO_SEARCH_PARSE_MODEL as part of its chain.
+    from api import llm as _llm
+    import inspect
+    helper_src = inspect.getsource(_llm.get_parse_model)
+    assert "AIO_SEARCH_PARSE_MODEL" in helper_src, (
+        "get_parse_model must consult AIO_SEARCH_PARSE_MODEL env var"
+    )
     # Used in the messages.create call (not still hardcoded).
     create_block = body.split("client.messages.create(", 1)[-1].split(")", 1)[0]
     assert "parse_model" in create_block, (

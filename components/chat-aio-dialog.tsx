@@ -440,6 +440,13 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     setChatInput("")
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
     setIsChatLoading(true)
+    // Abort any in-flight pipeline run before starting a new one. The
+    // controller's signal is also threaded into the post-stream MRO→HSL
+    // back-pointer writes so they don't keep firing if the user closes the
+    // dialog mid-query (the unmount cleanup in pipelineAbortRef aborts it).
+    pipelineAbortRef.current?.abort()
+    const controller = new AbortController()
+    pipelineAbortRef.current = controller
     const t0 = Date.now()
     let acc = ""
     let metaCaptured: AioSearchStreamMeta | null = null
@@ -507,8 +514,13 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       policy_scope: "default",
     }).then((mro) => {
       if (mro?.mro_id && hslIds.length > 0) {
-        Promise.all(hslIds.map((hslId) => linkMroToHsl(hslId, mro.mro_id)))
-          .catch((e) => { console.error("linkMroToHsl failed (Live Search)", e) })
+        if (controller.signal.aborted) return
+        Promise.all(hslIds.map((hslId) =>
+          linkMroToHsl(hslId, mro.mro_id, { signal: controller.signal })))
+          .catch((e) => {
+            if (controller.signal.aborted) return
+            console.error("linkMroToHsl failed (Live Search)", e)
+          })
       }
     }).catch((e) => { console.error("createMroObject failed (Live Search)", e) })
 

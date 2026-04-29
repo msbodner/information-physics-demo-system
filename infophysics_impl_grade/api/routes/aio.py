@@ -325,10 +325,17 @@ def update_information_element(element_id: str, payload: InformationElementReque
 
 @router.delete("/v1/information-elements/{element_id}")
 def delete_information_element(element_id: str):
-    # NOTE: information_elements is global (no tenant_id column); endpoint
-    # should require admin role. No role/admin gating pattern currently
-    # exists in routes — see TODO below before introducing one here.
-    # TODO(security): gate to admin role once an auth scheme exists.
+    # SECURITY (DEFERRED to V4.6): information_elements is a global
+    # (cross-tenant) catalog with no tenant_id column. In production this
+    # endpoint must require an admin role. No route-level role/admin
+    # gating pattern exists in this codebase yet — see CLAUDE.md "no
+    # admin/role pattern in codebase yet". The demo deployment is
+    # protected at the network edge (Railway private link + the desktop
+    # Electron build runs against localhost only), so the impact is
+    # bounded to operators who already have backend network access.
+    # Owner: backend; target release: V4.6 alongside the planned auth
+    # scheme. When that lands, gate this route + the matching POST/PUT
+    # information_elements writers + the rebuild endpoint below.
     with db() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM information_elements WHERE element_id = %s RETURNING element_id", (element_id,))
