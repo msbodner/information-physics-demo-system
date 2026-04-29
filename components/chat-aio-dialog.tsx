@@ -9,6 +9,8 @@ import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
 import { toast } from "sonner"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 // ── Error normalization ───────────────────────────────────────────
 //
@@ -47,62 +49,139 @@ function parseMarkdownTable(block: string): { headers: string[]; rows: string[][
   return { headers, rows }
 }
 
-// Split message content into text and table segments for rendering
-function renderContent(content: string): React.ReactNode[] {
-  const segments: Array<{ type: "text" | "table"; text?: string; headers?: string[]; rows?: string[][] }> = []
-  const lines = content.split("\n")
-  let textBuf: string[] = []
-  let tableBuf: string[] = []
-
-  const flushText = () => {
-    if (textBuf.length) { segments.push({ type: "text", text: textBuf.join("\n") }); textBuf = [] }
-  }
-  const flushTable = () => {
-    if (tableBuf.length) {
-      const parsed = parseMarkdownTable(tableBuf.join("\n"))
-      if (parsed) segments.push({ type: "table", ...parsed })
-      else textBuf.push(...tableBuf)
-      tableBuf = []
-    }
-  }
-
-  for (const line of lines) {
-    const t = line.trim()
-    if (t.startsWith("|") && t.endsWith("|") && t.length > 1) {
-      flushText(); tableBuf.push(line)
-    } else {
-      flushTable(); textBuf.push(line)
-    }
-  }
-  flushTable(); flushText()
-
-  return segments.map((seg, i) => {
-    if (seg.type === "table" && seg.headers && seg.rows) {
-      return (
-        <div key={i} className="overflow-x-auto my-2 rounded-lg border border-border">
-          <table className="min-w-full text-xs">
-            <thead>
-              <tr className="bg-[#0f3460] text-white">
-                {seg.headers.map((h, j) => (
-                  <th key={j} className="px-3 py-2 text-left font-semibold border-r border-[#1a4a7a] last:border-0 whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {seg.rows.map((row, ri) => (
-                <tr key={ri} className={ri % 2 === 0 ? "bg-background" : "bg-slate-50 dark:bg-slate-900/40"}>
-                  {row.map((cell, ci) => (
-                    <td key={ci} className="px-3 py-1.5 border-r border-border last:border-0 whitespace-nowrap">{cell}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )
-    }
-    return <span key={i} className="whitespace-pre-wrap">{seg.text}</span>
-  })
+// ── Rich markdown rendering ───────────────────────────────────────
+//
+// Replaces the prior table-only renderer with a full GFM markdown
+// pipeline (react-markdown + remark-gfm). Element-level component
+// overrides preserve the existing navy-branded styling for tables
+// and add professional treatment for headings, lists, blockquotes,
+// inline/block code, links, and horizontal rules.
+//
+// Style rationale:
+//   - Headings stair-step (H1 18px → H4 13px) with a subtle navy
+//     accent so multi-section LLM replies scan cleanly.
+//   - Lists get tight spacing and proper indentation; nested lists
+//     inherit the same treatment via Tailwind's `ml-` utilities.
+//   - Code blocks render in a slate background with a 2px navy
+//     left border, matching the assistant bubble's visual language.
+//   - Inline code uses the same accent at smaller scale.
+//   - Tables retain the #0f3460 navy header from before, with
+//     zebra striping that respects light/dark mode.
+//   - Footer perf-metric line (`---\n_…_`) becomes a muted italic
+//     blockquote-style rule via the <hr> + emphasized-paragraph
+//     treatment, reading as production-quality reportage.
+function renderContent(content: string): React.ReactNode {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children }) => (
+          <h1 className="text-lg font-bold text-[#0f3460] dark:text-blue-300 mt-3 mb-2 pb-1 border-b border-slate-200 dark:border-slate-700">
+            {children}
+          </h1>
+        ),
+        h2: ({ children }) => (
+          <h2 className="text-base font-bold text-[#0f3460] dark:text-blue-300 mt-3 mb-1.5">{children}</h2>
+        ),
+        h3: ({ children }) => (
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mt-2.5 mb-1">{children}</h3>
+        ),
+        h4: ({ children }) => (
+          <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mt-2 mb-1">{children}</h4>
+        ),
+        p: ({ children }) => (
+          <p className="my-2 leading-relaxed text-slate-800 dark:text-slate-200">{children}</p>
+        ),
+        ul: ({ children }) => (
+          <ul className="my-2 ml-5 list-disc space-y-1 text-slate-800 dark:text-slate-200 marker:text-[#0f3460] dark:marker:text-blue-400">
+            {children}
+          </ul>
+        ),
+        ol: ({ children }) => (
+          <ol className="my-2 ml-5 list-decimal space-y-1 text-slate-800 dark:text-slate-200 marker:text-[#0f3460] marker:font-semibold dark:marker:text-blue-400">
+            {children}
+          </ol>
+        ),
+        li: ({ children }) => <li className="leading-relaxed pl-1">{children}</li>,
+        strong: ({ children }) => (
+          <strong className="font-semibold text-slate-900 dark:text-white">{children}</strong>
+        ),
+        em: ({ children }) => <em className="italic">{children}</em>,
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#0f3460] dark:text-blue-400 underline underline-offset-2 hover:opacity-80"
+          >
+            {children}
+          </a>
+        ),
+        blockquote: ({ children }) => (
+          <blockquote className="my-2 border-l-4 border-[#0f3460] dark:border-blue-500 bg-slate-50 dark:bg-slate-900/40 pl-3 pr-2 py-1 italic text-slate-700 dark:text-slate-300">
+            {children}
+          </blockquote>
+        ),
+        hr: () => <hr className="my-3 border-t border-slate-200 dark:border-slate-700" />,
+        code: ({ className, children, ...props }) => {
+          const isInline = !className?.includes("language-")
+          if (isInline) {
+            return (
+              <code
+                className="rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[0.85em] font-mono text-[#0f3460] dark:text-blue-300"
+                {...props}
+              >
+                {children}
+              </code>
+            )
+          }
+          return (
+            <code className={`${className} font-mono text-xs`} {...props}>
+              {children}
+            </code>
+          )
+        },
+        pre: ({ children }) => (
+          <pre className="my-2 overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700 border-l-2 border-l-[#0f3460] dark:border-l-blue-500 bg-slate-50 dark:bg-slate-900/60 p-3 text-xs leading-relaxed">
+            {children}
+          </pre>
+        ),
+        table: ({ children }) => (
+          <div className="overflow-x-auto my-3 rounded-lg border border-border">
+            <table className="min-w-full text-xs border-collapse">{children}</table>
+          </div>
+        ),
+        thead: ({ children }) => <thead>{children}</thead>,
+        tbody: ({ children }) => <tbody>{children}</tbody>,
+        tr: ({ children, ...props }) => {
+          // remark-gfm marks header rows by placing them inside <thead>.
+          // We don't have access to that context here, so apply zebra
+          // striping via :nth-child in a wrapper class; header styling
+          // is keyed off the parent <thead> via descendant selectors
+          // expressed as Tailwind utilities on <th>/<td> below.
+          return <tr className="border-b border-border last:border-0 even:bg-slate-50 dark:even:bg-slate-900/40" {...props}>{children}</tr>
+        },
+        th: ({ children, style }) => (
+          <th
+            style={style}
+            className="bg-[#0f3460] text-white px-3 py-2 text-left font-semibold border-r border-[#1a4a7a] last:border-0 whitespace-nowrap"
+          >
+            {children}
+          </th>
+        ),
+        td: ({ children, style }) => (
+          <td
+            style={style}
+            className="px-3 py-1.5 border-r border-border last:border-0 align-top"
+          >
+            {children}
+          </td>
+        ),
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  )
 }
 
 // ── PDF helpers ───────────────────────────────────────────────────
@@ -118,38 +197,167 @@ function markdownTableToHtml(block: string): string | null {
   return `<table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>`
 }
 
+// Inline markdown → HTML: bold, italic, inline code, links.
+// Order matters: code first (so its contents aren't re-processed for
+// bold/italic), then bold, italic, then links.
+function inlineMarkdownToHtml(s: string): string {
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  // Snapshot inline code spans so their bodies aren't re-processed.
+  const codeSpans: string[] = []
+  let out = esc(s).replace(/`([^`]+)`/g, (_m, body: string) => {
+    const idx = codeSpans.push(body) - 1
+    return ` CODE${idx} `
+  })
+  // Bold (** or __), then italic (* or _) — non-greedy so adjacent
+  // emphasis doesn't merge. Single underscores inside words (e.g.
+  // table_name) are protected by requiring word-boundary on the
+  // opening token.
+  out = out.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+  out = out.replace(/__([^_\n]+)__/g, "<strong>$1</strong>")
+  out = out.replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+  out = out.replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>")
+  // Links: [text](url)
+  out = out.replace(
+    /\[([^\]]+)\]\(([^)\s]+)\)/g,
+    '<a href="$2">$1</a>',
+  )
+  // Restore code spans last (already escaped at the top, just wrap).
+  out = out.replace(/ CODE(\d+) /g, (_m, i: string) => `<code>${codeSpans[Number(i)]}</code>`)
+  return out
+}
+
+// Block-level markdown → HTML for the PDF export. Mirrors the
+// in-app react-markdown renderer (headings, lists, blockquotes,
+// fenced code, hr, tables) with print-tuned styling defined in
+// buildPdfHtml's <style>. Conservative scope on purpose: this is
+// not a full CommonMark implementation, only what LLMs actually
+// emit in practice.
 function convertContentForPdf(content: string): string {
-  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   const lines = content.split("\n")
   let html = ""
-  let tableBuf: string[] = []
-  let textBuf: string[] = []
 
-  const flushText = () => {
-    if (textBuf.length) {
-      const t = textBuf.join("\n").trim()
-      if (t) html += `<p>${esc(t)}</p>`
-      textBuf = []
+  let i = 0
+  // Paragraph + table buffers (existing behavior, preserved).
+  let para: string[] = []
+  let tableBuf: string[] = []
+
+  const flushPara = () => {
+    if (para.length) {
+      const t = para.join("\n").trim()
+      if (t) html += `<p>${inlineMarkdownToHtml(t)}</p>`
+      para = []
     }
   }
   const flushTable = () => {
     if (tableBuf.length) {
       const tableHtml = markdownTableToHtml(tableBuf.join("\n"))
-      if (tableHtml) { flushText(); html += tableHtml }
-      else textBuf.push(...tableBuf)
+      if (tableHtml) {
+        flushPara()
+        html += tableHtml
+      } else {
+        para.push(...tableBuf)
+      }
       tableBuf = []
     }
   }
 
-  for (const line of lines) {
+  while (i < lines.length) {
+    const raw = lines[i]
+    const line = raw.trimEnd()
     const t = line.trim()
-    if (t.startsWith("|") && t.endsWith("|") && t.length > 1) {
-      flushText(); tableBuf.push(line)
-    } else {
-      flushTable(); textBuf.push(line)
+
+    // Fenced code block ```lang ... ```
+    if (t.startsWith("```")) {
+      flushPara(); flushTable()
+      i++
+      const codeLines: string[] = []
+      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+        codeLines.push(lines[i])
+        i++
+      }
+      i++ // consume closing fence
+      const escaped = codeLines.join("\n")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+      html += `<pre><code>${escaped}</code></pre>`
+      continue
     }
+
+    // Heading
+    const headingMatch = /^(#{1,6})\s+(.+)$/.exec(t)
+    if (headingMatch) {
+      flushPara(); flushTable()
+      const level = headingMatch[1].length
+      html += `<h${level}>${inlineMarkdownToHtml(headingMatch[2])}</h${level}>`
+      i++
+      continue
+    }
+
+    // Horizontal rule
+    if (/^(---+|\*\*\*+|___+)$/.test(t)) {
+      flushPara(); flushTable()
+      html += "<hr/>"
+      i++
+      continue
+    }
+
+    // Blockquote
+    if (t.startsWith("> ")) {
+      flushPara(); flushTable()
+      const quoteLines: string[] = []
+      while (i < lines.length && lines[i].trim().startsWith("> ")) {
+        quoteLines.push(lines[i].trim().slice(2))
+        i++
+      }
+      html += `<blockquote>${inlineMarkdownToHtml(quoteLines.join(" "))}</blockquote>`
+      continue
+    }
+
+    // Unordered list
+    if (/^[-*+]\s+/.test(t)) {
+      flushPara(); flushTable()
+      const items: string[] = []
+      while (i < lines.length && /^[-*+]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^[-*+]\s+/, ""))
+        i++
+      }
+      html += `<ul>${items.map((x) => `<li>${inlineMarkdownToHtml(x)}</li>`).join("")}</ul>`
+      continue
+    }
+
+    // Ordered list
+    if (/^\d+[.)]\s+/.test(t)) {
+      flushPara(); flushTable()
+      const items: string[] = []
+      while (i < lines.length && /^\d+[.)]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^\d+[.)]\s+/, ""))
+        i++
+      }
+      html += `<ol>${items.map((x) => `<li>${inlineMarkdownToHtml(x)}</li>`).join("")}</ol>`
+      continue
+    }
+
+    // Table row (existing behavior, unchanged)
+    if (t.startsWith("|") && t.endsWith("|") && t.length > 1) {
+      flushPara()
+      tableBuf.push(line)
+      i++
+      continue
+    }
+
+    // Plain paragraph: blank line ends current paragraph
+    if (t === "") {
+      flushPara(); flushTable()
+      i++
+      continue
+    }
+    flushTable()
+    para.push(line)
+    i++
   }
-  flushTable(); flushText()
+  flushTable()
+  flushPara()
   return html
 }
 
@@ -181,11 +389,29 @@ function buildPdfHtml(chatMessages: ChatMessage[]): string {
     .label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
     .user .label { color: #2563eb; }
     .assistant .label { color: #0f3460; }
-    .bubble { padding: 14px 18px; border-radius: 8px; line-height: 1.75; word-break: break-word; }
+    .bubble { padding: 14px 18px; border-radius: 8px; line-height: 1.7; word-break: break-word; }
     .user .bubble { background: #eff6ff; border: 1px solid #bfdbfe; border-left: 4px solid #2563eb; }
     .assistant .bubble { background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #0f3460; }
-    .bubble p { margin-bottom: 8px; white-space: pre-wrap; }
+    .bubble p { margin-bottom: 8px; }
     .bubble p:last-child { margin-bottom: 0; }
+    .bubble h1, .bubble h2, .bubble h3, .bubble h4 { color: #0f3460; font-weight: 700; margin: 14px 0 6px 0; line-height: 1.3; }
+    .bubble h1 { font-size: 17px; padding-bottom: 4px; border-bottom: 1px solid #cbd5e1; }
+    .bubble h2 { font-size: 15px; }
+    .bubble h3 { font-size: 13.5px; color: #1e293b; }
+    .bubble h4 { font-size: 13px; color: #334155; }
+    .bubble h1:first-child, .bubble h2:first-child, .bubble h3:first-child, .bubble h4:first-child { margin-top: 0; }
+    .bubble ul, .bubble ol { margin: 8px 0 8px 24px; padding-left: 8px; }
+    .bubble li { margin-bottom: 4px; line-height: 1.65; }
+    .bubble ul li::marker { color: #0f3460; }
+    .bubble ol li::marker { color: #0f3460; font-weight: 600; }
+    .bubble strong { color: #0f172a; font-weight: 600; }
+    .bubble em { font-style: italic; color: #1e293b; }
+    .bubble a { color: #0f3460; text-decoration: underline; text-underline-offset: 2px; }
+    .bubble code { background: #e2e8f0; color: #0f3460; padding: 1px 5px; border-radius: 3px; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 11.5px; }
+    .bubble pre { margin: 10px 0; padding: 10px 12px; background: #f1f5f9; border: 1px solid #e2e8f0; border-left: 2px solid #0f3460; border-radius: 4px; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 11px; line-height: 1.55; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+    .bubble pre code { background: none; color: inherit; padding: 0; border-radius: 0; font-size: inherit; }
+    .bubble blockquote { margin: 10px 0; padding: 4px 12px; background: #f8fafc; border-left: 3px solid #0f3460; color: #475569; font-style: italic; border-radius: 0 4px 4px 0; }
+    .bubble hr { border: none; border-top: 1px solid #cbd5e1; margin: 12px 0; }
     table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
     thead tr { background: #0f3460; color: white; }
     thead th { padding: 8px 12px; text-align: left; font-weight: 600; border-right: 1px solid #1a4a7a; }
@@ -966,8 +1192,16 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
               )}
               {chatMessages.map((m, i) => (
                 <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"}`}>
-                    {renderContent(m.content)}
+                  <div
+                    className={
+                      m.role === "user"
+                        // User: keep simple white-on-navy bubble, no markdown.
+                        ? "max-w-[80%] rounded-lg px-4 py-2 text-sm bg-primary text-primary-foreground whitespace-pre-wrap"
+                        // Assistant: wider bubble + Tailwind prose-style polish for rich markdown.
+                        : "max-w-[88%] rounded-lg px-5 py-3 text-sm bg-muted text-foreground border border-slate-200/60 dark:border-slate-700/60 shadow-sm"
+                    }
+                  >
+                    {m.role === "user" ? m.content : renderContent(m.content)}
                   </div>
                 </div>
               ))}
