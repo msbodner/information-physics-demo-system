@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { ArrowLeft, ArrowRight, Settings, Upload, Download, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,7 +12,26 @@ export function PdfImportView({ onBack, onSysAdmin, onImportCsv }: { onBack: () 
   const [isProcessing, setIsProcessing] = useState(false)
   const [result, setResult] = useState<PdfExtractResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [processingFile, setProcessingFile] = useState<{ name: string; sizeMB: number; estimatedChunks: number } | null>(null)
+  const [elapsedSec, setElapsedSec] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Live elapsed-time counter during processing. Resets when isProcessing
+  // flips false. The backend has no SSE channel, so this is a UX-only
+  // signal showing the user the request is alive — not a real progress
+  // bar. Page-count estimate ≈ filesize / 50KB per page (rough rule of
+  // thumb for text-PDFs); chunk estimate = ceil(pages / 100).
+  useEffect(() => {
+    if (!isProcessing) {
+      setElapsedSec(0)
+      return
+    }
+    const t0 = Date.now()
+    const id = setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - t0) / 1000))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [isProcessing])
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.name.toLowerCase().endsWith(".pdf")) {
@@ -22,8 +41,17 @@ export function PdfImportView({ onBack, onSysAdmin, onImportCsv }: { onBack: () 
     setIsProcessing(true)
     setError(null)
     setResult(null)
+    const sizeMB = file.size / 1_048_576
+    // Heuristic: avg ~50KB per page for text-heavy PDFs. Caps at 1
+    // chunk for tiny files. This is intentionally rough — gives users
+    // a "this is going to take ~N minutes" expectation, not a precise
+    // forecast.
+    const estimatedPages = Math.max(1, Math.round(file.size / 51200))
+    const estimatedChunks = Math.max(1, Math.ceil(estimatedPages / 100))
+    setProcessingFile({ name: file.name, sizeMB, estimatedChunks })
     const data = await extractPdfToCsv(file)
     setIsProcessing(false)
+    setProcessingFile(null)
     if (!data) {
       setError("Backend unreachable. Check that the API service is running.")
       return
@@ -119,10 +147,37 @@ export function PdfImportView({ onBack, onSysAdmin, onImportCsv }: { onBack: () 
         {/* Processing */}
         {isProcessing && (
           <Card>
-            <CardContent className="py-16 text-center">
+            <CardContent className="py-12 text-center">
               <Loader2 className="w-12 h-12 mx-auto mb-4 text-primary animate-spin" />
-              <p className="text-lg font-medium text-foreground mb-2">Analyzing PDF with Claude AI...</p>
-              <p className="text-sm text-muted-foreground">Extracting structured data and building CSV. This may take a moment.</p>
+              <p className="text-lg font-medium text-foreground mb-1">Analyzing PDF with Claude AI…</p>
+              {processingFile && (
+                <p className="text-sm text-muted-foreground mb-4">
+                  <span className="font-mono">{processingFile.name}</span>
+                  {" · "}
+                  {processingFile.sizeMB.toFixed(1)} MB
+                  {processingFile.estimatedChunks > 1 && (
+                    <>
+                      {" · "}~{processingFile.estimatedChunks} chunks (100 pages each)
+                    </>
+                  )}
+                </p>
+              )}
+              <div className="inline-flex items-center gap-3 px-4 py-2 rounded-md border border-border bg-muted/40">
+                <div className="text-2xl font-mono font-semibold tabular-nums text-foreground">
+                  {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, "0")}
+                </div>
+                <div className="text-xs text-muted-foreground text-left">
+                  elapsed
+                  {processingFile && processingFile.estimatedChunks > 1 && (
+                    <div>typical: ~{processingFile.estimatedChunks * 45}s for this size</div>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-5 max-w-md mx-auto">
+                {processingFile && processingFile.estimatedChunks > 1
+                  ? "Large PDFs are split into 100-page chunks and processed sequentially. Each chunk takes ~30–60s on Claude. The request is still alive — please don't close this tab."
+                  : "Extracting structured data and building CSV. Typical time: 15–45s."}
+              </p>
             </CardContent>
           </Card>
         )}

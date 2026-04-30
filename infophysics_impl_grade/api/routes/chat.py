@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import unquote
 
@@ -1575,9 +1576,22 @@ async def pdf_extract(file: UploadFile = File(...)):
     canonical_headers: list[str] = []
     all_data_rows: list[list[str]] = []
 
+    overall_start = time.time()
+    logger.info(
+        "PDF extraction starting: file=%s pages=%d chunks=%d (%d pages/chunk max)",
+        file.filename, total_pages, len(chunk_ranges), MAX_PAGES_PER_CALL,
+    )
+
     for idx, (start, end) in enumerate(chunk_ranges):
+        chunk_label = f"chunk {idx+1}/{len(chunk_ranges)} (pages {start+1}-{end})"
+        logger.info("PDF extraction: %s — splitting + base64 encoding…", chunk_label)
+        chunk_t0 = time.time()
         chunk_bytes = _split_pdf(start, end) if len(chunk_ranges) > 1 else pdf_bytes
         chunk_b64 = base64.standard_b64encode(chunk_bytes).decode("utf-8")
+        logger.info(
+            "PDF extraction: %s — calling Claude (chunk_bytes=%.1fMB, b64=%.1fMB)…",
+            chunk_label, len(chunk_bytes) / 1_048_576, len(chunk_b64) / 1_048_576,
+        )
 
         if canonical_headers:
             sys_prompt = base_system_prompt + (
@@ -1635,6 +1649,11 @@ async def pdf_extract(file: UploadFile = File(...)):
             chunk_csv = "\n".join(lines).strip()
 
         chunk_rows = list(csv_mod.reader(io.StringIO(chunk_csv)))
+        chunk_elapsed = time.time() - chunk_t0
+        logger.info(
+            "PDF extraction: %s — done in %.1fs, %d rows extracted",
+            chunk_label, chunk_elapsed, max(0, len(chunk_rows) - 1),
+        )
         if not chunk_rows:
             continue
         chunk_headers = chunk_rows[0]
@@ -1667,6 +1686,12 @@ async def pdf_extract(file: UploadFile = File(...)):
     writer.writerows(all_data_rows)
     csv_text = out_buf.getvalue().strip()
 
+    overall_elapsed = time.time() - overall_start
+    logger.info(
+        "PDF extraction COMPLETE: file=%s pages=%d chunks=%d total_rows=%d total_time=%.1fs",
+        file.filename, total_pages, len(chunk_ranges), len(all_data_rows), overall_elapsed,
+    )
+
     return {
         "csv_text": csv_text,
         "headers": canonical_headers,
@@ -1675,6 +1700,7 @@ async def pdf_extract(file: UploadFile = File(...)):
         "filename": file.filename,
         "page_count": total_pages,
         "chunk_count": len(chunk_ranges),
+        "elapsed_seconds": round(overall_elapsed, 1),
     }
 
 
