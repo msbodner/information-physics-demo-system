@@ -293,7 +293,11 @@ async function runRecall(query: string): Promise<ModeResult> {
     })
     const result = await runChatPipeline(query, parsedAios, {
       maxPriors: 3,
-      maxAios: 40,
+      // V4.5 update: 40 → 200 to match the chat dialog. Benchmarks
+      // are meant to mirror real operator usage; running them with a
+      // smaller cap than the dialog itself uses would measure a path
+      // operators don't actually take.
+      maxAios: 200,
       saveMRO: false,
       // Benchmark UI must actually exercise the LLM and report real
       // tokens. Without this, every re-run of a benchmark whose

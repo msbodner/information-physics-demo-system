@@ -782,7 +782,14 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const result = await runChatPipeline(text, recallAios, {
       history,
       maxPriors: 3,
-      maxAios: 40,
+      // V4.5 update: raised from 40 → 200 to close the substrate-cap
+      // gap with Live Search's adaptive 100–300 cap. Aggregation
+      // queries ("total", "sum", "count") were systematically
+      // under-counting because 40 rows is below most real-world
+      // matched-row sets. 200 gives Recall the headroom to handle
+      // those cases while staying well under the prompt-budget
+      // ceiling. Diversity-by-CSV still applies on top.
+      maxAios: 200,
       saveMRO: true,
       // Honor the operator's "Force fresh" toggle. When enabled, the
       // pipeline skips its zero-token MRO short-circuit and runs the

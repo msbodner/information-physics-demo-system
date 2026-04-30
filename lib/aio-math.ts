@@ -726,7 +726,12 @@ export function assembleBundle(
   } = {},
 ): ContextBundle {
   const maxPriors = options.maxPriors ?? 3
-  const maxAios = options.maxAios ?? 50
+  // V4.5 update: default raised from 50 → 200. The substrate-cap
+  // mismatch with Live Search's adaptive 100–300 cap was the most
+  // common cause of Recall/Live answer divergence on aggregation
+  // queries ("total", "sum", "count"). 200 closes the gap while
+  // staying well under typical prompt budgets.
+  const maxAios = options.maxAios ?? 200
 
   // Step 2 — HSL traversal
   const { matches, hslNames } = traverseHSL(cueSet, aios)

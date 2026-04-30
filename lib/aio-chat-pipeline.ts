@@ -467,7 +467,10 @@ export async function runChatPipeline(
 
   const bundle = assembleBundle(cues, scopedAios, priorMROs, {
     maxPriors: options.maxPriors ?? 3,
-    maxAios: options.maxAios ?? 50,
+    // V4.5 update: default raised from 50 → 200 so callers that
+    // don't specify maxAios get the same headroom the chat dialog
+    // now uses. Diversity-by-CSV still applies on top.
+    maxAios: options.maxAios ?? 200,
     hslBoost,
     // P0b — when we have HSL coverage, treat membership as a hard filter,
     // not just a soft boost. assembleBundle falls back gracefully when
