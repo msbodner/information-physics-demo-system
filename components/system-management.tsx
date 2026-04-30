@@ -4162,6 +4162,13 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
                       {
+                        embed: "/docs/Recall_vs_Live_Decision_Guide_V45.docx",
+                        icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
+                        title: "Recall vs. Live — Operator Decision Guide (V4.5)",
+                        desc: "Plain-English decision guide for ChatAIO operators. Explains the four mechanisms by which Recall and Live can return different answers (substrate-cap mismatch, MRO short-circuit replay, cue-extraction divergence, diversity-cap timing), documents Live Search's MRO consultation via [MRO.<uuid>] back-pointers in HSL element slots, and provides a question-shape decision matrix plus three verification recipes. Subject to NDA on file.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
+                      {
                         embed: "/docs/Live_vs_Recall_Search_Technical_Report.docx",
                         icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
                         title: "Technical Report — Live vs. Recall (Measured)",
