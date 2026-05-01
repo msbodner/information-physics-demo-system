@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye, Sparkles } from "lucide-react"
-import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, listSavedPrompts, createSavedPrompt, listMroObjects, getMroObject, createMroObject, listAioData, listHslKeyValuePairs, findHslsByNeedlesFull, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type HslKeyValuePair, type AioSearchStreamMeta } from "@/lib/api-client"
+import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, aioSearchParse, listSavedPrompts, createSavedPrompt, listMroObjects, getMroObject, createMroObject, listAioData, listHslKeyValuePairs, findHslsByNeedlesFull, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type HslKeyValuePair, type AioSearchStreamMeta } from "@/lib/api-client"
 import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
@@ -808,7 +808,50 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       cachedMros: recallCache?.mros,
       hslCatalog,
       resolveHsls: async (cueValues, signal) => {
-        const rows = await findHslsByNeedlesFull(cueValues, { signal })
+        // Thorough mode (V4.5+):
+        //   1. LLM parse augmentation — call /api/op/aio-search-parse to
+        //      get Live-quality semantic normalization (typo correction,
+        //      synonym expansion). Merge the field_values + keywords from
+        //      the LLM into the cue list so Recall probes the same needles
+        //      Live would.
+        //   2. Lower trigram threshold (0.30 → 0.20) so loose matches like
+        //      "Perkins Will" → "Perkins & Will" fire.
+        //   3. Combined with the backend's bidirectional substring fallback
+        //      (V4.5), this catches token-break and short-cue cases trigram
+        //      alone misses.
+        let augmentedCues = cueValues
+        if (thoroughRecall) {
+          try {
+            const parse = await aioSearchParse(next, { signal })
+            if (parse && !("error" in parse)) {
+              const fvVals = (parse.search_terms.field_values ?? [])
+                .map((fv) => (fv?.value ?? "").trim()).filter(Boolean)
+              const kwVals = (parse.search_terms.keywords ?? [])
+                .map((k) => (k ?? "").trim()).filter(Boolean)
+              const seen = new Set(cueValues.map((v) => v.toLowerCase()))
+              const extra: string[] = []
+              for (const v of [...fvVals, ...kwVals]) {
+                if (v.length < 3) continue
+                if (seen.has(v.toLowerCase())) continue
+                seen.add(v.toLowerCase())
+                extra.push(v)
+              }
+              if (extra.length > 0) {
+                augmentedCues = [...cueValues, ...extra]
+                console.info(
+                  "Thorough Recall: LLM parse augmented cue set with %d extra needles",
+                  extra.length, extra,
+                )
+              }
+            }
+          } catch {
+            // Non-fatal — fall back to deterministic cues only.
+          }
+        }
+        const rows = await findHslsByNeedlesFull(augmentedCues, {
+          signal,
+          ...(thoroughRecall ? { similarity: 0.20 } : {}),
+        })
         // Side-channel: stash the rows for the meta-line renderer.
         queryHsls.length = 0
         queryHsls.push(...rows)

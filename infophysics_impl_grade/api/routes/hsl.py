@@ -383,16 +383,46 @@ def find_hsls_by_needles_full(
                 if payload.similarity is not None:
                     sim = max(0.05, min(0.95, float(payload.similarity)))
                     cur.execute("SELECT set_limit(%s)", (sim,))
-                # Trigram similarity per-cue, then DISTINCT across the
-                # whole cue list. Slightly slower than the equality
-                # path but uses the GIN index from migration 031.
+                # V4.5: trigram + bidirectional substring fallback.
+                #
+                # Three OR'd predicates per cue, all using the same
+                # `value_lower` column:
+                #
+                #   (a) `value_lower %% :v` — pg_trgm similarity
+                #       above set_limit. GIN-indexed (mig 031). Catches
+                #       "Mitchel" ↔ "Mitchell", "Texis" ↔ "Texas".
+                #
+                #   (b) `value_lower LIKE '%' || :v || '%'` — forward
+                #       substring. Catches the cue inside a longer
+                #       stored value: "Electric" ↔ "Electrical Service".
+                #
+                #   (c) `:v LIKE '%' || value_lower || '%'` — reverse
+                #       substring. Catches a stored value inside the
+                #       cue: "Tex" cue with "Texas" stored only fires
+                #       (b); but "Sarah Mitchell Smith" cue against a
+                #       stored "Mitchell" fires (c). Symmetric coverage.
+                #
+                # Bidirectional substring fills the gaps trigram leaves
+                # on (i) very short cues — trigram needs ≥3 chars to
+                # have meaningful overlap — and (ii) cues with token-
+                # break characters like "&" or "+" that wreck trigram
+                # similarity even when the human reading would call
+                # them obvious matches ("Perkins Will" → "Perkins &
+                # Will").
+                like_predicates = " OR ".join(
+                    "value_lower %% %s OR value_lower ILIKE %s OR %s ILIKE '%%' || value_lower || '%%'"
+                    for _ in values
+                )
+                params: List[object] = []
+                for v in values:
+                    params.extend([v, f"%{v}%", v])
                 cur.execute(
-                    """
+                    f"""
                     SELECT DISTINCT hsl_id FROM information_element_refs
                      WHERE hsl_id IS NOT NULL
-                       AND value_lower %% ANY(%s)
+                       AND ({like_predicates})
                     """,
-                    (values,),
+                    params,
                 )
             else:
                 cur.execute(

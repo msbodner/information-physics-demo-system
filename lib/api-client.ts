@@ -210,6 +210,43 @@ export async function aioSearchChat(
   }
 }
 
+// ── V4.5+ — Parse-only endpoint for Thorough Recall ───────────────────────
+//
+// Returns just the LLM-extracted search_terms for a query. Used by Recall
+// Search in Thorough mode to import Live's semantic normalization
+// (typo correction, synonym expansion) without paying for a full
+// aio-search synthesis call.
+
+export interface AioSearchParseResponse {
+  search_terms: { field_values?: { field: string; value: string }[]; keywords?: string[] }
+  parse_cache_hit: boolean
+  input_tokens: number
+  output_tokens: number
+  model_ref: string
+}
+
+export async function aioSearchParse(
+  messages: ChatMessage[],
+  opts: { signal?: AbortSignal } = {},
+): Promise<AioSearchParseResponse | { error: string } | null> {
+  try {
+    const res = await fetch("/api/op/aio-search-parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      const detail: string = body?.detail ?? body?.error ?? `HTTP ${res.status}`
+      return { error: detail }
+    }
+    return res.json() as Promise<AioSearchParseResponse>
+  } catch {
+    return null
+  }
+}
+
 // ── Streaming variants (SSE) ──────────────────────────────────────────────
 // The /stream endpoints emit Server-Sent Events:
 //   event: text\n data: <json string>\n\n   — token chunks

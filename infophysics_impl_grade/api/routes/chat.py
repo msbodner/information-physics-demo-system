@@ -72,22 +72,42 @@ router = APIRouter()
 #     "aios":    [{ file, raw }, ...]
 #   }
 _SUBSTRATE_SYSTEM_PROMPT = (
-    "You are ChatAIO, an analyst for Information Physics data.\n"
+    "You are ChatAIO, an intelligent analyst for Information Physics data. "
     "You receive a JSON SUBSTRATE assembled by the Paper III pipeline:\n"
-    "  cues: extracted [Key.Value] cues\n"
-    "  priors: similar past episodes — framing only, never ground truth\n"
-    "  hsl_neighborhoods: HSLs traversed\n"
-    "  aios: direct evidence — each {file, raw}; ground every claim here\n"
-    "Cite the `file` field when referencing a record.\n"
-    "If `aios` is insufficient to answer, say so clearly.\n\n"
-    "RECALL, NOT FILTER: `aios` is a candidate neighborhood; it is not "
-    "pre-filtered against the question's semantics. Apply the user's filter "
-    "criteria and DROP non-matching records — do not list them with a red X, "
-    "❌, or other rejection annotation. Parse numeric thresholds (\"over "
-    "$10M\", \"after 2020\") and exclude records that fail. Treat records "
-    "missing the needed field as non-matching. Counts, totals, and "
-    "percentages must reflect only surviving records. State the filter "
-    "applied in one short sentence and the qualifying count.\n\n"
+    "  cues:               extracted [Key.Value] cues\n"
+    "  priors:             similar past episodes — framing only, never ground truth\n"
+    "  hsl_neighborhoods:  HSLs traversed\n"
+    "  aios:               direct evidence — each {file, raw}; ground every claim here\n"
+    "Each AIO record uses bracket notation: [Key.Value][Key2.Value2]... "
+    "MRO priors summarise earlier answers — treat them as framing, not ground "
+    "truth; re-ground any claims in the AIO evidence when answering. "
+    "Cite the `file` field when referencing a record.\n\n"
+    "CRITICAL — RETRIEVAL IS RECALL, NOT FILTER:\n"
+    "The provided records are a *candidate set* surfaced by keyword/HSL "
+    "matching. They are NOT pre-filtered against the semantic intent of the "
+    "question. Before answering, you MUST apply the user's filter criteria "
+    "yourself and EXCLUDE records that do not satisfy them. In particular:\n"
+    "  • Numeric comparators (\"over $10M\", \"after 2020\", \"between X and Y\", "
+    "\"at least 5\"): parse the threshold from the user's question, parse the "
+    "corresponding value from each candidate record, and DROP records that fail "
+    "the comparison. Do not list them. Do not mark them with a red X, ❌, "
+    "\"(does not match)\", or any other rejection annotation — just omit them.\n"
+    "  • Categorical filters (\"completed projects\", \"vendors in Texas\"): "
+    "drop records whose category field doesn't match.\n"
+    "  • Fuzzy / typo-tolerant cues (\"Sara Mitchel\", \"Texis\", "
+    "\"Perkins Will\"): the substrate already includes records resolved via "
+    "trigram and substring fallback. When the user asks you to cite \"the exact "
+    "stored value alongside the typo'd cue\", do so — show the actual value "
+    "from the AIO record next to the user's typo'd cue so the resolution is "
+    "visible. Do not invent matches; only cite what is in the substrate.\n"
+    "  • If a candidate record is missing the field needed to evaluate the "
+    "filter, treat it as non-matching and omit it (do not assume it qualifies).\n"
+    "Your final list, count, total, and percentage must reflect ONLY the "
+    "records that survive the filter. State the filter you applied in one "
+    "short sentence (e.g., \"Filter: Architect ≈ Perkins & Will\") and the "
+    "count of records that qualified. If zero records qualify, say so plainly.\n\n"
+    "When computing totals or breakdowns, show your work step by step. "
+    "Be concise and precise. If `aios` is insufficient to answer, say so.\n\n"
     "SUBSTRATE:\n"
 )
 
@@ -1505,6 +1525,125 @@ def aio_search(
         applied_filters=prep.get("applied_filters") or None,
         exclusions=prep.get("exclusions") or [],
     )
+
+
+# ── Parse-only endpoint (V4.5+) ──────────────────────────────────
+#
+# Exposes just Phase 1 of aio-search (the LLM-driven query → search_terms
+# parse) as a standalone endpoint. Recall Search calls this in Thorough
+# mode to augment its deterministic cue extraction with Live-quality
+# semantic normalization — typo correction, synonym recognition,
+# token-break handling — without paying for the full aio-search
+# synthesis (Phases 2–4).
+#
+# Returns the same `search_terms` shape that AioSearchResponse carries,
+# so the caller can convert each `field_values` entry into an
+# ElementCue and merge with extractCues output. The parse-cache lookup
+# is reused, so a Thorough Recall hitting a recently-parsed query pays
+# zero LLM tokens for this step.
+
+class AioSearchParseRequest(BaseModel):
+    messages: List[ChatMessage]
+
+
+class AioSearchParseResponse(BaseModel):
+    search_terms: Dict[str, Any]
+    parse_cache_hit: bool = False
+    input_tokens: int = 0
+    output_tokens: int = 0
+    model_ref: str
+
+
+@router.post("/v1/op/aio-search-parse", response_model=AioSearchParseResponse)
+def aio_search_parse(
+    payload: AioSearchParseRequest,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """LLM parse phase only — returns structured search_terms.
+
+    Used by Thorough Recall to import Live-quality cue normalization
+    without running the full aio-search pipeline.
+    """
+    if not payload.messages:
+        raise HTTPException(status_code=400, detail="messages must not be empty")
+    api_key = get_effective_api_key()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
+
+    tenant = x_tenant_id or "tenantA"
+    user_prompt = payload.messages[-1].content
+
+    # ── known_fields (Phase 1 prelude) ──
+    known_fields: List[str] = []
+    try:
+        with db() as conn:
+            set_tenant(conn, tenant)
+            with conn.cursor() as cur:
+                cur.execute("SELECT field_name FROM information_elements ORDER BY aio_count DESC LIMIT 50")
+                known_fields = [r[0] for r in cur.fetchall()]
+    except Exception:
+        pass
+
+    parse_system = (
+        "You are a search term extractor for AIO bracket-notation data. "
+        "AIO records use [FieldName.Value] format. "
+        f"Known field names in this dataset: {', '.join(known_fields)}. "
+        "Given a user's question, extract structured search terms. "
+        "When the question contains typos or partial spellings (\"Sara Mitchel\", "
+        "\"Texis\", \"Perkins Will\"), normalize them to the closest plausible "
+        "value from the dataset. When the question contains synonyms or "
+        "category words (\"Electric\" for electrical work, \"manager\" for "
+        "ProjectManager), expand them to relevant variants. "
+        "Return ONLY valid JSON with no other text: "
+        '{"field_values": [{"field": "FieldName", "value": "SearchValue"}], '
+        '"keywords": ["free text search term", ...]}'
+    )
+
+    # Reuse the parse-cache so Thorough Recall pays nothing on a re-run.
+    cached = _qcache.lookup(tenant, "aio-search-parse", user_prompt)
+    if cached:
+        try:
+            search_terms = json.loads(cached.answer_text)
+            return AioSearchParseResponse(
+                search_terms=search_terms,
+                parse_cache_hit=True,
+                input_tokens=0, output_tokens=0,
+                model_ref=get_parse_model(),
+            )
+        except Exception:
+            pass
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    parse_model = get_parse_model()
+    try:
+        resp = client.messages.create(
+            model=parse_model,
+            max_tokens=500,
+            system=[{"type": "text", "text": parse_system, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        raw_json = resp.content[0].text.strip()
+        if raw_json.startswith("```"):
+            raw_json = raw_json.split("```")[1]
+            if raw_json.startswith("json"):
+                raw_json = raw_json[4:]
+        search_terms = json.loads(raw_json)
+        in_tok = getattr(resp.usage, "input_tokens", 0) or 0
+        out_tok = getattr(resp.usage, "output_tokens", 0) or 0
+        try:
+            _qcache.store(tenant, "aio-search-parse", user_prompt, json.dumps(search_terms), parse_model)
+        except Exception:
+            pass
+        return AioSearchParseResponse(
+            search_terms=search_terms,
+            parse_cache_hit=False,
+            input_tokens=in_tok, output_tokens=out_tok,
+            model_ref=parse_model,
+        )
+    except Exception as exc:
+        logger.exception("aio-search-parse failed")
+        raise HTTPException(status_code=502, detail=f"Parse failed: {exc}")
 
 
 @router.post("/v1/op/pdf-extract")
