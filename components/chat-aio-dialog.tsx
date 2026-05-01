@@ -34,6 +34,24 @@ function asErrorString(e: unknown): string {
   return String(e)
 }
 
+// ── Pane header for assistant replies ─────────────────────────────
+//
+// Prepended to every successful assistant message so each result block
+// is self-identifying: "▸ <Search Type> · <weekday>, <date> · <time>"
+// rendered as a small italic line at the top of the bubble. The
+// suffix (-F for Force fresh, -T for Thorough) is part of the search
+// type label so the operator can see at a glance which Recall mode
+// was active for this answer.
+function makePaneHeader(searchType: string, when: Date): string {
+  const date = when.toLocaleDateString(undefined, {
+    weekday: "short", year: "numeric", month: "short", day: "numeric",
+  })
+  const time = when.toLocaleTimeString(undefined, {
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  })
+  return `▸ **${searchType}** · ${date} · ${time}\n\n`
+}
+
 // ── Markdown table parser ─────────────────────────────────────────
 
 function parseMarkdownTable(block: string): { headers: string[]; rows: string[][] } | null {
@@ -602,8 +620,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     } else {
       const inTok = result.input_tokens ?? 0
       const outTok = result.output_tokens ?? 0
-      const perfLine = `\n\n---\n_⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
-      setChatMessages([...next, { role: "assistant", content: result.reply + perfLine }])
+      const perfLine = `\n\n---\n_Broad Search · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
+      const paneHeader = makePaneHeader("Broad Search", new Date())
+      setChatMessages([...next, { role: "assistant", content: paneHeader + result.reply + perfLine }])
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "BroadSearch" })
       // Broad Search ships the first N AIOs + first M HSLs to Claude with
       // no retrieval. context_records is the combined count from the
@@ -646,8 +665,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     } else {
       const inTok = result.input_tokens ?? 0
       const outTok = result.output_tokens ?? 0
-      const perfLine = `\n\n---\n_⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens · ${result.context_records ?? 0} CSV files_`
-      setChatMessages([...next, { role: "assistant", content: result.reply + perfLine }])
+      const perfLine = `\n\n---\n_Raw Search · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens · ${result.context_records ?? 0} CSV files_`
+      const paneHeader = makePaneHeader("Raw Search", new Date())
+      setChatMessages([...next, { role: "assistant", content: paneHeader + result.reply + perfLine }])
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "RawSearch" })
       // Raw Search (Pure LLM) ships raw CSV files to Claude with no IP
       // machinery. matched_hsls / matched_aios / cue_count / neighborhood
@@ -668,9 +688,11 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
     const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
-    // Push user message + empty assistant placeholder; the placeholder
-    // gets filled incrementally as SSE text chunks arrive.
-    setChatMessages([...next, { role: "assistant", content: "" }])
+    // Pane header (search type + timestamp) — prepended to the
+    // assistant placeholder so the operator sees the header
+    // immediately, before any tokens stream in.
+    const livePaneHeader = makePaneHeader("Live Search", new Date())
+    setChatMessages([...next, { role: "assistant", content: livePaneHeader }])
     setChatInput("")
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
     setIsChatLoading(true)
@@ -688,7 +710,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     await aioSearchChatStream(next, {
       onText: (chunk) => {
         acc += chunk
-        const snap = acc
+        const snap = livePaneHeader + acc
         setChatMessages((prev) => {
           const last = prev[prev.length - 1]
           if (!last || last.role !== "assistant") return prev
@@ -719,7 +741,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const inTok = meta.input_tokens ?? 0
     const outTok = meta.output_tokens ?? 0
     const footer = `\n\n---\n_Live Search: ${meta.matched_hsls} HSLs matched · ${meta.matched_aios} AIOs in context · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
-    const finalText = acc + footer
+    const finalText = livePaneHeader + acc + footer
     setChatMessages((prev) => {
       const last = prev[prev.length - 1]
       if (!last || last.role !== "assistant") return prev
@@ -772,8 +794,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
     const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
-    // Push user message + empty assistant placeholder for streaming.
-    setChatMessages([...next, { role: "assistant", content: "" }])
+    // Pane header: search type + suffix + timestamp, prepended to the
+    // streaming placeholder so it shows immediately. Suffix mirrors
+    // the footer (-T for Thorough, -F for Force fresh).
+    const recallSuffix = thoroughRecall ? "-T" : (forceFresh ? "-F" : "")
+    const recallPaneHeader = makePaneHeader(`Recall Search${recallSuffix}`, new Date())
+    setChatMessages([...next, { role: "assistant", content: recallPaneHeader }])
     setChatInput("")
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
     setIsChatLoading(true)
@@ -899,14 +925,20 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         ? "0 HSL families"
         : `${familyCount} HSL ${familyCount === 1 ? "family" : "families"}` +
           (matchedHslNames.length > 0 ? ` (${familyTooltipNames}${familyOverflow})` : "")
+      // Recall mode suffix already captured at handler entry as
+      // `recallSuffix` (and used in `recallPaneHeader` for the streaming
+      // placeholder). Surfaces in the footer so the operator can see
+      // at a glance which knobs were active for this answer.
       const meta =
-        `\n\n---\n_Recall Search: ${result.cost.cues} cues → ` +
+        `\n\n---\n_Recall Search${recallSuffix}: ${result.cost.cues} cues → ` +
         `${familyDisplay} → ` +
         `${result.cost.neighborhood} AIOs in neighborhood · ` +
         `${result.cost.priors} priors · ` +
         `${result.mro_saved ? "MRO saved" : "MRO not saved"} · ` +
         `⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
-      setChatMessages([...next, { role: "assistant", content: result.reply + meta }])
+      // Final assistant content: pane header (already used as the
+      // streaming placeholder) + LLM reply + perf footer.
+      setChatMessages([...next, { role: "assistant", content: recallPaneHeader + result.reply + meta }])
       setLastRecallMeta({
         cues: result.cost.cues,
         neighborhood: result.cost.neighborhood,
