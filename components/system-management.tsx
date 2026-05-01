@@ -3908,11 +3908,15 @@ function ArchitecturePane() {
 interface SystemManagementProps {
   onBack: () => void
   onNavigate?: (view: string) => void
+  // Controlled tab state lifted to the parent so the active tab
+  // survives a round-trip out to a technote view.
+  activeTab?: string
+  onTabChange?: (tab: string) => void
 }
 
 const SESSION_KEY = "ipx.sysadmin.session"
 
-export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) {
+export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }: SystemManagementProps) {
   // Restore session from sessionStorage (survives reloads within the tab, cleared on tab close)
   const [authedUser, setAuthedUser] = useState<LoginResult | null>(() => {
     if (typeof window === "undefined") return null
@@ -3969,7 +3973,12 @@ export function SystemManagement({ onBack, onNavigate }: SystemManagementProps) 
 
       {/* Body: left sidebar nav + right content */}
       <div className="flex flex-1 min-h-0">
-        <Tabs defaultValue="users" orientation="vertical" className="flex flex-row flex-1 min-h-0">
+        <Tabs
+          value={activeTab ?? "users"}
+          onValueChange={onTabChange}
+          orientation="vertical"
+          className="flex flex-row flex-1 min-h-0"
+        >
 
           {/* ── Vertical sidebar ── */}
           <TabsList className="flex flex-col w-56 shrink-0 bg-slate-900 rounded-none p-3 gap-0.5 items-stretch self-stretch h-full overflow-y-auto">

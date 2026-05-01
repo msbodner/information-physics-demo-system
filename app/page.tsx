@@ -53,6 +53,10 @@ export default function HomePage() {
   // Navigation
   const [currentView, setCurrentView] = useState<View>("home")
   const [showHomeChatAIO, setShowHomeChatAIO] = useState(false)
+  // Tab last active inside System Management. Lifted to the parent so
+  // it survives a round-trip out to a technote view (References →
+  // BulkHsl → Back lands on References, not on Users).
+  const [sysAdminTab, setSysAdminTab] = useState<string>("users")
 
   // Bulk HSL Build (front-page action)
   const [isBulkBuildingHsls, setIsBulkBuildingHsls] = useState(false)
@@ -317,13 +321,17 @@ export default function HomePage() {
   if (currentView === "guide") return <UserGuide onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
   if (currentView === "workflow") return <WorkflowDescription onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
   if (currentView === "reference") return <ReferencePage onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
-  if (currentView === "paper") return <AIOReferencePaper onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
-  if (currentView === "mro-paper") return <MROReferencePaper onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
-  if (currentView === "paper-iii") return <PaperIII onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
-  if (currentView === "bulk-hsl-technote") return <BulkHslTechnote onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
-  if (currentView === "search-modes-technote") return <SearchModesTechnote onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} />
+  // Reference papers + technotes: opened only from System Management →
+  // References tab. Back routes them BACK to sysadmin (with the
+  // References tab still selected, via the lifted sysAdminTab state)
+  // rather than to home, so the user doesn't lose their place.
+  if (currentView === "paper") return <AIOReferencePaper onBack={() => setCurrentView("sysadmin")} onSysAdmin={handleSystemClick} />
+  if (currentView === "mro-paper") return <MROReferencePaper onBack={() => setCurrentView("sysadmin")} onSysAdmin={handleSystemClick} />
+  if (currentView === "paper-iii") return <PaperIII onBack={() => setCurrentView("sysadmin")} onSysAdmin={handleSystemClick} />
+  if (currentView === "bulk-hsl-technote") return <BulkHslTechnote onBack={() => setCurrentView("sysadmin")} onSysAdmin={handleSystemClick} />
+  if (currentView === "search-modes-technote") return <SearchModesTechnote onBack={() => setCurrentView("sysadmin")} onSysAdmin={handleSystemClick} />
   if (currentView === "processor") return <SemanticProcessor files={convertedFiles} downloadedFiles={downloadedFileNames} onBack={() => setCurrentView("converter")} backendIsOnline={backendIsOnline} onSysAdmin={handleSystemClick} />
-  if (currentView === "sysadmin") return <SystemManagement onBack={() => setCurrentView("home")} onNavigate={setCurrentView} />
+  if (currentView === "sysadmin") return <SystemManagement onBack={() => setCurrentView("home")} onNavigate={(v) => { setSysAdminTab("references"); setCurrentView(v) }} activeTab={sysAdminTab} onTabChange={setSysAdminTab} />
   if (currentView === "rnd") return <ResearchAndDevelopment onBack={() => setCurrentView("home")} backendIsOnline={backendIsOnline} onSysAdmin={handleSystemClick} />
   if (currentView === "pdf-import") return <PdfImportView onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} onImportCsv={(csvData) => { setConvertedFiles((prev) => [...prev, csvData]); setCurrentView("converter") }} />
   if (currentView === "search-stats") return (
