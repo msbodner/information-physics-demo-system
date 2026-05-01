@@ -463,6 +463,14 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   // the cache); operators flip it for one-off diagnostics or to
   // re-run a query whose cached MRO is stale.
   const [forceFresh, setForceFresh] = useState(false)
+  // "Thorough" toggle for Recall Search. When true, runChatPipeline:
+  //   • bypasses the MRO short-circuit (same as Force fresh)
+  //   • raises maxAios from 200 → 600 (more rows reach the LLM)
+  //   • raises maxPriors from 3 → 8 (more cached findings inform the LLM)
+  // Use when the question is fuzzy/typo-laden or when you want to merge
+  // cached MRO findings WITH fresh retrieval rather than pick one.
+  // Costs more tokens; default off.
+  const [thoroughRecall, setThoroughRecall] = useState(false)
   const [historyMode, setHistoryMode] = useState<"session" | "saved">("session")
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([])
   const [isSavedLoading, setIsSavedLoading] = useState(false)
@@ -781,21 +789,22 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const queryHsls: HslDataRecord[] = []
     const result = await runChatPipeline(text, recallAios, {
       history,
-      maxPriors: 3,
+      // Thorough mode raises priors 3 → 8 so more cached findings flow
+      // into the LLM context section as framing.
+      maxPriors: thoroughRecall ? 8 : 3,
       // V4.5 update: raised from 40 → 200 to close the substrate-cap
-      // gap with Live Search's adaptive 100–300 cap. Aggregation
-      // queries ("total", "sum", "count") were systematically
-      // under-counting because 40 rows is below most real-world
-      // matched-row sets. 200 gives Recall the headroom to handle
-      // those cases while staying well under the prompt-budget
-      // ceiling. Diversity-by-CSV still applies on top.
-      maxAios: 200,
+      // gap with Live Search's adaptive 100–300 cap. Thorough mode
+      // raises further to 600 — useful for fuzzy/typo-laden queries
+      // that need both the cached MRO findings AND a wider fresh
+      // retrieval to be merged.
+      maxAios: thoroughRecall ? 600 : 200,
       saveMRO: true,
-      // Honor the operator's "Force fresh" toggle. When enabled, the
-      // pipeline skips its zero-token MRO short-circuit and runs the
-      // full retrieval. Priors still inform the bundle at the 0.50
-      // threshold; only the cache early-return is suppressed.
-      bypassMroCache: forceFresh,
+      // Force fresh OR Thorough both bypass the score-≥-0.85 short-circuit.
+      // Force fresh: just disables the cache early-return. Thorough: also
+      // raises caps so Recall captures everything the cache would have
+      // skipped. Priors still inform the bundle at the 0.50 threshold
+      // in both cases; only the zero-token early-return is suppressed.
+      bypassMroCache: forceFresh || thoroughRecall,
       cachedMros: recallCache?.mros,
       hslCatalog,
       resolveHsls: async (cueValues, signal) => {
@@ -909,7 +918,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         }
       }
     }
-  }, [chatInput, chatMessages, isChatLoading, recallAios, hslCatalog, recallCache, forceFresh])
+  }, [chatInput, chatMessages, isChatLoading, recallAios, hslCatalog, recallCache, forceFresh, thoroughRecall])
 
   const handleDownloadChat = useCallback(() => {
     if (chatMessages.length === 0) return
@@ -1319,10 +1328,23 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                   type="checkbox"
                   checked={forceFresh}
                   onChange={(e) => setForceFresh(e.target.checked)}
-                  disabled={isChatLoading}
+                  disabled={isChatLoading || thoroughRecall}
                   className="h-3.5 w-3.5 accent-purple-600 cursor-pointer"
                 />
                 Force fresh
+              </label>
+              <label
+                className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer h-9 px-2 rounded-md border border-border hover:bg-muted/40"
+                title="Thorough Recall: bypass the MRO short-circuit AND raise the substrate cap (200 → 600 AIOs) AND raise the prior count (3 → 8). Use for fuzzy/typo-laden queries or whenever you want the cached MRO findings merged WITH a wider fresh retrieval, instead of one replacing the other. Costs more tokens; supersedes Force fresh."
+              >
+                <input
+                  type="checkbox"
+                  checked={thoroughRecall}
+                  onChange={(e) => setThoroughRecall(e.target.checked)}
+                  disabled={isChatLoading}
+                  className="h-3.5 w-3.5 accent-amber-600 cursor-pointer"
+                />
+                Thorough
               </label>
               <Button size="sm" onClick={handleRecallSearch}
                 disabled={!chatInput.trim() || isChatLoading || !recallReady}

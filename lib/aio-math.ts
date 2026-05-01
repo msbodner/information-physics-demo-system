@@ -387,6 +387,57 @@ export function extractCues(
     }
   }
 
+  // 1d. Typo-tolerant fallback (V4.5+) — for every 4+-char query word
+  //     that did NOT resolve via Passes 1a–1c (i.e., is not a substring
+  //     of any catalog/vocab value and does not contain any catalog/
+  //     vocab value as a substring), emit a wildcard cue [*.word].
+  //
+  //     The cue won't match anything via traverseHSL's substring check,
+  //     but it WILL be sent to find-by-needles-full on the backend,
+  //     where Stage B (pg_trgm `% similarity` from migration 031)
+  //     catches it as a fuzzy match against the IER. This recovers
+  //     typo'd entity names ("Texis" → "Texas", "Sara Mitchel" →
+  //     "Sarah Mitchell", "Perkins Will" → "Perkins & Will") that the
+  //     deterministic Passes 1a–1c can't see.
+  //
+  //     Conservative scope: skip stop words, skip words ≤ 3 chars
+  //     (too noisy), skip words already covered by an earlier pass.
+  const STOP = new Set([
+    "the", "and", "for", "with", "from", "this", "that", "have", "has",
+    "are", "but", "not", "any", "all", "find", "list", "show", "what",
+    "where", "when", "which", "who", "why", "how", "into", "over", "out",
+    "also", "about", "their", "your", "our", "its", "every", "each",
+    "match", "matches", "matching", "note", "notes", "noted", "deliberate",
+    "actual", "spelling", "real", "person", "thing", "exact", "stored",
+    "value", "values", "alongside", "typo", "typos", "fuzzy", "resolved",
+    "final", "summary", "total", "distinct", "average", "score", "scores",
+    "estimate", "single", "missing", "letter", "full", "search", "system",
+    "data", "first", "everything", "some", "both", "either", "very",
+    "they", "these", "those", "there", "here", "now", "then", "than",
+    "would", "could", "should", "will", "shall", "may", "might", "must",
+    "use", "used", "uses", "using", "include", "includes", "including",
+    "contain", "contains", "containing", "still", "yet", "another",
+    "other", "others", "etc", "ext", "tex", // 'tex'/'texis' explicitly NOT skipped — those are the cues
+  ])
+  const MIN_WORD_LEN = 4
+  const MAX_FUZZY_CUES = 12  // bound the cue set so a long query doesn't explode probes
+  let fuzzyEmitted = 0
+  for (const word of qWords) {
+    if (fuzzyEmitted >= MAX_FUZZY_CUES) break
+    if (word.length < MIN_WORD_LEN) continue
+    if (STOP.has(word)) continue
+    // Already covered by Pass 1c? (forward or reverse vocab match)
+    let covered = false
+    for (const value of valueVocabulary) {
+      const v = value.toLowerCase()
+      if (v.length < 3) continue
+      if (q.includes(v) || v.includes(word)) { covered = true; break }
+    }
+    if (covered) continue
+    push("*", word)
+    fuzzyEmitted++
+  }
+
   return cues
 }
 
