@@ -4171,6 +4171,13 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
                       {
+                        embed: "/docs/Search_Modes_Compendium_V46.docx",
+                        icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
+                        title: "Search Modes Compendium (V4.6)",
+                        desc: "Authoritative reference for all four V4.6 ChatAIO retrieval modes — Recall, Recall-F (Force fresh), Recall-T (Thorough), and Live. Specifies each mode's mathematical operator composition, philosophical commitment (determinism vs. semantic, memoryless vs. memory-augmented, bounded vs. adaptive substrate), architectural decomposition across the three-tier stack, benefits, problems, and a 14-row question-shape decision matrix. Supersedes the V4.5 Recall vs. Live Decision Guide for the Force-fresh and Thorough variants. Subject to NDA on file.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
+                      {
                         embed: "/docs/Recall_vs_Live_Decision_Guide_V45.docx",
                         icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
                         title: "Recall vs. Live — Operator Decision Guide (V4.5)",
