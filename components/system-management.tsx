@@ -4377,16 +4377,101 @@ function EmbeddedDocViewer({ url, title, onClose }: { url: string; title: string
 
       <main className="max-w-4xl mx-auto px-6 py-10">
         {error ? (
-          <p className="text-sm text-destructive">Could not render document: {error}</p>
+          <div className="text-sm">
+            <p className="text-destructive mb-3">Could not render document inline: {error}</p>
+            <p className="text-muted-foreground">
+              Use the <strong>Download .docx</strong> button above to open this document in Word, Pages, or Google Docs where it will render with full fidelity.
+            </p>
+          </div>
         ) : !html ? (
           <div className="flex items-center justify-center py-24">
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <article
-            className="docx-rendered prose prose-sm dark:prose-invert max-w-none"
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
+          <>
+            {/* Inline stylesheet — mammoth emits plain HTML; this rebuilds
+                the BulkHsl visual language on top so the in-app preview
+                resembles the downloadable Word doc instead of generic prose. */}
+            <style>{`
+              .docx-rendered { color: #1a1a1a; line-height: 1.6; font-size: 14px; }
+              .docx-rendered h1 {
+                font-size: 22px; font-weight: 700; color: #1F3864;
+                margin: 28px 0 12px 0; padding-bottom: 6px;
+                border-bottom: 1px solid #cbd5e1;
+              }
+              .docx-rendered h1:first-child { margin-top: 0; }
+              .docx-rendered h2 {
+                font-size: 18px; font-weight: 700; color: #1F3864;
+                margin: 22px 0 10px 0;
+              }
+              .docx-rendered h3 {
+                font-size: 15px; font-weight: 600; color: #2E5090;
+                margin: 18px 0 8px 0;
+              }
+              .docx-rendered p { margin: 8px 0; line-height: 1.65; }
+              .docx-rendered ul, .docx-rendered ol { margin: 8px 0 8px 24px; padding-left: 8px; }
+              .docx-rendered li { margin-bottom: 4px; line-height: 1.55; }
+              .docx-rendered ul li::marker { color: #1F3864; }
+              .docx-rendered ol li::marker { color: #1F3864; font-weight: 600; }
+              .docx-rendered strong { color: #0F172A; font-weight: 600; }
+              .docx-rendered em { font-style: italic; color: #1e293b; }
+              .docx-rendered a { color: #1F3864; text-decoration: underline; text-underline-offset: 2px; }
+              .docx-rendered table {
+                width: 100%; border-collapse: collapse; margin: 14px 0;
+                font-size: 13px; border: 1px solid #cbd5e1;
+              }
+              .docx-rendered table tr:first-child td,
+              .docx-rendered table tr:first-child th {
+                background: #1F3864; color: #fff; font-weight: 600;
+                padding: 8px 12px; text-align: left;
+                border-right: 1px solid #2E5090;
+              }
+              .docx-rendered table tr:first-child td:last-child,
+              .docx-rendered table tr:first-child th:last-child { border-right: none; }
+              .docx-rendered table td {
+                padding: 6px 12px; border: 1px solid #e2e8f0;
+                vertical-align: top; line-height: 1.5;
+              }
+              .docx-rendered table tr:nth-child(even) td { background: #f8fafc; }
+              .docx-rendered table tr:nth-child(even) td:first-child { background: #f8fafc; }
+              /* Reset zebra on header row (which is row 1, technically odd, but Mammoth may emit varied structure) */
+              .docx-rendered table tr:first-child td,
+              .docx-rendered table tr:first-child th { background: #1F3864 !important; color: #fff !important; }
+              .docx-rendered pre, .docx-rendered code {
+                font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                font-size: 12px;
+              }
+              .docx-rendered pre {
+                margin: 12px 0; padding: 12px 14px;
+                background: #f1f5f9; border: 1px solid #cbd5e1;
+                border-left: 3px solid #1F3864; border-radius: 4px;
+                overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+                line-height: 1.5;
+              }
+              .docx-rendered code {
+                background: #e2e8f0; color: #1F3864; padding: 1px 5px;
+                border-radius: 3px;
+              }
+              .docx-rendered pre code { background: none; padding: 0; color: inherit; }
+              .docx-rendered hr { border: none; border-top: 1px solid #cbd5e1; margin: 16px 0; }
+              /* Mammoth wraps text-only content in <p>, but block-level docx
+                 paragraphs with custom shading become <p style="..."> — ensure
+                 they don't blow our spacing rhythm. */
+              .docx-rendered p[style*="text-align: center"] { text-align: center; }
+              /* Dark-mode polish */
+              :global(.dark) .docx-rendered { color: #e5e7eb; }
+              :global(.dark) .docx-rendered p { color: #cbd5e1; }
+              :global(.dark) .docx-rendered h1, :global(.dark) .docx-rendered h2 { color: #93c5fd; border-color: #334155; }
+              :global(.dark) .docx-rendered table tr:nth-child(even) td { background: rgba(15, 23, 42, 0.4); }
+              :global(.dark) .docx-rendered table td { border-color: #334155; }
+              :global(.dark) .docx-rendered pre { background: rgba(15, 23, 42, 0.6); border-color: #334155; }
+              :global(.dark) .docx-rendered code { background: #1e293b; color: #93c5fd; }
+            `}</style>
+            <article
+              className="docx-rendered max-w-none"
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          </>
         )}
       </main>
     </div>
