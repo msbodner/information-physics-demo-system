@@ -34,22 +34,47 @@ function asErrorString(e: unknown): string {
   return String(e)
 }
 
-// ── Pane header for assistant replies ─────────────────────────────
+// ── Pane header metadata for assistant replies ────────────────────
 //
-// Prepended to every successful assistant message so each result block
-// is self-identifying: "▸ <Search Type> · <weekday>, <date> · <time>"
-// rendered as a small italic line at the top of the bubble. The
+// Each successful assistant message gets a header chip rendered ABOVE
+// its bubble: "▸ <Search Type> · <weekday>, <date> · <time>". The
 // suffix (-F for Force fresh, -T for Thorough) is part of the search
 // type label so the operator can see at a glance which Recall mode
 // was active for this answer.
-function makePaneHeader(searchType: string, when: Date): string {
-  const date = when.toLocaleDateString(undefined, {
+//
+// CRITICAL: the header is rendered as a separate React element, NOT
+// embedded in the message content. If the header lived in `content`,
+// it would (a) ride along with the prior in the next LLM call's chat
+// history, and (b) the model would imitate the "▸ <Label> · <date>"
+// pattern at the top of its own reply, producing a double-header. The
+// metadata-side rendering keeps content pristine.
+
+interface PaneHeader {
+  searchType: string
+  when: Date
+}
+
+function makePaneHeader(searchType: string, when: Date): PaneHeader {
+  return { searchType, when }
+}
+
+function PaneHeaderChip({ header }: { header: PaneHeader }) {
+  const date = header.when.toLocaleDateString(undefined, {
     weekday: "short", year: "numeric", month: "short", day: "numeric",
   })
-  const time = when.toLocaleTimeString(undefined, {
+  const time = header.when.toLocaleTimeString(undefined, {
     hour: "2-digit", minute: "2-digit", second: "2-digit",
   })
-  return `▸ **${searchType}** · ${date} · ${time}\n\n`
+  return (
+    <div className="flex items-center gap-1.5 mb-1.5 text-[11px] text-muted-foreground/80 font-medium">
+      <span className="text-[#0f3460] dark:text-blue-400">▸</span>
+      <span className="text-foreground font-semibold">{header.searchType}</span>
+      <span>·</span>
+      <span>{date}</span>
+      <span>·</span>
+      <span className="tabular-nums">{time}</span>
+    </div>
+  )
 }
 
 // ── Markdown table parser ─────────────────────────────────────────
@@ -469,6 +494,22 @@ interface Props {
 
 export function ChatAioDialog({ open, onOpenChange }: Props) {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  // Pane headers indexed by message index in chatMessages. Rendered as
+  // a metadata chip ABOVE the bubble (see PaneHeaderChip), kept out of
+  // message content so the LLM never sees and never imitates the
+  // "▸ <Label> · <date>" pattern in its replies.
+  const [messageHeaders, setMessageHeaders] = useState<Map<number, PaneHeader>>(new Map())
+  // Helper: assign a header to the assistant slot we're about to push.
+  // Caller passes the index that the new assistant message will occupy
+  // (typically `next.length` since `next` is the array before the
+  // assistant slot is appended).
+  const setHeaderAt = useCallback((index: number, header: PaneHeader) => {
+    setMessageHeaders((prev) => {
+      const m = new Map(prev)
+      m.set(index, header)
+      return m
+    })
+  }, [])
   const [chatInput, setChatInput] = useState("")
   const [isChatLoading, setIsChatLoading] = useState(false)
   const [promptHistory, setPromptHistory] = useState<string[]>([])
@@ -621,8 +662,8 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       const inTok = result.input_tokens ?? 0
       const outTok = result.output_tokens ?? 0
       const perfLine = `\n\n---\n_Broad Search · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
-      const paneHeader = makePaneHeader("Broad Search", new Date())
-      setChatMessages([...next, { role: "assistant", content: paneHeader + result.reply + perfLine }])
+      setHeaderAt(next.length, makePaneHeader("Broad Search", new Date()))
+      setChatMessages([...next, { role: "assistant", content: result.reply + perfLine }])
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "BroadSearch" })
       // Broad Search ships the first N AIOs + first M HSLs to Claude with
       // no retrieval. context_records is the combined count from the
@@ -666,8 +707,8 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       const inTok = result.input_tokens ?? 0
       const outTok = result.output_tokens ?? 0
       const perfLine = `\n\n---\n_Raw Search · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens · ${result.context_records ?? 0} CSV files_`
-      const paneHeader = makePaneHeader("Raw Search", new Date())
-      setChatMessages([...next, { role: "assistant", content: paneHeader + result.reply + perfLine }])
+      setHeaderAt(next.length, makePaneHeader("Raw Search", new Date()))
+      setChatMessages([...next, { role: "assistant", content: result.reply + perfLine }])
       setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "RawSearch" })
       // Raw Search (Pure LLM) ships raw CSV files to Claude with no IP
       // machinery. matched_hsls / matched_aios / cue_count / neighborhood
@@ -688,11 +729,11 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
     const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
-    // Pane header (search type + timestamp) — prepended to the
-    // assistant placeholder so the operator sees the header
-    // immediately, before any tokens stream in.
-    const livePaneHeader = makePaneHeader("Live Search", new Date())
-    setChatMessages([...next, { role: "assistant", content: livePaneHeader }])
+    // Pane header chip — assigned BEFORE the assistant slot is
+    // appended so PaneHeaderChip renders immediately, before any
+    // tokens stream in.
+    setHeaderAt(next.length, makePaneHeader("Live Search", new Date()))
+    setChatMessages([...next, { role: "assistant", content: "" }])
     setChatInput("")
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
     setIsChatLoading(true)
@@ -710,7 +751,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     await aioSearchChatStream(next, {
       onText: (chunk) => {
         acc += chunk
-        const snap = livePaneHeader + acc
+        const snap = acc
         setChatMessages((prev) => {
           const last = prev[prev.length - 1]
           if (!last || last.role !== "assistant") return prev
@@ -741,7 +782,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const inTok = meta.input_tokens ?? 0
     const outTok = meta.output_tokens ?? 0
     const footer = `\n\n---\n_Live Search: ${meta.matched_hsls} HSLs matched · ${meta.matched_aios} AIOs in context · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
-    const finalText = livePaneHeader + acc + footer
+    const finalText = acc + footer
     setChatMessages((prev) => {
       const last = prev[prev.length - 1]
       if (!last || last.role !== "assistant") return prev
@@ -794,12 +835,13 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
     const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
-    // Pane header: search type + suffix + timestamp, prepended to the
-    // streaming placeholder so it shows immediately. Suffix mirrors
-    // the footer (-T for Thorough, -F for Force fresh).
+    // Pane header chip: search type + suffix + timestamp. Assigned
+    // BEFORE the assistant slot is appended so PaneHeaderChip renders
+    // immediately. Suffix mirrors the footer (-T for Thorough, -F for
+    // Force fresh).
     const recallSuffix = thoroughRecall ? "-T" : (forceFresh ? "-F" : "")
-    const recallPaneHeader = makePaneHeader(`Recall Search${recallSuffix}`, new Date())
-    setChatMessages([...next, { role: "assistant", content: recallPaneHeader }])
+    setHeaderAt(next.length, makePaneHeader(`Recall Search${recallSuffix}`, new Date()))
+    setChatMessages([...next, { role: "assistant", content: "" }])
     setChatInput("")
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
     setIsChatLoading(true)
@@ -936,9 +978,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         `${result.cost.priors} priors · ` +
         `${result.mro_saved ? "MRO saved" : "MRO not saved"} · ` +
         `⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
-      // Final assistant content: pane header (already used as the
-      // streaming placeholder) + LLM reply + perf footer.
-      setChatMessages([...next, { role: "assistant", content: recallPaneHeader + result.reply + meta }])
+      // Final assistant content: LLM reply + perf footer. Pane header
+      // is rendered separately via PaneHeaderChip from messageHeaders.
+      setChatMessages([...next, { role: "assistant", content: result.reply + meta }])
       setLastRecallMeta({
         cues: result.cost.cues,
         neighborhood: result.cost.neighborhood,
@@ -1281,21 +1323,25 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                   ))}
                 </div>
               )}
-              {chatMessages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div
-                    className={
-                      m.role === "user"
-                        // User: keep simple white-on-navy bubble, no markdown.
-                        ? "max-w-[80%] rounded-lg px-4 py-2 text-sm bg-primary text-primary-foreground whitespace-pre-wrap"
-                        // Assistant: wider bubble + Tailwind prose-style polish for rich markdown.
-                        : "max-w-[88%] rounded-lg px-5 py-3 text-sm bg-muted text-foreground border border-slate-200/60 dark:border-slate-700/60 shadow-sm"
-                    }
-                  >
-                    {m.role === "user" ? m.content : renderContent(m.content)}
+              {chatMessages.map((m, i) => {
+                const header = m.role === "assistant" ? messageHeaders.get(i) : undefined
+                return (
+                  <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div className={m.role === "user" ? "max-w-[80%]" : "max-w-[88%] flex flex-col"}>
+                      {header && <PaneHeaderChip header={header} />}
+                      <div
+                        className={
+                          m.role === "user"
+                            ? "rounded-lg px-4 py-2 text-sm bg-primary text-primary-foreground whitespace-pre-wrap"
+                            : "rounded-lg px-5 py-3 text-sm bg-muted text-foreground border border-slate-200/60 dark:border-slate-700/60 shadow-sm"
+                        }
+                      >
+                        {m.role === "user" ? m.content : renderContent(m.content)}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
               {isChatLoading && (
                 <div className="flex justify-start">
                   <div className="bg-muted rounded-lg px-4 py-2">
