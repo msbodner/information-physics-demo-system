@@ -4178,6 +4178,13 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
                       {
+                        embed: "/docs/RLM_vs_InformationPhysics_V46.docx",
+                        icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
+                        title: "RLM vs. Information Physics — Architecture Comparison (V4.6)",
+                        desc: "Structural comparison of MIT's Recursive Language Models paper (Zhang, Kraska, Khattab, Jan 2026 — arXiv:2512.24601) and the V4.6 AIO/HSL/MRO architecture. Identifies the shared insight (data should not live in the LLM's window), the eleven axes of divergence (decomposition, determinism, recursion, memory, cost shape, audit trail, etc.), three cross-pollination opportunities including a proposed Recall-RLM hybrid mode, the deepest philosophical disagreement (where the intelligence in the system should live), and a 9-row workload decision matrix. Subject to NDA on file.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
+                      {
                         embed: "/docs/Recall_vs_Live_Decision_Guide_V45.docx",
                         icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
                         title: "Recall vs. Live — Operator Decision Guide (V4.5)",
