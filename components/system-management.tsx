@@ -4452,7 +4452,7 @@ function EmbeddedDocViewer({ url, title, onClose }: { url: string; title: string
               }
               .docx-rendered table tr:first-child td,
               .docx-rendered table tr:first-child th {
-                background: #1F3864; color: #fff; font-weight: 600;
+                background: #1F3864; color: #FFEB3B; font-weight: 700;
                 padding: 8px 12px; text-align: left;
                 border-right: 1px solid #2E5090;
               }
@@ -4464,9 +4464,52 @@ function EmbeddedDocViewer({ url, title, onClose }: { url: string; title: string
               }
               .docx-rendered table tr:nth-child(even) td { background: #f8fafc; }
               .docx-rendered table tr:nth-child(even) td:first-child { background: #f8fafc; }
-              /* Reset zebra on header row (which is row 1, technically odd, but Mammoth may emit varied structure) */
+              /* Header row — bright yellow bold on navy. !important is needed
+                 because mammoth often emits per-cell inline styles that would
+                 otherwise win the cascade. */
               .docx-rendered table tr:first-child td,
-              .docx-rendered table tr:first-child th { background: #1F3864 !important; color: #fff !important; }
+              .docx-rendered table tr:first-child th {
+                background: #1F3864 !important;
+                color: #FFEB3B !important;
+                font-weight: 700 !important;
+              }
+              /* Force the same bright yellow on every nested element inside
+                 the header row — <strong>, <em>, <code>, <a>, etc. — so
+                 mammoth's inline color attributes can't override us. */
+              .docx-rendered table tr:first-child *,
+              .docx-rendered table tr:first-child td *,
+              .docx-rendered table tr:first-child th * {
+                color: #FFEB3B !important;
+                font-weight: 700 !important;
+              }
+              /* Catch ANY cell with a navy / dark fill (some docs apply
+                 the navy via per-cell inline shading rather than first-row).
+                 Multiple hex casings + the slate variant we use in code
+                 blocks are all covered. */
+              .docx-rendered td[style*="1F3864"],
+              .docx-rendered td[style*="1f3864"],
+              .docx-rendered td[style*="0F3460"],
+              .docx-rendered td[style*="0f3460"],
+              .docx-rendered td[style*="2E5090"],
+              .docx-rendered td[style*="2e5090"],
+              .docx-rendered th[style*="1F3864"],
+              .docx-rendered th[style*="1f3864"],
+              .docx-rendered th[style*="0F3460"],
+              .docx-rendered th[style*="0f3460"] {
+                color: #FFEB3B !important;
+                font-weight: 700 !important;
+              }
+              .docx-rendered td[style*="1F3864"] *,
+              .docx-rendered td[style*="1f3864"] *,
+              .docx-rendered td[style*="0F3460"] *,
+              .docx-rendered td[style*="0f3460"] *,
+              .docx-rendered th[style*="1F3864"] *,
+              .docx-rendered th[style*="1f3864"] *,
+              .docx-rendered th[style*="0F3460"] *,
+              .docx-rendered th[style*="0f3460"] * {
+                color: #FFEB3B !important;
+                font-weight: 700 !important;
+              }
               .docx-rendered pre, .docx-rendered code {
                 font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
                 font-size: 12px;
