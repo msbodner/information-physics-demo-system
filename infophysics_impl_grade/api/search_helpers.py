@@ -327,8 +327,8 @@ def diversify_by_csv(records: List[str], total: int) -> List[str]:
     return [records[i] for i in picked_indices]
 
 
-def adaptive_aio_cap(num_cues: int, *, base: int = 50, per_cue: int = 50,
-                     floor: int = 100, ceiling: int = 300,
+def adaptive_aio_cap(num_cues: int, *, base: int = 75, per_cue: int = 75,
+                     floor: int = 150, ceiling: int = 1000,
                      total_matches: Optional[int] = None) -> int:
     """Compute the AIO context cap as a function of cue count.
 

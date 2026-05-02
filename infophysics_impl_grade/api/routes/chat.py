@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from api.db import db, set_tenant
 from api.llm import get_default_model, get_effective_api_key, get_parse_model
+from api.routes.settings import get_live_aio_cap_max
 from api.routes.aio import _AIO_COLS
 from api.routes.hsl import _HSL_COLS
 from api.search_helpers import (
@@ -1281,7 +1282,7 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         # Single-cue queries get a tight window so the model doesn't drown
         # in noise; multi-cue queries get more breadth because each extra
         # cue narrows the candidate set.
-        cap = adaptive_aio_cap(len(needles), total_matches=len(matched_aio_lines))
+        cap = adaptive_aio_cap(len(needles), ceiling=get_live_aio_cap_max(), total_matches=len(matched_aio_lines))
         # Per-CSV diversity: a flat top-N cap lets a numerically dominant
         # CSV (e.g. AIA305 at 80% of the demo corpus) crowd out the
         # operational CSVs (acc_rfis, acc_issues, acc_submittals,
@@ -1351,7 +1352,7 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
     shipped_records = (
         diversify_by_csv(
             matched_aio_lines,
-            adaptive_aio_cap(len(needles), total_matches=len(matched_aio_lines)),
+            adaptive_aio_cap(len(needles), ceiling=get_live_aio_cap_max(), total_matches=len(matched_aio_lines)),
         )
         if matched_aio_lines else []
     )

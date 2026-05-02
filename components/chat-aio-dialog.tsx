@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye, Sparkles } from "lucide-react"
-import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, aioSearchParse, listSavedPrompts, createSavedPrompt, listMroObjects, getMroObject, createMroObject, listAioData, listHslKeyValuePairs, findHslsByNeedlesFull, createChatStat, linkMroToHsl, findHslsByNeedles, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type HslKeyValuePair, type AioSearchStreamMeta } from "@/lib/api-client"
+import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, aioSearchParse, listSavedPrompts, createSavedPrompt, listMroObjects, getMroObject, createMroObject, listAioData, listHslKeyValuePairs, findHslsByNeedlesFull, createChatStat, linkMroToHsl, findHslsByNeedles, getCapSettings, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type HslKeyValuePair, type AioSearchStreamMeta } from "@/lib/api-client"
 import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
@@ -530,6 +530,11 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   // cached MRO findings WITH fresh retrieval rather than pick one.
   // Costs more tokens; default off.
   const [thoroughRecall, setThoroughRecall] = useState(false)
+  // V4.6+ — operator-tunable substrate caps fetched once at dialog open.
+  // Falls back to the same defaults the backend uses (500 / 1500) if the
+  // caps endpoint is unreachable.
+  const [recallCap, setRecallCap] = useState<number>(500)
+  const [recallThoroughCap, setRecallThoroughCap] = useState<number>(1500)
   const [historyMode, setHistoryMode] = useState<"session" | "saved">("session")
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([])
   const [isSavedLoading, setIsSavedLoading] = useState(false)
@@ -587,6 +592,15 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   // them only removes the boost; it never breaks retrieval.
   useEffect(() => {
     if (!open || recallReady) return
+    // V4.6+ — fetch operator-tunable substrate caps in parallel with
+    // the corpus load. Best-effort: if the endpoint is unreachable the
+    // chat dialog falls back to its hard-coded defaults (500 / 1500).
+    getCapSettings().then((caps) => {
+      if (caps) {
+        if (typeof caps.recall_max_aios === "number") setRecallCap(caps.recall_max_aios)
+        if (typeof caps.recall_thorough_max_aios === "number") setRecallThoroughCap(caps.recall_thorough_max_aios)
+      }
+    }).catch(() => { /* keep defaults */ })
     Promise.all([
       listAioData().catch(() => [] as AioDataRecord[]),
       // Summary mode: drops result_text + context_bundle (~80% smaller
@@ -865,7 +879,10 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       // raises further to 600 — useful for fuzzy/typo-laden queries
       // that need both the cached MRO findings AND a wider fresh
       // retrieval to be merged.
-      maxAios: thoroughRecall ? 600 : 200,
+      // V4.6+ — operator-tunable caps fetched on dialog open from
+      // /v1/settings/caps. Defaults: 500 / 1500. Hard clamp [50, 5000]
+      // is enforced server-side.
+      maxAios: thoroughRecall ? recallThoroughCap : recallCap,
       saveMRO: true,
       // Force fresh OR Thorough both bypass the score-≥-0.85 short-circuit.
       // Force fresh: just disables the cache early-return. Thorough: also

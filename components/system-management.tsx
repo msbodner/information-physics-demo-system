@@ -4262,6 +4262,13 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
                       {
+                        embed: "/docs/Lab_Note_Substrate_Cap_Roadmap_V46.docx",
+                        icon: <BookOpen className="w-6 h-6 text-amber-600" />,
+                        title: "Lab Note — Substrate-Cap Roadmap (V4.6)",
+                        desc: "Forward-looking notes on the three deferred substrate-cap options (per-call override, token-budget-adaptive sizing, chunked-synthesis Recall-RLM mode). Companion to the V4.6 commit that shipped recommendations 1+2 (raised defaults from 200/600/300 to 500/1500/1000 and made all three operator-tunable via system_settings). Each deferred option carries an implementation sketch, use-case profile, cost/latency trade-off, and a trigger that says when to ship it. Subject to NDA on file.",
+                        color: "border-amber-300/50 hover:border-amber-400",
+                      },
+                      {
                         embed: "/docs/Information_Physics_Master_Specification_V46.docx",
                         icon: <BookOpen className="w-6 h-6 text-indigo-600" />,
                         title: "Information Physics — Master Specification (V4.6)",

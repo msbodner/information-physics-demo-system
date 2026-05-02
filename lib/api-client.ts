@@ -851,6 +851,32 @@ export async function updateBudgetSettings(payload: {
   })
 }
 
+// V4.6+ — operator-tunable substrate caps
+export interface CapSettings {
+  recall_max_aios: number
+  recall_thorough_max_aios: number
+  live_aio_cap_max: number
+  recall_max_aios_raw: string | null
+  recall_thorough_max_aios_raw: string | null
+  live_aio_cap_max_raw: string | null
+}
+
+export async function getCapSettings(): Promise<CapSettings | null> {
+  return safeFetch("/api/settings/caps")
+}
+
+export async function updateCapSettings(payload: {
+  recall_max_aios?: string           // "" = clear; "<int>" = set
+  recall_thorough_max_aios?: string
+  live_aio_cap_max?: string
+}): Promise<(CapSettings & { ok: boolean }) | null> {
+  return safeFetch("/api/settings/caps", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+}
+
 // Information Elements
 export interface InformationElement {
   element_id: string

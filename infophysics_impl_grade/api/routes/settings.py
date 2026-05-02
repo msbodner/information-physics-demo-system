@@ -300,3 +300,123 @@ def update_budget_settings(
         "tenant_limit_raw": _read_setting(f"daily_token_budget:{tenant}"),
         "global_limit_raw": _read_setting("daily_token_budget_per_tenant"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Substrate caps (V4.6+) — operator-tunable maxAios for Recall and Live
+# ---------------------------------------------------------------------------
+#
+# Three keys in system_settings expose the per-mode substrate cap so an
+# operator can tune them per-deployment without a rebuild. Resolution
+# chain for each: system_settings → env var → fallback constant.
+#
+#   recall_max_aios          → Recall (default mode), default 500
+#                              env: RECALL_MAX_AIOS
+#   recall_thorough_max_aios → Recall-T (Thorough mode), default 1500
+#                              env: RECALL_THOROUGH_MAX_AIOS
+#   live_aio_cap_max         → Live's adaptive_aio_cap ceiling, default 1000
+#                              env: LIVE_AIO_CAP_MAX
+#
+# The Live ceiling is consumed by api/routes/chat.py when it calls
+# adaptive_aio_cap(num_cues, ceiling=…). Recall caps are returned to
+# the frontend on dialog open and passed into runChatPipeline as the
+# maxAios option.
+
+_CAP_DEFAULTS = {
+    "recall_max_aios":          (500,  "RECALL_MAX_AIOS"),
+    "recall_thorough_max_aios": (1500, "RECALL_THOROUGH_MAX_AIOS"),
+    "live_aio_cap_max":         (1000, "LIVE_AIO_CAP_MAX"),
+}
+
+
+def _resolve_cap(key: str) -> int:
+    default, env = _CAP_DEFAULTS[key]
+    raw = _read_setting(key)
+    if not raw:
+        raw = os.environ.get(env, "").strip() or None
+    if not raw:
+        return default
+    try:
+        v = int(raw)
+        return max(50, min(5000, v))   # hard clamp [50, 5000]
+    except (ValueError, TypeError):
+        return default
+
+
+def get_recall_max_aios() -> int:
+    return _resolve_cap("recall_max_aios")
+
+
+def get_recall_thorough_max_aios() -> int:
+    return _resolve_cap("recall_thorough_max_aios")
+
+
+def get_live_aio_cap_max() -> int:
+    return _resolve_cap("live_aio_cap_max")
+
+
+class CapSettingsRequest(BaseModel):
+    # Each: None = leave alone, "" = clear (revert to env/default),
+    # "<int>" = set explicitly. Clamped to [50, 5000] by the resolver.
+    recall_max_aios: Optional[str] = None
+    recall_thorough_max_aios: Optional[str] = None
+    live_aio_cap_max: Optional[str] = None
+
+
+@router.get("/v1/settings/caps")
+def get_cap_settings():
+    """Return the currently effective Recall / Recall-T / Live caps + raw stored values."""
+    return {
+        "recall_max_aios":          get_recall_max_aios(),
+        "recall_thorough_max_aios": get_recall_thorough_max_aios(),
+        "live_aio_cap_max":         get_live_aio_cap_max(),
+        "recall_max_aios_raw":           _read_setting("recall_max_aios"),
+        "recall_thorough_max_aios_raw":  _read_setting("recall_thorough_max_aios"),
+        "live_aio_cap_max_raw":          _read_setting("live_aio_cap_max"),
+    }
+
+
+@router.put("/v1/settings/caps")
+def update_cap_settings(payload: CapSettingsRequest):
+    """Upsert any subset of the three cap keys.
+
+    Empty string clears the row (effective value reverts to env/fallback).
+    Non-numeric strings are rejected. Clamped server-side to [50, 5000]
+    by the resolver on read; an out-of-range write is allowed but ignored
+    when read.
+    """
+    now = datetime.now(timezone.utc)
+    fields = {
+        "recall_max_aios":          payload.recall_max_aios,
+        "recall_thorough_max_aios": payload.recall_thorough_max_aios,
+        "live_aio_cap_max":         payload.live_aio_cap_max,
+    }
+    with db() as conn:
+        with conn.cursor() as cur:
+            for key, val in fields.items():
+                if val is None:
+                    continue
+                v = val.strip()
+                if v == "":
+                    cur.execute("DELETE FROM system_settings WHERE key = %s", (key,))
+                    continue
+                try:
+                    int(v)  # validate but store as text (consistent with other settings)
+                except ValueError:
+                    raise HTTPException(status_code=400,
+                                        detail=f"{key} must be an integer or empty string")
+                cur.execute(
+                    """
+                    INSERT INTO system_settings (key, value, updated_at)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+                    """,
+                    (key, v, now),
+                )
+        conn.commit()
+    return {
+        "ok": True,
+        "recall_max_aios":          get_recall_max_aios(),
+        "recall_thorough_max_aios": get_recall_thorough_max_aios(),
+        "live_aio_cap_max":         get_live_aio_cap_max(),
+    }
