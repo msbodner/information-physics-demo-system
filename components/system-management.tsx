@@ -4261,6 +4261,13 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
                         desc: "The three-layer model (AIO/HSL/MRO), four ChatAIO modes (Recall/Live/Broad/Raw), and the three trade-secret invariants that distinguish this from a conventional embedding-RAG implementation. Includes the demo dataset profile and roadmap. Buyer-side and counsel-friendly framing alongside the engineering substance.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
+                      {
+                        embed: "/docs/Information_Physics_Master_Specification_V46.docx",
+                        icon: <BookOpen className="w-6 h-6 text-indigo-600" />,
+                        title: "Information Physics — Master Specification (V4.6)",
+                        desc: "Authoritative comprehensive specification of the AIO/HSL/MRO substrate. Eight sections: the Schema-First → Preserve-First paradigm shift with the seven foundational laws; formal definitions of AIO, HSL, and MRO with grammar and storage layout; the five-step pipeline from natural language to grounded synthesis with full mathematical notation; the five-layer cognitive architecture mapping (Cortex/Hippocampus/Thalamus/Basal Ganglia/Cerebellum); direct comparison to Medallion/RAG with complexity analysis; quantum-receptivity argument and three quantum leverage points; the 11-stage Bulk HSL reconstruction workflow; complete provenance map. Companion to the Search Modes Compendium V4.6. Subject to NDA on file.",
+                        color: "border-indigo-300/50 hover:border-indigo-400",
+                      },
                     ].map(({ view, download, embed, filename, icon, title, desc, color }) => (
                       <button
                         key={view ?? download ?? embed}
