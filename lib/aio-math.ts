@@ -782,7 +782,7 @@ export function assembleBundle(
   // common cause of Recall/Live answer divergence on aggregation
   // queries ("total", "sum", "count"). 200 closes the gap while
   // staying well under typical prompt budgets.
-  const maxAios = options.maxAios ?? 500
+  const maxAios = options.maxAios ?? 800
 
   // Step 2 — HSL traversal
   const { matches, hslNames } = traverseHSL(cueSet, aios)

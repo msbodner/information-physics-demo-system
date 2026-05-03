@@ -323,9 +323,9 @@ def update_budget_settings(
 # maxAios option.
 
 _CAP_DEFAULTS = {
-    "recall_max_aios":          (500,  "RECALL_MAX_AIOS"),
-    "recall_thorough_max_aios": (1500, "RECALL_THOROUGH_MAX_AIOS"),
-    "live_aio_cap_max":         (1000, "LIVE_AIO_CAP_MAX"),
+    "recall_max_aios":          (800,  "RECALL_MAX_AIOS"),
+    "recall_thorough_max_aios": (2500, "RECALL_THOROUGH_MAX_AIOS"),
+    "live_aio_cap_max":         (2000, "LIVE_AIO_CAP_MAX"),
 }
 
 

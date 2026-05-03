@@ -531,10 +531,10 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   // Costs more tokens; default off.
   const [thoroughRecall, setThoroughRecall] = useState(false)
   // V4.6+ — operator-tunable substrate caps fetched once at dialog open.
-  // Falls back to the same defaults the backend uses (500 / 1500) if the
+  // Falls back to the same defaults the backend uses (800 / 2500) if the
   // caps endpoint is unreachable.
-  const [recallCap, setRecallCap] = useState<number>(500)
-  const [recallThoroughCap, setRecallThoroughCap] = useState<number>(1500)
+  const [recallCap, setRecallCap] = useState<number>(800)
+  const [recallThoroughCap, setRecallThoroughCap] = useState<number>(2500)
   const [historyMode, setHistoryMode] = useState<"session" | "saved">("session")
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([])
   const [isSavedLoading, setIsSavedLoading] = useState(false)
