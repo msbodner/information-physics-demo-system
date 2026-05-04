@@ -4276,6 +4276,13 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
                         color: "border-emerald-300/50 hover:border-emerald-400",
                       },
                       {
+                        embed: "/docs/Lab_Note_Exhaustive_Live_Mode_V46.docx",
+                        icon: <BookOpen className="w-6 h-6 text-amber-600" />,
+                        title: "Lab Note — Exhaustive Live Mode (V4.6 design proposal)",
+                        desc: "Map-reduce chunked-synthesis design proposal addressing the partial-results failure mode (May 4 cost-codes incident). Documents three considered approaches (paginate+merge / map-reduce JSON / RLM REPL), the chosen approach (B — map-reduce with structured JSON output and in-code dedup), the five settled operator-policy decisions (operator-picked chunk model with Haiku default, chunk_size scaling with cue cardinality, conflict resolution by higher similarity, single MRO per query, partial-results return with warning), the 7-hour engineering scope across 11 files, the chat-dialog UI surface, and seven open testing questions to resolve before merging. Planning artifact — no code shipped yet. Subject to NDA on file.",
+                        color: "border-amber-300/50 hover:border-amber-400",
+                      },
+                      {
                         embed: "/docs/Lab_Note_Substrate_Cap_Roadmap_V46.docx",
                         icon: <BookOpen className="w-6 h-6 text-amber-600" />,
                         title: "Lab Note — Substrate-Cap Roadmap (V4.6)",
