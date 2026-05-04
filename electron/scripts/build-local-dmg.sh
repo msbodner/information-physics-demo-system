@@ -124,18 +124,18 @@ else
   echo "ℹ️  ANTHROPIC_API_KEY not set — local DMG will require manual API key configuration on first launch."
 fi
 
-# Tag the local variant as "V4.6L" everywhere it's user-visible (splash
+# Tag the local variant as "V5.0L" everywhere it's user-visible (splash
 # screen, Next.js HTML titles, sidebar/dashboard chrome). The bundled
 # frontend was already built with "V4.5"; we sed-swap that string to
-# "V4.6L" across resources/frontend before packing, then restore after.
+# "V5.0L" across resources/frontend before packing, then restore after.
 #
 # Pre-flight: only swap if there's a "V4.5" to swap (idempotent / safe
 # if the build is run twice in a row).
-LOCAL_TAG="V4.6L"
-LOCAL_TAG_FROM="V4.6"
+LOCAL_TAG="V5.0L"
+LOCAL_TAG_FROM="V5.0"
 
 # Snapshot which files contained the source string so we can revert
-# only those files (and skip files that were already "V4.6L" from a
+# only those files (and skip files that were already "V5.0L" from a
 # half-finished prior run).
 SWAP_LIST_FILE="$(mktemp)"
 grep -rl "$LOCAL_TAG_FROM" resources/frontend splash.html 2>/dev/null > "$SWAP_LIST_FILE" || true
@@ -165,16 +165,16 @@ else
 fi
 
 echo "🔨 running electron-builder for local variant…"
-# DMG filename ends with "-4.6L-local-${arch}.dmg" — override the
+# DMG filename ends with "-5.0L-local-${arch}.dmg" — override the
 # version segment of the artifactName template directly with a literal,
 # rather than fighting electron-builder's semver requirement on the
 # top-level "version" field (4.6.0 stays valid in package.json).
 CSC_IDENTITY_AUTO_DISCOVERY=false \
   npx electron-builder \
-    -c.artifactName='${productName}-4.6L-local-${arch}.${ext}' \
-    -c.dmg.artifactName='${productName}-4.6L-local-${arch}.${ext}' \
-    -c.mac.artifactName='${productName}-4.6L-local-${arch}.${ext}' \
-    -c.dmg.title='${productName} 4.6L (Local)' \
+    -c.artifactName='${productName}-5.0L-local-${arch}.${ext}' \
+    -c.dmg.artifactName='${productName}-5.0L-local-${arch}.${ext}' \
+    -c.mac.artifactName='${productName}-5.0L-local-${arch}.${ext}' \
+    -c.dmg.title='${productName} 5.0L (Local)' \
     --mac
 
 echo "✅ local DMGs built. Restoring $MAIN_JS…"

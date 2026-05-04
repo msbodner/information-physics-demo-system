@@ -3896,7 +3896,7 @@ function ArchitecturePane() {
           <rect x="920" y="693" width="14" height="14" rx="2" fill="#FEF9C3" stroke="#CA8A04" strokeWidth="1.5" strokeDasharray="3,2"/><text x="940" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#854D0E" fontWeight="bold">SKOs</text><text x="970" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">Future abstractions</text>
           <line x1="1100" y1="700" x2="1130" y2="700" stroke="#DC2626" strokeWidth="2.5" strokeDasharray="5,3"/><text x="1140" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#DC2626" fontWeight="bold">Recursive Loop</text><text x="1240" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">MROs feed back</text>
 
-          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO/HSL/MRO Demo System V4.6</text>
+          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO/HSL/MRO Demo System V5.0</text>
         </svg>
       </div>
     </div>
@@ -4171,9 +4171,16 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
                       {
+                        embed: "/docs/Search_Modes_Compendium_V50.docx",
+                        icon: <BarChart2 className="w-6 h-6 text-blue-700" />,
+                        title: "Search Modes Compendium (V5.0)",
+                        desc: "Definitive V5.0 reference for the FIVE operator-selectable ChatAIO modes — Recall, Live, Exhaustive Live (NEW in V5.0), Broad, and Raw. Each mode's mathematical operator composition, philosophical commitment, architectural decomposition across the three-tier stack, benefits, problems, and the updated decision matrix. Adds full coverage of the chunked map-reduce path (chunk_size formula, conflict resolution, coverage warning, MRO intent strings, cache namespaces). Supersedes the V4.6 compendium. Subject to NDA on file.",
+                        color: "border-blue-400/50 hover:border-blue-500",
+                      },
+                      {
                         embed: "/docs/Search_Modes_Compendium_V46.docx",
                         icon: <BarChart2 className="w-6 h-6 text-indigo-600" />,
-                        title: "Search Modes Compendium (V4.6)",
+                        title: "Search Modes Compendium (V4.6, archive)",
                         desc: "Authoritative reference for all four V4.6 ChatAIO retrieval modes — Recall, Recall-F (Force fresh), Recall-T (Thorough), and Live. Specifies each mode's mathematical operator composition, philosophical commitment (determinism vs. semantic, memoryless vs. memory-augmented, bounded vs. adaptive substrate), architectural decomposition across the three-tier stack, benefits, problems, and a 14-row question-shape decision matrix. Supersedes the V4.5 Recall vs. Live Decision Guide for the Force-fresh and Thorough variants. Subject to NDA on file.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
@@ -4241,9 +4248,16 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
                       {
+                        embed: "/docs/Release_Notes_V50.docx",
+                        icon: <BookOpen className="w-6 h-6 text-blue-700" />,
+                        title: "V5.0 Release Notes",
+                        desc: "Operator-facing changelog for V5.0. Closes the V4.6 partial-results failure mode (May 4 cost-codes incident: 6 in corpus, Live returned 4) by shipping Exhaustive Live — chunked map-reduce synthesis with strict per-chunk JSON output, in-Python merge by max similarity, and partial-coverage warning + trust decrement. Documents the five settled operator policies, UI changes (Exhaustive checkbox + Haiku/Sonnet/Opus dropdown + coverage callout), API surface (?mode=exhaustive + ?chunk_model), MCP schema bump, backward compatibility, decision tree, and cost expectation (~N × Live).",
+                        color: "border-blue-400/50 hover:border-blue-500",
+                      },
+                      {
                         embed: "/docs/Release_Notes_V45.docx",
                         icon: <BookOpen className="w-6 h-6 text-indigo-600" />,
-                        title: "V4.5 Release Notes",
+                        title: "V4.5 Release Notes (archive)",
                         desc: "Operator-facing changelog. Retrieval correctness (migrations 029/031, cap-by-CSV, HSL aliasing, Jaccard dedup), operability (Models tab, Daily Token Budget, Benchmark dropdown, embedded report viewer, Linkage view, Fix Broken MROs), UI polish, distribution (three DMG variants + signing infrastructure), shipped migrations, new endpoints, and the eight silent regressions caught and fixed.",
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
@@ -4276,9 +4290,16 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
                         color: "border-emerald-300/50 hover:border-emerald-400",
                       },
                       {
+                        embed: "/docs/Lab_Note_Exhaustive_Live_Mode_V50_SHIPPED.docx",
+                        icon: <BookOpen className="w-6 h-6 text-emerald-700" />,
+                        title: "Lab Note — Exhaustive Live Mode (V5.0 SHIPPED)",
+                        desc: "Closes the V4.6 design lab note. Implementation map (which file ships which decision), as-shipped behavior of all five settled policies (per-chunk model dropdown, chunk_size formula, max-similarity conflict resolution, MRO intent='aio-search-exhaustive', coverage warning + trust decrement), status of the seven open testing questions (3 resolved by unit suite, 4 deferred to corpus-scale field validation), and the V5.1+ future work list (per-chunk progress streaming, lifted retrieval AIO_CAP, concurrent dispatch, adaptive chunk model). Validated by 27 unit tests in tests/test_exhaustive.py.",
+                        color: "border-emerald-400/50 hover:border-emerald-500",
+                      },
+                      {
                         embed: "/docs/Lab_Note_Exhaustive_Live_Mode_V46.docx",
                         icon: <BookOpen className="w-6 h-6 text-amber-600" />,
-                        title: "Lab Note — Exhaustive Live Mode (V4.6 design proposal)",
+                        title: "Lab Note — Exhaustive Live Mode (V4.6 design proposal, archive)",
                         desc: "Map-reduce chunked-synthesis design proposal addressing the partial-results failure mode (May 4 cost-codes incident). Documents three considered approaches (paginate+merge / map-reduce JSON / RLM REPL), the chosen approach (B — map-reduce with structured JSON output and in-code dedup), the five settled operator-policy decisions (operator-picked chunk model with Haiku default, chunk_size scaling with cue cardinality, conflict resolution by higher similarity, single MRO per query, partial-results return with warning), the 7-hour engineering scope across 11 files, the chat-dialog UI surface, and seven open testing questions to resolve before merging. Planning artifact — no code shipped yet. Subject to NDA on file.",
                         color: "border-amber-300/50 hover:border-amber-400",
                       },

@@ -25,7 +25,7 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
                 <p className="text-xs text-muted-foreground">by InformationPhysics.ai</p>
               </div>
             </div>
-            <div className="text-xs font-mono text-muted-foreground">V4.6</div>
+            <div className="text-xs font-mono text-muted-foreground">V5.0</div>
           </div>
         </div>
       </header>
@@ -37,7 +37,7 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
             <Globe className="w-4 h-4" />
             Information Physics Standard Model
           </div>
-          <h2 className="text-5xl font-bold text-foreground mb-3">AIO/HSL/MRO Demo System V4.6</h2>
+          <h2 className="text-5xl font-bold text-foreground mb-3">AIO/HSL/MRO Demo System V5.0</h2>
           <p className="text-lg text-muted-foreground mb-2">by InformationPhysics.ai</p>
           <p className="text-lg text-muted-foreground mb-10 leading-relaxed text-center">
             A fully operational prototype for the new Quantum Cognition Architecture — the next
@@ -122,7 +122,7 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
           </Button>
           <p className="text-xs text-muted-foreground">
             <Database className="w-3 h-3 inline mr-1" />
-            V4.6 — Typo-tolerant Recall (Pass 1d + Thorough mode), bidirectional substring fallback, Live-quality LLM-parse augmentation, Recall maxAios cap raised to 200
+            V5.0 — Exhaustive Live mode (chunked map-reduce synthesis with structured JSON output), guaranteed completeness on enumeration queries, operator-picked chunk model (Haiku/Sonnet/Opus), partial-results return with coverage warning
           </p>
         </div>
       </section>

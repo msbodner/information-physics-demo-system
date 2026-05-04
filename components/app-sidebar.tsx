@@ -71,7 +71,7 @@ interface AppSidebarProps {
   username?: string | null
 }
 
-export function AppSidebar({ currentView, onNavigate, backendIsOnline, version = "V4.6", username }: AppSidebarProps) {
+export function AppSidebar({ currentView, onNavigate, backendIsOnline, version = "V5.0", username }: AppSidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
 

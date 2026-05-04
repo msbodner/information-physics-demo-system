@@ -178,11 +178,40 @@ export interface AioSearchResponse {
   // Server-applied retrieval-time policies (#2/#3)
   applied_filters?: string
   exclusions?: string[]
+  // V5.0 Exhaustive Live mode metadata. ``mode`` is "live" by default
+  // and "exhaustive" when chunked map-reduce was used; the four fields
+  // below are populated only when mode === "exhaustive".
+  mode?: "live" | "exhaustive"
+  coverage?: number
+  chunk_model?: string
+  partial_warning?: string
+  chunks_total?: number
+  chunks_failed?: number
+}
+
+// V5.0 Exhaustive Live options.
+//   mode:        "exhaustive" → chunked map-reduce path (no synthesis cap)
+//   chunkModel:  per-chunk classifier model (default backend Haiku)
+export interface AioSearchOpts {
+  bypassCache?: boolean
+  mode?: "live" | "exhaustive"
+  chunkModel?: string
+}
+
+// Build the ?bypass_cache=…&mode=…&chunk_model=… query suffix from
+// AioSearchOpts. Centralized so the streaming + non-streaming wrappers
+// stay in sync; an empty opts object yields an empty string.
+function buildAioSearchQuery(opts: AioSearchOpts): string {
+  const params: string[] = []
+  if (opts.bypassCache) params.push("bypass_cache=true")
+  if (opts.mode === "exhaustive") params.push("mode=exhaustive")
+  if (opts.chunkModel) params.push(`chunk_model=${encodeURIComponent(opts.chunkModel)}`)
+  return params.length ? `?${params.join("&")}` : ""
 }
 
 export async function aioSearchChat(
   messages: ChatMessage[],
-  opts: { bypassCache?: boolean } = {},
+  opts: AioSearchOpts = {},
 ): Promise<AioSearchResponse | { error: string } | null> {
   // bypassCache=true appends ?bypass_cache=true so the server-side
   // query_cache short-circuit is skipped. Default false to preserve
@@ -190,9 +219,11 @@ export async function aioSearchChat(
   // because users iterating through the UI expect fresh retrieval (and
   // because stale cache entries from before a backend retrieval fix
   // will otherwise mask the new behavior).
-  const url = opts.bypassCache
-    ? "/api/op/aio-search?bypass_cache=true"
-    : "/api/op/aio-search"
+  //
+  // mode === "exhaustive" routes the request through the V5.0 chunked
+  // map-reduce path on the backend; chunkModel picks the per-chunk
+  // classifier (default Haiku).
+  const url = `/api/op/aio-search${buildAioSearchQuery(opts)}`
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -321,16 +352,25 @@ export interface AioSearchStreamMeta {
   search_terms: Record<string, unknown>
   input_tokens: number
   output_tokens: number
+  // V5.0 Exhaustive metadata (only populated when mode=exhaustive).
+  mode?: "live" | "exhaustive"
+  coverage?: number
+  chunk_model?: string
+  partial_warning?: string
+  chunks_total?: number
+  chunks_failed?: number
 }
 
 export async function aioSearchChatStream(
   messages: ChatMessage[],
   cb: SSECallbacks<AioSearchStreamMeta>,
-  opts: { bypassCache?: boolean } = {},
+  opts: AioSearchOpts = {},
 ): Promise<void> {
-  const url = opts.bypassCache
-    ? "/api/op/aio-search/stream?bypass_cache=true"
-    : "/api/op/aio-search/stream"
+  // mode === "exhaustive" routes the streaming endpoint to the V5.0
+  // chunked map-reduce path. The backend currently emits the rendered
+  // exhaustive result as a single text frame followed by a meta event
+  // (per-chunk progress streaming is a future enhancement).
+  const url = `/api/op/aio-search/stream${buildAioSearchQuery(opts)}`
   await consumeSSE<AioSearchStreamMeta>(url, { messages }, cb)
 }
 

@@ -43,6 +43,7 @@ from api.search_helpers import (
     split_field_needles,
 )
 from api import embeddings
+from api import exhaustive as _exhaustive
 from api import query_cache as _qcache
 from api import search_quality as _quality
 from api import budget as _budget
@@ -185,6 +186,16 @@ class AioSearchResponse(BaseModel):
     # ── Server-applied retrieval-time policies (#2/#3) ──
     applied_filters: Optional[str] = None
     exclusions: List[str] = []
+    # ── V5.0 Exhaustive Live mode metadata ──
+    # ``mode`` is "live" (default) or "exhaustive". When exhaustive,
+    # the remaining four fields are populated; otherwise they stay None
+    # so legacy clients see no shape change.
+    mode: str = "live"
+    coverage: Optional[float] = None
+    chunk_model: Optional[str] = None
+    partial_warning: Optional[str] = None
+    chunks_total: Optional[int] = None
+    chunks_failed: Optional[int] = None
 
 
 class SubstrateChatRequest(BaseModel):
@@ -1368,6 +1379,11 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         "matched_hsl_ids": matched_hsl_ids,
         "matched_hsl_count": len(matched_hsl_rows),
         "matched_aio_count": len(matched_aio_lines),
+        # V5.0 Exhaustive: needs the full pre-cap, pre-diversify list so
+        # it can chunk and process every matched AIO. Live continues to
+        # use ``shipped_records`` (post-cap, post-diversify) for the
+        # bounded synthesis path.
+        "matched_aio_lines": matched_aio_lines,
         "parse_in_tok": parse_in_tok,
         "parse_out_tok": parse_out_tok,
         "applied_filters": filter_summary,
@@ -1383,11 +1399,185 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
     }
 
 
+def _aio_search_exhaustive(
+    payload: ChatRequest,
+    x_tenant_id: Optional[str],
+    bypass_cache: bool,
+    chunk_model: Optional[str],
+    _t0: float,
+) -> AioSearchResponse:
+    """V5.0 Exhaustive Live — chunked map-reduce over the full matched set.
+
+    Calls ``_aio_search_prepare`` to get the unbounded ``matched_aio_lines``,
+    then hands them to ``api.exhaustive.run_exhaustive`` which slices,
+    classifies in parallel-ish chunks, validates JSON per-chunk, and
+    merges by max-similarity. The merged matches are rendered to prose
+    with one final LLM call (``render_matches``).
+
+    Caching: Exhaustive uses a separate cache namespace
+    ("aio-search-exhaustive") so a Live cache hit doesn't shadow an
+    Exhaustive request and vice-versa. The chunk_model name is mixed
+    into the cache key indirectly via the prep step's user_prompt
+    (which doesn't change), so changing the model bypasses cache only
+    when the operator opts in via ``?bypass_cache=true``.
+    """
+    import time
+    tenant = x_tenant_id or "tenantA"
+    user_prompt = payload.messages[-1].content if payload.messages else ""
+
+    # ── Cache short-circuit (separate namespace from Live) ──
+    if not bypass_cache and user_prompt:
+        hit = _qcache.lookup(tenant, "aio-search-exhaustive", user_prompt)
+        if hit:
+            logger.info(
+                "aio-search-exhaustive cache HIT cache_id=%s mro=%s hits=%d",
+                hit.cache_id, hit.mro_id, hit.hit_count,
+            )
+            _quality.log(
+                tenant=tenant, mode="aio-search-exhaustive",
+                query_text=user_prompt,
+                num_cues=0, hsls_matched=0, aios_matched=0, aios_shipped=0,
+                parse_ms=0, retrieval_ms=0, llm_ms=0,
+                total_ms=int((time.perf_counter() - _t0) * 1000),
+                served_from_cache=True,
+            )
+            return AioSearchResponse(
+                reply=hit.answer_text,
+                model_ref=get_default_model(),
+                context_records=0,
+                matched_hsls=0,
+                matched_aios=0,
+                matched_hsl_ids=[],
+                search_terms={"field_values": [], "keywords": []},
+                input_tokens=0,
+                output_tokens=0,
+                served_from_cache=True,
+                cache_id=hit.cache_id,
+                cached_mro_id=hit.mro_id,
+                mode="exhaustive",
+                chunk_model=chunk_model or get_default_model(),
+            )
+
+    prep = _aio_search_prepare(payload, x_tenant_id)
+
+    matched_aio_lines: List[str] = prep.get("matched_aio_lines") or []
+    num_cues = prep.get("num_cues", 0)
+    applied_filters = prep.get("applied_filters") or ""
+    exclusions = prep.get("exclusions") or []
+
+    _t_llm_start = time.perf_counter()
+
+    # Build the Anthropic client once and pass to both chunk + render.
+    import anthropic
+    client = anthropic.Anthropic(api_key=prep["api_key"])
+
+    result = _exhaustive.run_exhaustive(
+        client=client,
+        matched_aio_lines=matched_aio_lines,
+        user_prompt=user_prompt,
+        num_cues=num_cues,
+        chunk_model=chunk_model,
+        applied_filters=applied_filters,
+        exclusions=exclusions,
+    )
+
+    # Render the merged matches as user-facing prose. Falls back to a
+    # local Markdown table if the render LLM call errors.
+    reply_text, render_in_tok, render_out_tok = _exhaustive.render_matches(
+        client=client,
+        user_prompt=user_prompt,
+        result=result,
+        matched_aio_lines=matched_aio_lines,
+    )
+
+    # Citation post-pass on the rendered prose. Scores against the merged
+    # match records (since those are what the model was told about).
+    citation_summary = None
+    line_by_name = {}
+    for line in matched_aio_lines:
+        name = line.split(":", 1)[0].strip() if line else ""
+        if name and name not in line_by_name:
+            line_by_name[name] = line
+    cited_lines = [line_by_name[m.aio_name] for m in result.matches if m.aio_name in line_by_name]
+    try:
+        stats = cite_aios(reply_text, cited_lines)
+        citation_summary = summarize_citations(stats, total_shipped=len(cited_lines))
+        logger.info(
+            "aio-search-exhaustive citations: %d of %d records cited",
+            citation_summary["cited"], citation_summary["shipped"],
+        )
+    except Exception:
+        logger.info("citation post-pass failed (exhaustive)", exc_info=True)
+
+    # Persist into the exhaustive-namespaced cache.
+    if not bypass_cache:
+        try:
+            _qcache.store(
+                tenant, "aio-search-exhaustive", user_prompt, reply_text, mro_id=None,
+            )
+        except Exception:
+            logger.info("aio-search-exhaustive cache store failed", exc_info=True)
+
+    total_in = (
+        prep["parse_in_tok"]
+        + result.input_tokens
+        + render_in_tok
+    )
+    total_out = (
+        prep["parse_out_tok"]
+        + result.output_tokens
+        + render_out_tok
+    )
+    _budget.record_usage(tenant, total_in, total_out)
+
+    _quality.log(
+        tenant=tenant, mode="aio-search-exhaustive",
+        query_text=user_prompt,
+        num_cues=num_cues,
+        hsls_matched=prep["matched_hsl_count"],
+        aios_matched=prep["matched_aio_count"],
+        aios_shipped=result.total_aios_processed,
+        sources_cited=(citation_summary or {}).get("cited") if citation_summary else None,
+        parse_ms=prep.get("parse_ms", 0),
+        retrieval_ms=prep.get("retrieval_ms", 0),
+        llm_ms=int((time.perf_counter() - _t_llm_start) * 1000),
+        total_ms=int((time.perf_counter() - _t0) * 1000),
+        served_from_cache=False,
+        parse_cache_hit=prep.get("parse_cache_hit", False),
+        input_tokens=total_in,
+        output_tokens=total_out,
+    )
+
+    return AioSearchResponse(
+        reply=reply_text,
+        model_ref=get_default_model(),
+        context_records=prep["matched_aio_count"],
+        matched_hsls=prep["matched_hsl_count"],
+        matched_aios=prep["matched_aio_count"],
+        matched_hsl_ids=prep["matched_hsl_ids"],
+        search_terms=prep["search_terms"],
+        input_tokens=total_in,
+        output_tokens=total_out,
+        served_from_cache=False,
+        sources_used=citation_summary,
+        applied_filters=prep.get("applied_filters") or None,
+        exclusions=prep.get("exclusions") or [],
+        mode="exhaustive",
+        coverage=result.coverage,
+        chunk_model=result.chunk_model,
+        partial_warning=result.warning or None,
+        chunks_total=result.total_chunks,
+        chunks_failed=result.failed_chunks,
+    )
+
+
 @router.post("/v1/op/aio-search", response_model=AioSearchResponse)
 def aio_search(
     payload: ChatRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
     bypass_cache: bool = False,
+    mode: Optional[str] = None,
+    chunk_model: Optional[str] = None,
 ):
     """Four-phase search algebra: parse → match HSLs → gather AIOs → answer.
 
@@ -1398,11 +1588,27 @@ def aio_search(
       * **Citation post-pass** (#9) — after the LLM answers, scan the
         shipped AIO records for distinctive tokens that appear in the
         reply and report ``sources_used: N of M``.
+
+    V5.0: When ``?mode=exhaustive`` is set, dispatches to the chunked
+    map-reduce path (``_aio_search_exhaustive``) which guarantees full
+    coverage of the matched AIO set. ``?chunk_model=<sku>`` lets the
+    operator pick the per-chunk classifier model (default Haiku).
     """
     import time
     _t0 = time.perf_counter()
     tenant = x_tenant_id or "tenantA"
     _budget.check_budget(tenant)
+
+    # V5.0 dispatch: exhaustive mode is a separate code path.
+    if (mode or "").strip().lower() == "exhaustive":
+        return _aio_search_exhaustive(
+            payload=payload,
+            x_tenant_id=x_tenant_id,
+            bypass_cache=bypass_cache,
+            chunk_model=chunk_model,
+            _t0=_t0,
+        )
+
     user_prompt = payload.messages[-1].content if payload.messages else ""
 
     # ── Cache short-circuit (#8) ──
@@ -1981,12 +2187,65 @@ def aio_search_stream(
     payload: ChatRequest,
     x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
     bypass_cache: bool = False,
+    mode: Optional[str] = None,
+    chunk_model: Optional[str] = None,
 ):
     """Streaming variant of AIO Search. Phases 1–3 run synchronously
     (they're DB-bound, no user-visible delay benefit from streaming).
     Phase 4 (synthesis) is streamed token-by-token as SSE `text` events;
     the final `meta` event carries token counts and search metadata.
+
+    V5.0: When ``?mode=exhaustive`` is set, the streaming endpoint
+    delegates to the non-streaming exhaustive path and emits the
+    rendered reply as a single ``text`` frame followed by a ``meta``
+    event. Per-chunk streaming progress is a future enhancement;
+    surfacing the partial-results warning in the meta event keeps the
+    UX intact for V5.0.
     """
+    # V5.0 exhaustive dispatch — emit the final result as one text frame.
+    if (mode or "").strip().lower() == "exhaustive":
+        import time as _time
+        _t0_ex = _time.perf_counter()
+
+        def gen_exhaustive():
+            try:
+                resp = _aio_search_exhaustive(
+                    payload=payload,
+                    x_tenant_id=x_tenant_id,
+                    bypass_cache=bypass_cache,
+                    chunk_model=chunk_model,
+                    _t0=_t0_ex,
+                )
+                yield _sse("text", resp.reply)
+                yield _sse("meta", {
+                    "model_ref": resp.model_ref,
+                    "context_records": resp.context_records,
+                    "matched_hsls": resp.matched_hsls,
+                    "matched_aios": resp.matched_aios,
+                    "matched_hsl_ids": resp.matched_hsl_ids,
+                    "search_terms": resp.search_terms,
+                    "input_tokens": resp.input_tokens,
+                    "output_tokens": resp.output_tokens,
+                    "served_from_cache": resp.served_from_cache,
+                    "mode": resp.mode,
+                    "coverage": resp.coverage,
+                    "chunk_model": resp.chunk_model,
+                    "partial_warning": resp.partial_warning,
+                    "chunks_total": resp.chunks_total,
+                    "chunks_failed": resp.chunks_failed,
+                })
+            except HTTPException as exc:
+                yield _sse("error", {"error": f"HTTP {exc.status_code}: {exc.detail}"})
+            except Exception as exc:
+                logger.exception("aio-search-stream exhaustive error")
+                yield _sse("error", {"error": f"Exhaustive error: {exc}"})
+
+        return StreamingResponse(
+            gen_exhaustive(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     # V4.4 P5: cache short-circuit. Mirrors the JSON endpoint's cache
     # behavior so re-asking the same question over the streaming wire
     # serves the cached reply as a single text frame + meta event with

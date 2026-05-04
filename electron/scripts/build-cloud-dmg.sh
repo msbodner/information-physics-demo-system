@@ -48,12 +48,12 @@ for d in python postgres backend; do
   fi
 done
 
-# Tag the cloud variant as "V4.6C" everywhere it's user-visible
+# Tag the cloud variant as "V5.0C" everywhere it's user-visible
 # (splash screen, Next.js HTML titles, sidebar/dashboard chrome). The
 # bundled frontend was already built with "V4.5"; sed-swap it across
 # resources/frontend and splash.html, then revert on EXIT.
-CLOUD_TAG="V4.6C"
-CLOUD_TAG_FROM="V4.6"
+CLOUD_TAG="V5.0C"
+CLOUD_TAG_FROM="V5.0"
 SWAP_LIST_FILE="$(mktemp)"
 grep -rl "$CLOUD_TAG_FROM" resources/frontend splash.html 2>/dev/null > "$SWAP_LIST_FILE" || true
 SWAP_COUNT=$(wc -l < "$SWAP_LIST_FILE" | tr -d ' ')
@@ -84,10 +84,10 @@ done < "$SWAP_LIST_FILE"
 echo "🔨 running electron-builder for cloud variant…"
 CSC_IDENTITY_AUTO_DISCOVERY=false \
   npx electron-builder \
-    -c.artifactName='${productName}-4.6C-cloud-${arch}.${ext}' \
-    -c.dmg.artifactName='${productName}-4.6C-cloud-${arch}.${ext}' \
-    -c.mac.artifactName='${productName}-4.6C-cloud-${arch}.${ext}' \
-    -c.dmg.title='${productName} 4.6C (Cloud)' \
+    -c.artifactName='${productName}-5.0C-cloud-${arch}.${ext}' \
+    -c.dmg.artifactName='${productName}-5.0C-cloud-${arch}.${ext}' \
+    -c.mac.artifactName='${productName}-5.0C-cloud-${arch}.${ext}' \
+    -c.dmg.title='${productName} 5.0C (Cloud)' \
     --mac
 
 echo "✅ cloud DMGs built. Restoring stashed resources…"

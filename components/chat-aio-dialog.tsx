@@ -530,6 +530,20 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   // cached MRO findings WITH fresh retrieval rather than pick one.
   // Costs more tokens; default off.
   const [thoroughRecall, setThoroughRecall] = useState(false)
+  // V5.0 — "Exhaustive" toggle for Live Search. When true, the backend
+  // routes the request through the chunked map-reduce path
+  // (api/exhaustive.py): every matched AIO is processed by per-chunk
+  // LLM classification with strict JSON output, then merged in-Python.
+  // Guarantees full coverage on enumeration queries that the bounded
+  // single-call Live mode can silently truncate via diversify_by_csv +
+  // LLM filter drift. Costs more tokens (~N×Live); default off.
+  const [exhaustiveLive, setExhaustiveLive] = useState(false)
+  // V5.0 — operator picks the per-chunk classifier model. Haiku is the
+  // default (fastest + cheapest, sufficient for record classification).
+  // Sonnet trades latency/$ for higher recall on fuzzy queries; Opus is
+  // available for hardest-of-the-hard cases. Stored locally — not
+  // persisted server-side, since it's a per-query operator choice.
+  const [chunkModel, setChunkModel] = useState<string>("claude-haiku-4-5")
   // V4.6+ — operator-tunable substrate caps fetched once at dialog open.
   // Falls back to the same defaults the backend uses (800 / 2500) if the
   // caps endpoint is unreachable.
@@ -743,10 +757,19 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
     const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
-    // Pane header chip — assigned BEFORE the assistant slot is
-    // appended so PaneHeaderChip renders immediately, before any
-    // tokens stream in.
-    setHeaderAt(next.length, makePaneHeader("Live Search", new Date()))
+    // V5.0 — pane header reflects mode. "Exhaustive Live" gets a model
+    // shorthand suffix so the operator can see at a glance which
+    // chunk-classifier ran: -H (Haiku), -S (Sonnet), -O (Opus).
+    const modelSuffix = exhaustiveLive
+      ? (chunkModel.includes("haiku") ? "-H"
+          : chunkModel.includes("sonnet") ? "-S"
+          : chunkModel.includes("opus") ? "-O"
+          : "")
+      : ""
+    const liveLabel = exhaustiveLive
+      ? `Exhaustive Live${modelSuffix}`
+      : "Live Search"
+    setHeaderAt(next.length, makePaneHeader(liveLabel, new Date()))
     setChatMessages([...next, { role: "assistant", content: "" }])
     setChatInput("")
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
@@ -780,7 +803,13 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       // sessions where stale cached entries (especially from before
       // retrieval-pipeline changes) cause confusing "this should work"
       // failures.
-    }, { bypassCache: true }).catch((e) => { errMsg = String(e) })
+      //
+      // V5.0: when exhaustiveLive is on, route to the chunked map-reduce
+      // backend path with the operator's chosen chunk classifier.
+    }, {
+      bypassCache: true,
+      ...(exhaustiveLive ? { mode: "exhaustive" as const, chunkModel } : {}),
+    }).catch((e) => { errMsg = String(e) })
     const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
     if (errMsg && !acc) {
@@ -795,8 +824,20 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const meta = metaCaptured
     const inTok = meta.input_tokens ?? 0
     const outTok = meta.output_tokens ?? 0
-    const footer = `\n\n---\n_Live Search: ${meta.matched_hsls} HSLs matched · ${meta.matched_aios} AIOs in context · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens_`
-    const finalText = acc + footer
+    // V5.0 — partial-coverage warning callout (Markdown blockquote so it
+    // renders as a tinted ribbon at the top of the answer pane). Only
+    // surfaces when meta.partial_warning is set (Exhaustive partial-run).
+    const warningPrefix = meta.partial_warning
+      ? `> ⚠️ **Partial coverage** — ${meta.partial_warning}\n\n`
+      : ""
+    // V5.0 — exhaustive footer extension: chunks total/failed, model,
+    // coverage. Falls back to the legacy single-line footer for Live.
+    const exhaustiveDetails = meta.mode === "exhaustive"
+      ? ` · ⚙️ Exhaustive: ${meta.chunks_total ?? 0} chunks (${meta.chunks_failed ?? 0} failed) · model: ${meta.chunk_model ?? "?"} · coverage: ${((meta.coverage ?? 1) * 100).toFixed(0)}%`
+      : ""
+    const modeLabel = meta.mode === "exhaustive" ? "Exhaustive Live" : "Live Search"
+    const footer = `\n\n---\n_${modeLabel}: ${meta.matched_hsls} HSLs matched · ${meta.matched_aios} AIOs in context · ⏱ ${(elapsedMs / 1000).toFixed(1)}s · 📥 ${inTok.toLocaleString()} in · 📤 ${outTok.toLocaleString()} out · ${(inTok + outTok).toLocaleString()} total tokens${exhaustiveDetails}_`
+    const finalText = warningPrefix + acc + footer
     setChatMessages((prev) => {
       const last = prev[prev.length - 1]
       if (!last || last.role !== "assistant") return prev
@@ -809,19 +850,31 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       matched_hsl_ids: meta.matched_hsl_ids ?? [],
       seed_hsls_display: `${meta.matched_hsls} HSLs`,
     })
-    setLastPerfMetrics({ elapsedMs, inputTokens: inTok, outputTokens: outTok, searchMode: "AIOSearch" })
+    setLastPerfMetrics({
+      elapsedMs, inputTokens: inTok, outputTokens: outTok,
+      searchMode: meta.mode === "exhaustive" ? "ExhaustiveLive" : "AIOSearch",
+    })
 
     const hslIds = meta.matched_hsl_ids ?? []
-    const mroKey = `AIOSearch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    // V5.0 — Exhaustive runs persist as a separate MRO intent so
+    // operators (and the trust-ranker) can distinguish the two modes
+    // when ranking priors. Trust seed for Exhaustive bakes coverage in.
+    const isExhaustive = meta.mode === "exhaustive"
+    const intent = isExhaustive ? "aio-search-exhaustive" : "aio-search"
+    const baseConfidence = 0.85  // Exhaustive starts higher than Live's 0.75
+    const trustSeed = isExhaustive
+      ? (baseConfidence * (meta.coverage ?? 1)).toFixed(2)
+      : "0.75"
+    const mroKey = `${isExhaustive ? "ExhaustiveLive" : "AIOSearch"}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
     createMroObject({
       mro_key: mroKey,
       query_text: text,
-      intent: "aio-search",
+      intent,
       seed_hsls: hslIds.join("|"),
       matched_aios_count: meta.matched_aios,
       search_terms: meta.search_terms as Record<string, unknown>,
       result_text: acc,
-      confidence: "0.75",
+      confidence: trustSeed,
       policy_scope: "default",
     }).then((mro) => {
       if (mro?.mro_id && hslIds.length > 0) {
@@ -836,14 +889,15 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     }).catch((e) => { console.error("createMroObject failed (Live Search)", e) })
 
     createChatStat({
-      search_mode: "AIOSearch", query_text: text,
+      search_mode: isExhaustive ? "ExhaustiveLive" : "AIOSearch",
+      query_text: text,
       result_preview: acc.slice(0, 500),
       elapsed_ms: elapsedMs, input_tokens: inTok, output_tokens: outTok,
       total_tokens: inTok + outTok, context_records: meta.context_records ?? 0,
       matched_hsls: meta.matched_hsls, matched_aios: meta.matched_aios,
       cue_count: 0, neighborhood_size: 0, prior_count: 0, mro_saved: hslIds.length > 0,
     }).catch((e) => { console.error("createChatStat failed (AIOSearch)", e) })
-  }, [chatInput, chatMessages, isChatLoading])
+  }, [chatInput, chatMessages, isChatLoading, exhaustiveLive, chunkModel])
 
   const handleRecallSearch = useCallback(async () => {
     const text = chatInput.trim()
@@ -1490,7 +1544,40 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                 title="Recall Search (formerly Substrate Mode — default, Enter key): extract cues, traverse HSL neighborhoods, pre-fetch MRO priors from past episodes, and persist this answer as a new MRO. Memory-augmented — gets richer with use.">
                 <Brain className="w-4 h-4" />Recall
               </Button>
-              <Button size="sm" variant="outline" onClick={handleAioSearch} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Live Search (formerly AIO Search): fresh four-phase retrieval — parse cues, match HSLs, gather AIOs, synthesize. No memory of prior queries.">
+              {/* V5.0 — Exhaustive toggle for Live Search. When checked,
+                  the next Live click routes through the chunked
+                  map-reduce path (api/exhaustive.py) instead of the
+                  bounded single-call path. Guarantees full coverage on
+                  enumeration queries that the legacy Live can silently
+                  truncate via diversify_by_csv + LLM filter drift. */}
+              <label
+                className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer h-9 px-2 rounded-md border border-border hover:bg-muted/40"
+                title="Exhaustive Live: chunked map-reduce — every matched AIO is processed by per-chunk LLM classification with strict JSON output, then merged in-Python by max similarity. Guarantees completeness on enumeration queries (no diversify_by_csv truncation, no LLM filter drift). Costs more tokens (~N×Live)."
+              >
+                <input
+                  type="checkbox"
+                  checked={exhaustiveLive}
+                  onChange={(e) => setExhaustiveLive(e.target.checked)}
+                  disabled={isChatLoading}
+                  className="h-3.5 w-3.5 accent-blue-600 cursor-pointer"
+                />
+                Exhaustive
+              </label>
+              {/* V5.0 — chunk-model dropdown. Only enabled when
+                  Exhaustive is on. Haiku is the default (cheapest +
+                  fastest, sufficient for record classification). */}
+              <select
+                value={chunkModel}
+                onChange={(e) => setChunkModel(e.target.value)}
+                disabled={isChatLoading || !exhaustiveLive}
+                className="h-9 px-2 rounded-md border border-border text-xs bg-background hover:bg-muted/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Per-chunk classifier model for Exhaustive Live. Haiku is the default — fastest and cheapest, sufficient for record-level matching. Sonnet trades latency/$ for higher recall on fuzzy queries. Opus is for hardest-of-the-hard cases."
+              >
+                <option value="claude-haiku-4-5">Haiku (default)</option>
+                <option value="claude-sonnet-4-6">Sonnet</option>
+                <option value="claude-opus-4-7">Opus</option>
+              </select>
+              <Button size="sm" variant="outline" onClick={handleAioSearch} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Live Search (formerly AIO Search): fresh four-phase retrieval — parse cues, match HSLs, gather AIOs, synthesize. No memory of prior queries. Toggle Exhaustive to route through chunked map-reduce for guaranteed enumeration completeness.">
                 <Search className="w-4 h-4" />Live Search
               </Button>
               <Button size="sm" variant="outline" onClick={handlePureLlm} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Raw Search (formerly CSV→LLM Raw): standard Claude prompt with the raw saved CSV files as context (no AIO/HSL/MRO machinery — control case)">
