@@ -50,7 +50,75 @@ function findPort(startPort) {
   });
 }
 
+// Free ports that were left occupied by a previous, orphaned launch.
+//
+// Why this exists: a prior cloud-DMG launch could leave a Next.js
+// standalone server running on port 3100 (or a uvicorn on 9080, or
+// a postgres on 5433) if the Electron main process exited
+// uncleanly — crash, force-quit, or sleep-then-wake. macOS's
+// `open -a` then sees "the app is already running" and won't spawn
+// a fresh process, so the user is silently stuck on the old code
+// (with stale env vars baked into module-load state — most painfully
+// the cloud API URL).
+//
+// Strategy: for each port we plan to use, check if a process is
+// listening. If yes AND the process belongs to a Information Physics
+// bundle (we never touch unrelated processes), kill it. macOS-only
+// (`lsof`); on Windows / Linux this is a no-op. Best-effort —
+// failures are logged but don't block startup.
+function freeStalePorts(portList) {
+  if (process.platform !== "darwin") return;  // lsof path is macOS-specific
+  for (const port of portList) {
+    try {
+      const lsofOutput = execSync(
+        `lsof -nP -iTCP:${port} -sTCP:LISTEN -F pcn 2>/dev/null || true`,
+        { encoding: "utf8" }
+      ).trim();
+      if (!lsofOutput) continue;
+      // Output format: "p<pid>\nc<command>\nn<*:port>\n…"
+      // Walk lines, pair pid + command, kill any pid whose command
+      // identifies as one of OUR processes.
+      const lines = lsofOutput.split("\n");
+      let currentPid = null;
+      for (const line of lines) {
+        if (line.startsWith("p")) {
+          currentPid = parseInt(line.slice(1), 10);
+        } else if (line.startsWith("c") && currentPid) {
+          const command = line.slice(1);
+          // Match anything that came out of our bundle. Cover Electron's
+          // truncated process names ("Informati"), Next.js standalone
+          // ("node"), uvicorn ("python3.12"), and PostgreSQL ("postgres")
+          // — but only if the cmdline belongs to our app. Cross-check
+          // by reading the executable path via `ps`.
+          let cmdline = "";
+          try {
+            cmdline = execSync(`ps -p ${currentPid} -o command= 2>/dev/null || true`, { encoding: "utf8" }).trim();
+          } catch (_) { /* process may have died between lsof and ps */ }
+          const ours = cmdline.includes("Information Physics Demo System.app") ||
+                       cmdline.includes("information-physics-demo-system");
+          if (ours) {
+            log(`Freeing port ${port}: killing stale ${command} (pid ${currentPid})`);
+            try {
+              process.kill(currentPid, "SIGKILL");
+            } catch (e) {
+              log(`  (kill failed: ${e.message})`);
+            }
+          } else if (cmdline) {
+            log(`Port ${port} held by non-IP process (pid ${currentPid}, ${command}) — leaving alone, will pick a different port`);
+          }
+        }
+      }
+    } catch (e) {
+      log(`freeStalePorts(${port}) probe failed: ${e.message}`);
+    }
+  }
+  // Tiny grace period so the OS releases the sockets before findPort
+  // probes them again. 200ms is plenty.
+  return new Promise((resolve) => setTimeout(resolve, 200));
+}
+
 async function findPorts() {
+  await freeStalePorts([5433, 9080, 3100]);
   ports.pg = await findPort(5433);
   ports.backend = await findPort(9080);
   ports.frontend = await findPort(3100);
