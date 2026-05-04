@@ -11,7 +11,7 @@ const APP_NAME = "Information Physics Demo System";
 const isDev = !app.isPackaged;
 
 // Cloud mode: use Railway backend instead of local PostgreSQL + FastAPI
-const CLOUD_BACKEND_URL = "https://infophysics-api-production-bc95.up.railway.app";
+const CLOUD_BACKEND_URL = "https://infophysics-api-production-8b57.up.railway.app";
 const CLOUD_MODE = true; // Set to false to run fully local (requires bundled PostgreSQL)
 
 // Resource paths differ between dev and packaged app
