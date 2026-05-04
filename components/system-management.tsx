@@ -4262,9 +4262,16 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
                         color: "border-indigo-300/50 hover:border-indigo-400",
                       },
                       {
+                        embed: "/docs/InformationPhysics_MCP_Full_Guide_V46.docx",
+                        icon: <BookOpen className="w-6 h-6 text-emerald-600" />,
+                        title: "InformationPhysics MCP for Claude — Full Guide + Install Appendix (V4.6)",
+                        desc: "Comprehensive user-and-engineering reference structured in three parts plus an installation appendix. Part I (User Guide): what the MCP is, quick-start, the nine tools, common usage patterns, reading tool output, limitations. Part II (Technical Reference): system architecture, per-tool specifications, database schema essentials, security model, multi-deployment pattern, operations. Part III (Troubleshooting): logs, diagnostic commands, six common failure modes with recipes. Appendix A: complete installation walkthrough for Claude Desktop's Settings panel — both the recommended in-app Settings → Connectors flow (A1) and the manual claude_desktop_config.json edit (A2), plus a multi-deployment template (A3), verification recipes (A4), file locations (A5), and config-restore steps (A6). Subject to NDA on file.",
+                        color: "border-emerald-300/50 hover:border-emerald-400",
+                      },
+                      {
                         embed: "/docs/InformationPhysics_MCP_Guide_V46.docx",
                         icon: <BookOpen className="w-6 h-6 text-emerald-600" />,
-                        title: "InformationPhysics MCP Server — User & Technical Guide (V4.6)",
+                        title: "InformationPhysics MCP Server — User & Technical Guide (V4.6, original)",
                         desc: "Operator + engineer reference for the local Model Context Protocol server that bridges Claude Desktop to the AIO/HSL/MRO substrate. Documents the nine read-only tools (aio_search, mro_search, get_mro, list_mros_ranked, find_aios, list_aios, find_hsls, list_hsl_key_values, health), full install/register/verify sequence with copy-pasteable claude_desktop_config.json, system architecture (stdio transport + HTTPS to Railway, no direct DB access), per-tool parameter and response shapes, RLS posture and tenant-isolation diagnostic, troubleshooting recipes for the seven most common failure modes, operations notes (update / disable / Railway deployment), and a quick-reference card with file paths + diagnostic commands + example prompts. Subject to NDA on file.",
                         color: "border-emerald-300/50 hover:border-emerald-400",
                       },
