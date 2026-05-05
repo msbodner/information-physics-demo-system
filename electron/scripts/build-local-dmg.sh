@@ -126,10 +126,10 @@ fi
 
 # Tag the local variant as "V5.0L" everywhere it's user-visible (splash
 # screen, Next.js HTML titles, sidebar/dashboard chrome). The bundled
-# frontend was already built with "V4.5"; we sed-swap that string to
+# frontend was already built with "V5.0"; we sed-swap that string to
 # "V5.0L" across resources/frontend before packing, then restore after.
 #
-# Pre-flight: only swap if there's a "V4.5" to swap (idempotent / safe
+# Pre-flight: only swap if there's a "V5.0" to swap (idempotent / safe
 # if the build is run twice in a row).
 LOCAL_TAG="V5.0L"
 LOCAL_TAG_FROM="V5.0"

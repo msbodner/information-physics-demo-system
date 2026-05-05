@@ -50,7 +50,7 @@ done
 
 # Tag the cloud variant as "V5.0C" everywhere it's user-visible
 # (splash screen, Next.js HTML titles, sidebar/dashboard chrome). The
-# bundled frontend was already built with "V4.5"; sed-swap it across
+# bundled frontend was already built with "V5.0"; sed-swap it across
 # resources/frontend and splash.html, then revert on EXIT.
 CLOUD_TAG="V5.0C"
 CLOUD_TAG_FROM="V5.0"

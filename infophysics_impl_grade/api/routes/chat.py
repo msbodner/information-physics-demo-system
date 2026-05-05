@@ -1441,6 +1441,12 @@ def _aio_search_exhaustive(
                 total_ms=int((time.perf_counter() - _t0) * 1000),
                 served_from_cache=True,
             )
+            # On cache hit we don't know the original chunk topology
+            # (we only stored the rendered reply text). Surface coverage=1.0
+            # so the UI footer renders consistently — a cached reply IS
+            # complete by definition; partial-coverage runs aren't cached.
+            # See _aio_search_exhaustive store call which only fires on
+            # success after the chunk loop.
             return AioSearchResponse(
                 reply=hit.answer_text,
                 model_ref=get_default_model(),
@@ -1455,7 +1461,11 @@ def _aio_search_exhaustive(
                 cache_id=hit.cache_id,
                 cached_mro_id=hit.mro_id,
                 mode="exhaustive",
+                coverage=1.0,
                 chunk_model=chunk_model or get_default_model(),
+                partial_warning=None,
+                chunks_total=None,
+                chunks_failed=0,
             )
 
     prep = _aio_search_prepare(payload, x_tenant_id)
@@ -1509,14 +1519,24 @@ def _aio_search_exhaustive(
     except Exception:
         logger.info("citation post-pass failed (exhaustive)", exc_info=True)
 
-    # Persist into the exhaustive-namespaced cache.
-    if not bypass_cache:
+    # Persist into the exhaustive-namespaced cache — but ONLY on full
+    # coverage. A partial-run reply text omits records the user asked
+    # for; serving it from cache later would silently re-introduce the
+    # same partial answer the operator was warned about. The cache HIT
+    # path assumes coverage=1.0 (see line 1462), and gating the store
+    # here is what makes that assumption true.
+    if not bypass_cache and result.coverage >= 1.0 and result.failed_chunks == 0:
         try:
             _qcache.store(
                 tenant, "aio-search-exhaustive", user_prompt, reply_text, mro_id=None,
             )
         except Exception:
             logger.info("aio-search-exhaustive cache store failed", exc_info=True)
+    elif not bypass_cache:
+        logger.info(
+            "aio-search-exhaustive: skipping cache store (coverage=%.3f, failed_chunks=%d)",
+            result.coverage, result.failed_chunks,
+        )
 
     total_in = (
         prep["parse_in_tok"]

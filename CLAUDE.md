@@ -113,13 +113,45 @@ railway service status --all
 
 ## Important Patterns
 
-- **Version string**: Currently V4.5 (`package.json` is source of truth). Grep the repo before bumping — known hardcoded sites include: `app/layout.tsx`, `app/page.tsx`, `components/chat-aio-dialog.tsx`, `components/user-guide.tsx`, `components/system-management.tsx`, `components/splash-screen.tsx`, `components/dashboard.tsx`, `components/app-sidebar.tsx`, `package.json`, `electron/package.json`, `electron/preload.js`, `electron/splash.html`. Historical references (e.g. "V4.3 added X", changelog entries in technotes) should NOT be retconned.
+- **Version string**: Currently V5.0 (`package.json` is source of truth). Grep the repo before bumping — known hardcoded sites include: `app/layout.tsx`, `app/page.tsx`, `components/chat-aio-dialog.tsx`, `components/user-guide.tsx`, `components/views/UserGuide.tsx`, `components/views/WorkflowDescription.tsx`, `components/system-management.tsx`, `components/splash-screen.tsx`, `components/dashboard.tsx`, `components/app-sidebar.tsx`, `package.json`, `electron/package.json`, `electron/preload.js`, `electron/splash.html`, `electron/scripts/build-{cloud,local}-dmg.sh`. Historical references (e.g. "V4.3 added X", changelog entries in technotes) should NOT be retconned.
 - **Adding a new API endpoint**: Create FastAPI route in the appropriate `api/routes/*.py` (or add a new router and include it in `api/main.py`) → create Next.js proxy in `app/api/{name}/route.ts` → add typed client function in `lib/api-client.ts`
 - **Adding a System Admin tab**: Add `TabsTrigger` + `TabsContent` in `components/system-management.tsx`, create a new pane function
 - **SQL migrations**: Add numbered file in `infophysics_impl_grade/migrations/` (e.g., `012_new_table.sql`). Migrations run automatically on backend startup. Use `IF NOT EXISTS` for idempotency.
 - **Backend Dockerfile**: pip dependencies are hardcoded in the Dockerfile `RUN pip install` line, not read from `pyproject.toml`. Update both when adding Python packages.
 - **LLM model selection**: Every Anthropic call site goes through `get_default_model()` / `get_parse_model()` in `infophysics_impl_grade/api/llm.py`. Resolution order: `system_settings.{default_model,parse_model}` (set via System Management → Models tab) → env var (`ANTHROPIC_DEFAULT_MODEL`, `AIO_SEARCH_PARSE_MODEL`) → fallback (`claude-sonnet-4-6`). Never reintroduce hardcoded model strings.
 - **Benchmarks**: Two saved prompts in `lib/benchmarks.ts` and `scripts/benchmark_prompt.txt`. Run via the R&D **Benchmark 1 / Benchmark 2** buttons (UI), or `BENCHMARK=1 pnpm dlx tsx scripts/measure_modes.ts` (CLI). The runners must stay in sync with each other.
+
+## V5.0 — what changed since V4.6
+
+V5.0 is a completeness release. Adds a single new operator-facing feature: **Exhaustive Live mode** (chunked map-reduce synthesis). Closes the May 4 production failure mode where Live silently returned partial answers on enumeration queries (6 Division-08 cost codes existed; Live returned 4). Default Live behavior is byte-identical to V4.6 — Exhaustive is opt-in via the new ChatAIO checkbox or `?mode=exhaustive` query param.
+
+### Exhaustive Live (new mode #5)
+
+- **`infophysics_impl_grade/api/exhaustive.py`** — new module. Pure orchestration: chunk loop, pydantic-validated per-chunk JSON output, merge-by-max-similarity, hallucination guard, partial-coverage trust decrement. 27 unit tests in `tests/test_exhaustive.py`.
+- **`api/routes/chat.py`** — new `_aio_search_exhaustive` helper; `aio_search` and `aio_search/stream` accept `?mode=exhaustive&chunk_model=…`. Separate cache namespace (`aio-search-exhaustive`); cache-store gated on `coverage == 1.0` so partial replies never get re-served as if complete.
+- **Chunk size formula**: `clamp(100 + 100·|cues|, 200, 800)`. Single-cue queries get tight 200-record chunks; multi-cue enumerations get up to 800.
+- **`AioSearchResponse`** gains six optional fields (`mode`, `coverage`, `chunk_model`, `partial_warning`, `chunks_total`, `chunks_failed`) — all None on legacy Live runs, populated only on Exhaustive.
+
+### Frontend (ChatAIO dialog)
+
+- New **Exhaustive** checkbox between the Recall and Live Search buttons; new **Haiku/Sonnet/Opus** model dropdown that's enabled only when Exhaustive is on.
+- Pane header gets `-H/-S/-O` suffix indicating which chunk classifier ran.
+- Coverage warning callout (Markdown blockquote) prepended to the answer when any chunk fails terminally.
+- Footer line extends with `⚙️ Exhaustive: N chunks (K failed) · model: claude-haiku-4-5 · coverage: P%`.
+
+### Documentation
+
+- **Search Modes Compendium V5.0** (`public/docs/Search_Modes_Compendium_V50.docx`) — definitive 5-mode reference. §6 search efficiency by metric. §10 HSL-driven retrieval (which modes use HSLs to locate AIOs and MROs). Supersedes V4.6 compendium.
+- **Release Notes V5.0** — operator-facing changelog.
+- **Lab Note Exhaustive Live SHIPPED** — closes the V4.6 design proposal lab note. Documents implementation map, as-shipped behavior of all five settled policies, status of seven open testing questions, V5.1+ future work.
+
+### MCP server
+
+- `aio_search` tool gains `exhaustive: bool` + `chunk_model: enum(claude-haiku-4-5, claude-sonnet-4-6, claude-opus-4-7)`. Tool description guides LLMs toward Exhaustive on enumeration queries. Schema bump in `ip-mcp-server-v2` v0.5.0.
+
+### Distribution
+
+- DMG variants relabeled: full → V5.0, cloud-stripped → V5.0C, local-only → V5.0L. New version label baked into splash, sidebar, dashboard, and DMG volume name.
 
 ## V4.5 — what changed since V4.4
 
