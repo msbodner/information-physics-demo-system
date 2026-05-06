@@ -50,6 +50,7 @@ DEMO_TABLES: List[str] = [
     "information_elements",
     "information_element_refs",
     "saved_prompts",
+    "prompt_library",            # V5.0+ — curated library prompts (admin-managed)
     # Derived / auxiliary
     "field_map_keys",
     "field_map_members",
@@ -69,6 +70,7 @@ DEMO_TABLES: List[str] = [
     "policy_scopes",
     "aio_embeddings",
     "chat_search_stats",
+    "aio_search_quality",        # V4.4 P13 — per-query timing + retrieval-shape log
     "query_cache",
     "mro_objects",
     "tenant_token_usage",
