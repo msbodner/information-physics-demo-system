@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye, Sparkles } from "lucide-react"
-import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, aioSearchParse, listSavedPrompts, createSavedPrompt, listMroObjects, getMroObject, createMroObject, listAioData, listHslKeyValuePairs, findHslsByNeedlesFull, createChatStat, linkMroToHsl, findHslsByNeedles, getCapSettings, getModelSettings, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type HslKeyValuePair, type AioSearchStreamMeta } from "@/lib/api-client"
+import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, aioSearchParse, listSavedPrompts, createSavedPrompt, listMroObjects, getMroObject, createMroObject, listAioData, listHslKeyValuePairs, findHslsByNeedlesFull, createChatStat, linkMroToHsl, findHslsByNeedles, getCapSettings, getModelSettings, listPromptLibrary, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type HslKeyValuePair, type AioSearchStreamMeta, type PromptLibraryEntry } from "@/lib/api-client"
 import { classifyQuery, type SearchMode } from "@/lib/smart-search"
 import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
@@ -609,7 +609,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   // caps endpoint is unreachable.
   const [recallCap, setRecallCap] = useState<number>(800)
   const [recallThoroughCap, setRecallThoroughCap] = useState<number>(2500)
-  const [historyMode, setHistoryMode] = useState<"session" | "saved">("session")
+  const [historyMode, setHistoryMode] = useState<"session" | "saved" | "library">("session")
+  // V5.0+ — curated Prompt Library entries (managed in System Admin →
+  // Prompt Library). Loaded on demand when the operator clicks the
+  // Library tab in the Prior Prompts dropdown.
+  const [libraryEntries, setLibraryEntries] = useState<PromptLibraryEntry[]>([])
+  const [isLibraryLoading, setIsLibraryLoading] = useState(false)
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([])
   const [isSavedLoading, setIsSavedLoading] = useState(false)
   const [showPdfModal, setShowPdfModal] = useState(false)
@@ -732,6 +737,16 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const result = await listSavedPrompts()
     setSavedPrompts(result)
     setIsSavedLoading(false)
+  }, [])
+
+  // V5.0+ — fetch curated library entries for the History dropdown's
+  // Library tab. Loaded on demand the first time the operator switches
+  // to the Library tab; subsequent switches reuse the cached list.
+  const loadPromptLibrary = useCallback(async () => {
+    setIsLibraryLoading(true)
+    const result = await listPromptLibrary()
+    setLibraryEntries(result)
+    setIsLibraryLoading(false)
   }, [])
 
   const handleSavePrompt = useCallback(async (text: string) => {
@@ -1637,12 +1652,13 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                   const opening = !showHistory
                   setShowHistory(opening)
                   if (opening && historyMode === "saved") loadSavedPrompts()
-                }} className="gap-1.5 h-9 px-3" title="Browse session prompts and saved prompts">
+                  if (opening && historyMode === "library") loadPromptLibrary()
+                }} className="gap-1.5 h-9 px-3" title="Browse session prompts, saved prompts, and the curated Library">
                   <History className="w-4 h-4" />Prior Prompts
                 </Button>
                 {showHistory && (
-                  <div className="absolute bottom-full mb-2 left-0 w-96 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden">
-                    {/* Header with toggle */}
+                  <div className="absolute bottom-full mb-2 left-0 w-[28rem] bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+                    {/* Header with three-tab toggle */}
                     <div className="flex items-center justify-between px-3 py-2 border-b border-border">
                       <div className="flex gap-1">
                         <button onClick={() => setHistoryMode("session")}
@@ -1651,14 +1667,21 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                         </button>
                         <button onClick={() => { setHistoryMode("saved"); loadSavedPrompts() }}
                           className={`text-xs font-medium px-2.5 py-1 rounded-md transition-colors ${historyMode === "saved" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}>
-                          Saved (Prior)
+                          Saved
+                        </button>
+                        {/* V5.0+ — Library tab. Picks from the curated
+                            prompt_library table managed in System Admin →
+                            Prompt Library. Fetched on first switch. */}
+                        <button onClick={() => { setHistoryMode("library"); loadPromptLibrary() }}
+                          className={`text-xs font-medium px-2.5 py-1 rounded-md transition-colors ${historyMode === "library" ? "bg-blue-600 text-white" : "bg-muted text-muted-foreground hover:text-foreground"}`}>
+                          Library
                         </button>
                       </div>
                       <button onClick={() => setShowHistory(false)}><X className="w-3.5 h-3.5 text-muted-foreground" /></button>
                     </div>
 
                     {/* Content */}
-                    <div className="max-h-48 overflow-y-auto">
+                    <div className="max-h-72 overflow-y-auto">
                       {historyMode === "session" ? (
                         promptHistory.length === 0 ? (
                           <div className="px-3 py-4 text-center text-xs text-muted-foreground">No prompts in this session yet</div>
@@ -1676,18 +1699,48 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                             </div>
                           ))
                         )
-                      ) : isSavedLoading ? (
-                        <div className="px-3 py-4 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>
-                      ) : savedPrompts.length === 0 ? (
-                        <div className="px-3 py-4 text-center text-xs text-muted-foreground">No saved prompts yet. Save prompts from your current session using the bookmark icon.</div>
+                      ) : historyMode === "saved" ? (
+                        isSavedLoading ? (
+                          <div className="px-3 py-4 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>
+                        ) : savedPrompts.length === 0 ? (
+                          <div className="px-3 py-4 text-center text-xs text-muted-foreground">No saved prompts yet. Save prompts from your current session using the bookmark icon.</div>
+                        ) : (
+                          savedPrompts.map((sp) => (
+                            <button key={sp.prompt_id} onClick={() => { setChatInput(sp.prompt_text); setShowHistory(false) }}
+                              className="block w-full text-left text-sm px-3 py-2 hover:bg-muted truncate border-b border-border/50 last:border-0">
+                              {sp.label ? <span className="font-medium">{sp.label}: </span> : null}
+                              {sp.prompt_text}
+                            </button>
+                          ))
+                        )
                       ) : (
-                        savedPrompts.map((sp) => (
-                          <button key={sp.prompt_id} onClick={() => { setChatInput(sp.prompt_text); setShowHistory(false) }}
-                            className="block w-full text-left text-sm px-3 py-2 hover:bg-muted truncate border-b border-border/50 last:border-0">
-                            {sp.label ? <span className="font-medium">{sp.label}: </span> : null}
-                            {sp.prompt_text}
-                          </button>
-                        ))
+                        // ── Library tab ──
+                        isLibraryLoading ? (
+                          <div className="px-3 py-4 flex justify-center"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>
+                        ) : libraryEntries.length === 0 ? (
+                          <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                            No library entries. Ask an admin to seed the library via System Admin → Prompt Library.
+                          </div>
+                        ) : (
+                          libraryEntries.map((entry) => (
+                            <button key={entry.prompt_id}
+                              onClick={() => { setChatInput(entry.body); setShowHistory(false) }}
+                              className="block w-full text-left px-3 py-2 hover:bg-muted border-b border-border/50 last:border-0"
+                              title={entry.body}
+                            >
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className="text-sm font-medium text-foreground">{entry.title}</span>
+                                <span className="text-[10px] uppercase tracking-wide text-muted-foreground bg-muted px-1.5 rounded">
+                                  {entry.category}
+                                </span>
+                              </div>
+                              {entry.metadata && (
+                                <div className="text-[11px] text-muted-foreground italic line-clamp-1">{entry.metadata}</div>
+                              )}
+                              <div className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">{entry.body}</div>
+                            </button>
+                          ))
+                        )
                       )}
                     </div>
                   </div>

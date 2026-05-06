@@ -25,6 +25,7 @@ from api.routes.hsl import router as hsl_router
 from api.routes.io import router as io_router
 from api.routes.mro import router as mro_router
 from api.routes.prompts import router as prompts_router
+from api.routes.prompt_library import router as prompt_library_router
 from api.routes.settings import router as settings_router
 from api.routes.stats import router as stats_router
 from api.routes.users import router as users_router
@@ -61,6 +62,7 @@ app.include_router(aio_router)        # /v1/aio-data, /v1/information-elements
 app.include_router(hsl_router)        # /v1/hsl-data (+ rebuild, link-mro, find-by-needles)
 app.include_router(mro_router)        # /v1/mro-objects
 app.include_router(prompts_router)    # /v1/saved-prompts
+app.include_router(prompt_library_router)  # /v1/prompt-library — curated library
 app.include_router(chat_router)       # /v1/op/* (summarize, chat, aio-search, substrate, pdf)
 app.include_router(stats_router)      # /v1/chat-stats
 app.include_router(demo_reset_router) # /v1/op/demo-backup, /v1/op/demo-backups, /v1/op/demo-reset, /v1/op/demo-restore

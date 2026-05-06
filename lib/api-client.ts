@@ -829,6 +829,59 @@ export async function deleteSavedPrompt(promptId: string): Promise<boolean> {
   return result !== null
 }
 
+// ── Prompt Library (V5.0+) ─────────────────────────────────────
+//
+// Curated, admin-managed exemplar prompts. Distinct from `saved_prompts`
+// (operator-personal). Library entries ship seeded; admins maintain
+// them via System Admin → Prompt Library; ChatAIO surfaces them
+// via the History dropdown's new "Library" tab.
+
+export interface PromptLibraryEntry {
+  prompt_id: string
+  title: string
+  body: string
+  category: string
+  metadata: string | null
+  is_seeded: boolean
+  created_at: string
+  updated_at: string
+}
+
+export async function listPromptLibrary(category?: string): Promise<PromptLibraryEntry[]> {
+  const qs = category ? `?category=${encodeURIComponent(category)}` : ""
+  const result = await safeFetch<PromptLibraryEntry[]>(`/api/prompt-library${qs}`)
+  return result ?? []
+}
+
+export async function createPromptLibraryEntry(payload: {
+  title: string
+  body: string
+  category?: string
+  metadata?: string | null
+}): Promise<PromptLibraryEntry | null> {
+  return safeFetch<PromptLibraryEntry>("/api/prompt-library", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updatePromptLibraryEntry(
+  promptId: string,
+  payload: { title?: string; body?: string; category?: string; metadata?: string | null },
+): Promise<PromptLibraryEntry | null> {
+  return safeFetch<PromptLibraryEntry>(`/api/prompt-library/${promptId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deletePromptLibraryEntry(promptId: string): Promise<boolean> {
+  const result = await safeFetch<{ deleted: string }>(`/api/prompt-library/${promptId}`, { method: "DELETE" })
+  return result !== null
+}
+
 // API key settings
 export async function getApiKeySetting(): Promise<{ configured: boolean; masked: string | null } | null> {
   return safeFetch("/api/settings/apikey")

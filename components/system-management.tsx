@@ -10,6 +10,10 @@ import {
   RotateCcw, Archive, ShieldAlert, CheckCircle2, FileDown, Layers, Sparkles,
 } from "lucide-react"
 import { MODE_CATALOG } from "@/lib/smart-search"
+import {
+  listPromptLibrary, createPromptLibraryEntry, updatePromptLibraryEntry, deletePromptLibraryEntry,
+  type PromptLibraryEntry,
+} from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -2066,17 +2070,34 @@ function ModelsPane() {
             using the rules below — and the chosen mode + reason are surfaced in the answer footer.
             Operators see one button; Claude does the routing.
           </p>
-          <label className="flex items-center gap-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={smartSearchEnabled}
-              onChange={(e) => setSmartSearchEnabled(e.target.checked)}
-              className="h-4 w-4 accent-blue-600 cursor-pointer"
-            />
-            <span className="text-sm font-medium">
-              Show only the Smart Search button in ChatAIO
-            </span>
-          </label>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <label className="flex items-center gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={smartSearchEnabled}
+                onChange={(e) => setSmartSearchEnabled(e.target.checked)}
+                className="h-4 w-4 accent-blue-600 cursor-pointer"
+              />
+              <span className="text-sm font-medium">
+                Show only the Smart Search button in ChatAIO
+              </span>
+            </label>
+            {/* Inline Save Smart Search — saves the same set of settings
+                as the Save Settings button at the bottom of the page,
+                but right next to the toggle so operators don't need to
+                scroll past the model dropdowns to apply the change. */}
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="gap-2 h-8 bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {isSaving
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Save className="w-3.5 h-3.5" />}
+              Save Smart Search
+            </Button>
+          </div>
 
           {/* Mode catalog — what the modes are and what triggers each. */}
           <div className="rounded-md border border-border overflow-hidden">
@@ -2673,6 +2694,197 @@ function SavedPromptsPane() {
     </div>
   )
 }
+
+// ── Prompt Library Pane (V5.0+) ───────────────────────────────────
+//
+// CRUD over the curated `prompt_library` table. Distinct from
+// `SavedPromptsPane` which manages operator-personal bookmarks; this
+// pane manages the shared library that ChatAIO surfaces in its
+// History dropdown's Library tab.
+//
+// Seeded entries (is_seeded=true) get a small badge and an extra
+// confirm before deletion — they're the demonstration prompts that
+// ship with the system, and operators occasionally delete them by
+// accident when cleaning up their own additions.
+
+function PromptLibraryPane() {
+  const [entries, setEntries] = useState<PromptLibraryEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState<PromptLibraryEntry | null>(null)
+  const [formTitle, setFormTitle] = useState("")
+  const [formBody, setFormBody] = useState("")
+  const [formCategory, setFormCategory] = useState("general")
+  const [formMetadata, setFormMetadata] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const data = await listPromptLibrary()
+    setEntries(data)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const openAdd = () => {
+    setEditing(null)
+    setFormTitle("")
+    setFormBody("")
+    setFormCategory("general")
+    setFormMetadata("")
+    setShowForm(true)
+  }
+
+  const openEdit = (entry: PromptLibraryEntry) => {
+    setEditing(entry)
+    setFormTitle(entry.title)
+    setFormBody(entry.body)
+    setFormCategory(entry.category)
+    setFormMetadata(entry.metadata ?? "")
+    setShowForm(true)
+  }
+
+  const handleSave = async () => {
+    if (!formTitle.trim() || !formBody.trim()) {
+      toast.error("Title and body are required.")
+      return
+    }
+    setSaving(true)
+    const payload = {
+      title: formTitle.trim(),
+      body: formBody.trim(),
+      category: formCategory.trim() || "general",
+      metadata: formMetadata.trim() || null,
+    }
+    const result = editing
+      ? await updatePromptLibraryEntry(editing.prompt_id, payload)
+      : await createPromptLibraryEntry(payload)
+    setSaving(false)
+    if (result) {
+      toast.success(editing ? "Library entry updated." : "Library entry created.")
+      setShowForm(false)
+      void load()
+    } else {
+      toast.error("Save failed.")
+    }
+  }
+
+  const handleDelete = async (entry: PromptLibraryEntry) => {
+    const confirmMsg = entry.is_seeded
+      ? `Delete the seeded library entry "${entry.title}"? This will not re-appear unless you wipe ALL seeded rows and re-run migration 032.`
+      : `Delete "${entry.title}"?`
+    if (!window.confirm(confirmMsg)) return
+    const ok = await deletePromptLibraryEntry(entry.prompt_id)
+    if (ok) {
+      toast.success("Deleted.")
+      void load()
+    } else {
+      toast.error("Delete failed.")
+    }
+  }
+
+  if (loading) {
+    return <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          Curated prompts that ChatAIO surfaces in the History → Library picker. Five exemplar
+          prompts ship seeded; operators can edit them or add their own.
+        </p>
+        <Button onClick={openAdd} size="sm" className="gap-2">
+          <Plus className="w-4 h-4" />Add prompt
+        </Button>
+      </div>
+
+      {entries.length === 0 ? (
+        <p className="text-sm text-muted-foreground italic py-8 text-center">
+          No library entries. Click <strong>Add prompt</strong> to seed your own, or run
+          migration 032 to load the five exemplars.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {entries.map((entry) => (
+            <Card key={entry.prompt_id} className="border-border">
+              <CardContent className="pt-4 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm">{entry.title}</span>
+                    <Badge variant="outline" className="text-[10px]">{entry.category}</Badge>
+                    {entry.is_seeded && (
+                      <Badge variant="outline" className="text-[10px] border-emerald-300 text-emerald-700">
+                        seeded
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <Button size="sm" variant="ghost" onClick={() => openEdit(entry)}
+                      className="h-8 px-2">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => handleDelete(entry)}
+                      className="h-8 px-2 text-red-600 hover:text-red-700">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                {entry.metadata && (
+                  <p className="text-xs text-muted-foreground italic">{entry.metadata}</p>
+                )}
+                <p className="text-xs text-muted-foreground line-clamp-3 whitespace-pre-wrap">
+                  {entry.body}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Edit library entry" : "New library entry"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="lib-title">Title</Label>
+              <Input id="lib-title" value={formTitle} onChange={(e) => setFormTitle(e.target.value)}
+                placeholder="Short label, e.g. 'Cross-document financial reconciliation'" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="lib-category">Category</Label>
+              <Input id="lib-category" value={formCategory} onChange={(e) => setFormCategory(e.target.value)}
+                placeholder="financial, subcontractor, rfi-pipeline, …" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="lib-metadata">Metadata <span className="text-xs text-muted-foreground">(optional)</span></Label>
+              <Input id="lib-metadata" value={formMetadata} onChange={(e) => setFormMetadata(e.target.value)}
+                placeholder="Exercises: … · HSL signals: …" />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="lib-body">Prompt body</Label>
+              <textarea id="lib-body" value={formBody} onChange={(e) => setFormBody(e.target.value)}
+                rows={12}
+                className="w-full text-sm px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono"
+                placeholder="The prompt text the operator picks from the library…" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowForm(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={handleSave} disabled={saving} className="gap-2">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {editing ? "Save changes" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
 
 // ── Information Elements Pane ──────────────────────────────────────
 
@@ -4072,6 +4284,7 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
               { value: "csvs",          icon: <FileSpreadsheet className="w-4 h-4" />, label: "Saved CSVs" },
               { value: "aios",          icon: <FileText className="w-4 h-4" />,        label: "Saved AIOs" },
               { value: "saved-prompts", icon: <Bookmark className="w-4 h-4" />,        label: "Saved Prompts" },
+              { value: "prompt-library", icon: <Library className="w-4 h-4" />,        label: "Prompt Library" },
               { value: "info-elements", icon: <Atom className="w-4 h-4" />,            label: "Info Elements" },
               { value: "architecture",  icon: <Network className="w-4 h-4" />,         label: "Architecture" },
               { value: "references",    icon: <Library className="w-4 h-4" />,          label: "References" },
@@ -4173,6 +4386,11 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
             <TabsContent value="saved-prompts" className="mt-0">
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Bookmark className="w-5 h-5" />Saved Prompts</CardTitle></CardHeader>
                 <CardContent><SavedPromptsPane /></CardContent></Card>
+            </TabsContent>
+
+            <TabsContent value="prompt-library" className="mt-0">
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Library className="w-5 h-5" />Prompt Library</CardTitle></CardHeader>
+                <CardContent><PromptLibraryPane /></CardContent></Card>
             </TabsContent>
 
             <TabsContent value="info-elements" className="mt-0">
