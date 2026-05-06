@@ -1375,6 +1375,159 @@ export interface PdfExtractResult {
   pdf_id?: string | null  // present when backend persisted the original
 }
 
+// V5.0.2+ — Streaming PDF extraction.
+//
+// The non-streaming extractPdfToCsv kept the request open for the full
+// run with no progress signal. extractPdfToCsvStream consumes the SSE
+// progress events from /api/op/pdf-extract/stream so the UI can render
+// a live progress bar.
+//
+// Event flow (matching backend chat.py):
+//   meta         — once at start: total_pages, total_chunks, ...
+//   chunk_start  — fires before each Anthropic call
+//   chunk_done   — fires after each successful chunk
+//   chunk_error  — fires when a single chunk fails (multi-chunk only)
+//   complete     — fires once at the end with the final result
+//   error        — fires on hard failures (single-chunk failure, SDK missing)
+
+export interface PdfStreamMetaEvent {
+  pdf_id: string | null
+  filename: string
+  size_bytes: number
+  total_pages: number
+  total_chunks: number
+  chunk_timeout_seconds: number
+}
+
+export interface PdfStreamChunkStartEvent {
+  chunk_index: number
+  chunks_total: number
+  page_start: number
+  page_end: number
+}
+
+export interface PdfStreamChunkDoneEvent {
+  chunk_index: number
+  chunks_total: number
+  rows_added: number
+  rows_total?: number
+  elapsed_seconds: number
+}
+
+export interface PdfStreamChunkErrorEvent {
+  chunk_index: number
+  chunks_total: number
+  error: string
+  elapsed_seconds: number
+}
+
+export type PdfStreamProgressEvent =
+  | { type: "meta"; data: PdfStreamMetaEvent }
+  | { type: "chunk_start"; data: PdfStreamChunkStartEvent }
+  | { type: "chunk_done"; data: PdfStreamChunkDoneEvent }
+  | { type: "chunk_error"; data: PdfStreamChunkErrorEvent }
+
+export async function extractPdfToCsvStream(
+  file: File,
+  opts: {
+    signal?: AbortSignal
+    timeoutMs?: number
+    onProgress?: (event: PdfStreamProgressEvent) => void
+  } = {},
+): Promise<PdfExtractResult | { error: string } | null> {
+  const timeoutMs = opts.timeoutMs ?? 480_000
+  const ac = new AbortController()
+  const timeoutId = setTimeout(() => {
+    ac.abort(new DOMException("PdfExtractTimeout", "TimeoutError"))
+  }, timeoutMs)
+  if (opts.signal) {
+    if (opts.signal.aborted) ac.abort(opts.signal.reason)
+    else opts.signal.addEventListener("abort", () => ac.abort(opts.signal!.reason), { once: true })
+  }
+
+  const formData = new FormData()
+  formData.append("file", file)
+
+  try {
+    const res = await fetch("/api/op/pdf-extract/stream", {
+      method: "POST",
+      body: formData,
+      signal: ac.signal,
+    })
+
+    if (!res.ok || !res.body) {
+      const body = await res.json().catch(() => ({}))
+      const detail: string = body?.detail ?? body?.error ?? `HTTP ${res.status}`
+      return { error: detail }
+    }
+
+    // SSE parser: framing is `event: NAME\ndata: JSON\n\n`. We split on
+    // the blank-line separator and dispatch each frame.
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder("utf-8")
+    let buffer = ""
+    let finalResult: PdfExtractResult | null = null
+    let hardError: string | null = null
+
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      // Process complete frames (separator: blank line).
+      let sepIdx: number
+      while ((sepIdx = buffer.indexOf("\n\n")) >= 0) {
+        const frame = buffer.slice(0, sepIdx)
+        buffer = buffer.slice(sepIdx + 2)
+        const lines = frame.split("\n")
+        let evName = "message"
+        const dataLines: string[] = []
+        for (const line of lines) {
+          if (line.startsWith("event:")) evName = line.slice(6).trim()
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart())
+        }
+        if (!dataLines.length) continue
+        let payload: unknown
+        try {
+          payload = JSON.parse(dataLines.join("\n"))
+        } catch {
+          // SSE-quoted strings — skip
+          continue
+        }
+        switch (evName) {
+          case "meta":
+          case "chunk_start":
+          case "chunk_done":
+          case "chunk_error":
+            opts.onProgress?.({ type: evName as PdfStreamProgressEvent["type"], data: payload as never })
+            break
+          case "complete":
+            finalResult = payload as PdfExtractResult
+            break
+          case "error":
+            hardError = (payload as { detail?: string })?.detail ?? "Unknown stream error"
+            break
+        }
+      }
+    }
+
+    if (hardError) return { error: hardError }
+    if (finalResult) return finalResult
+    return { error: "Stream ended before completion" }
+  } catch (err) {
+    if (err instanceof DOMException) {
+      if (err.name === "TimeoutError") {
+        return { error: `Extraction exceeded ${Math.round(timeoutMs / 1000)}s — backend may be hung. Retry or break the PDF into smaller files.` }
+      }
+      if (err.name === "AbortError") {
+        return { error: "Cancelled by operator" }
+      }
+    }
+    return null
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 // V5.0+ — System Admin → PDFs pane.
 export interface ImportedPdfMeta {
   pdf_id: string

@@ -2213,6 +2213,317 @@ async def pdf_extract(
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# V5.0.2+ — Streaming PDF extraction.
+#
+# The non-streaming /v1/op/pdf-extract handler kept the HTTP request
+# open for the full multi-chunk run with no progress signal, so the
+# user saw a blank "still loading…" for minutes on multi-hundred-page
+# PDFs. The /stream variant emits SSE events at every interesting
+# transition so the UI can render a live progress bar + per-chunk
+# log:
+#
+#   event: meta          {pdf_id, total_pages, total_chunks, ...}
+#   event: chunk_start   {chunk_index, chunks_total, page_start, page_end}
+#   event: chunk_done    {chunk_index, rows_added, elapsed_seconds}
+#   event: chunk_error   {chunk_index, error}
+#   event: complete      {csv_text, headers, rows, ...full result}
+#   event: error         {detail}
+#
+# The handler is kept structurally separate from the JSON variant so
+# we don't have to thread "are we streaming?" branches through every
+# error path. The two paths share helpers via closures.
+# ─────────────────────────────────────────────────────────────────────
+
+
+@router.post("/v1/op/pdf-extract/stream")
+async def pdf_extract_stream(
+    file: UploadFile = File(...),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """SSE-streaming variant of /v1/op/pdf-extract.
+
+    Emits per-chunk progress events so the UI can show a live progress
+    bar instead of a multi-minute "still loading" spinner. Same
+    persistence semantics as the JSON endpoint.
+    """
+    # Pre-flight validation runs synchronously so failures map to
+    # normal HTTP error responses rather than being buried inside the
+    # SSE stream where the browser has no good error UX.
+    api_key = get_effective_api_key()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+
+    pdf_bytes = await file.read()
+    if len(pdf_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(pdf_bytes) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="PDF too large (max 100MB)")
+
+    MAX_PAGES_PER_CALL = 100
+    try:
+        from pypdf import PdfReader, PdfWriter
+        reader_pdf = PdfReader(io.BytesIO(pdf_bytes))
+        total_pages = len(reader_pdf.pages)
+    except Exception as e:
+        logger.error("Failed to read PDF: %s", e)
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {str(e)}")
+
+    if total_pages == 0:
+        raise HTTPException(status_code=400, detail="PDF has no pages")
+
+    filename = file.filename
+    persist_tenant = x_tenant_id or "tenantA"
+
+    # ── Persistence (best-effort, mirrors the JSON path).
+    import hashlib
+    pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+    persisted_pdf_id: Optional[str] = None
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                set_tenant(conn, persist_tenant)
+                cur.execute(
+                    """
+                    INSERT INTO imported_pdfs
+                      (tenant_id, filename, size_bytes, page_count, sha256, content, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'pending')
+                    RETURNING pdf_id
+                    """,
+                    (persist_tenant, filename, len(pdf_bytes), total_pages, pdf_sha256, pdf_bytes),
+                )
+                persisted_pdf_id = str(cur.fetchone()[0])
+            conn.commit()
+    except Exception as e:
+        logger.warning("PDF persistence (stream) failed (continuing): %s", e)
+
+    chunk_ranges: list[tuple[int, int]] = []
+    if total_pages <= MAX_PAGES_PER_CALL:
+        chunk_ranges.append((0, total_pages))
+    else:
+        for s in range(0, total_pages, MAX_PAGES_PER_CALL):
+            chunk_ranges.append((s, min(s + MAX_PAGES_PER_CALL, total_pages)))
+
+    def _split_pdf(start: int, end: int) -> bytes:
+        writer = PdfWriter()
+        for i in range(start, end):
+            writer.add_page(reader_pdf.pages[i])
+        buf = io.BytesIO()
+        writer.write(buf)
+        return buf.getvalue()
+
+    base_system_prompt = (
+        "You are a document data extractor. Analyze the provided PDF document(s) and extract ALL structured data into CSV format.\n\n"
+        "Rules:\n"
+        "- Create a single CSV with consistent column headers\n"
+        "- If the PDF contains multiple documents (e.g., multiple invoices), create one row per document\n"
+        "- Extract every data field you can identify (dates, amounts, names, addresses, line items, totals, etc.)\n"
+        "- Use clear, descriptive column headers\n"
+        "- Return ONLY the CSV content, no explanation or markdown code fences\n"
+        "- First row must be headers\n"
+        "- Use comma as delimiter, quote fields containing commas\n"
+    )
+
+    chunk_timeout = float(os.environ.get("PDF_EXTRACT_CHUNK_TIMEOUT", "180"))
+
+    def gen():
+        try:
+            import anthropic
+        except Exception as e:
+            yield _sse("error", {"detail": f"anthropic SDK missing: {str(e)}"})
+            return
+
+        client = anthropic.Anthropic(api_key=api_key, timeout=chunk_timeout, max_retries=1)
+
+        # Initial meta event so the client can render a determinate
+        # progress bar before any chunk completes.
+        yield _sse("meta", {
+            "pdf_id": persisted_pdf_id,
+            "filename": filename,
+            "size_bytes": len(pdf_bytes),
+            "total_pages": total_pages,
+            "total_chunks": len(chunk_ranges),
+            "chunk_timeout_seconds": chunk_timeout,
+        })
+
+        canonical_headers: list[str] = []
+        all_data_rows: list[list[str]] = []
+        failed_chunks: list[tuple[int, str]] = []
+        overall_start = time.time()
+
+        for idx, (start, end) in enumerate(chunk_ranges):
+            yield _sse("chunk_start", {
+                "chunk_index": idx + 1,
+                "chunks_total": len(chunk_ranges),
+                "page_start": start + 1,
+                "page_end": end,
+            })
+
+            chunk_t0 = time.time()
+            chunk_bytes = _split_pdf(start, end) if len(chunk_ranges) > 1 else pdf_bytes
+            chunk_b64 = base64.standard_b64encode(chunk_bytes).decode("utf-8")
+
+            if canonical_headers:
+                sys_prompt = base_system_prompt + (
+                    "\nIMPORTANT: This is a continuation chunk. You MUST use these exact column "
+                    "headers as the first row, in this exact order:\n"
+                    f"{','.join(canonical_headers)}\n"
+                    "Map every record to these columns. Leave a field empty if the data is not "
+                    "present in this chunk.\n"
+                )
+                user_text = (
+                    f"Extract structured data from this PDF chunk (pages {start+1}-{end} "
+                    f"of {total_pages}). Return only the CSV with the headers I specified."
+                )
+            else:
+                sys_prompt = base_system_prompt
+                user_text = (
+                    f"Extract all structured data from this PDF into CSV format "
+                    f"(pages {start+1}-{end} of {total_pages}). Return only the CSV with headers."
+                    if len(chunk_ranges) > 1 else
+                    "Extract all structured data from this PDF into CSV format. "
+                    "Return only the CSV with headers."
+                )
+
+            try:
+                response = client.messages.create(
+                    model=get_default_model(),
+                    max_tokens=8192,
+                    system=sys_prompt,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": chunk_b64}},
+                            {"type": "text", "text": user_text},
+                        ],
+                    }],
+                )
+            except Exception as e:
+                err_str = str(e)
+                logger.error("PDF stream extraction failed on chunk %d/%d: %s", idx + 1, len(chunk_ranges), err_str)
+                failed_chunks.append((idx, err_str))
+                yield _sse("chunk_error", {
+                    "chunk_index": idx + 1,
+                    "chunks_total": len(chunk_ranges),
+                    "error": err_str[:300],
+                    "elapsed_seconds": round(time.time() - chunk_t0, 1),
+                })
+                # Single-chunk PDFs hard-fail; multi-chunk continues.
+                if len(chunk_ranges) == 1:
+                    yield _sse("error", {"detail": f"Claude API error: {err_str}"})
+                    return
+                continue
+
+            chunk_csv = response.content[0].text.strip()
+            if chunk_csv.startswith("```"):
+                lines = chunk_csv.split("\n")
+                lines = [l for l in lines if not l.startswith("```")]
+                chunk_csv = "\n".join(lines).strip()
+
+            chunk_rows = list(csv_mod.reader(io.StringIO(chunk_csv)))
+            chunk_elapsed = time.time() - chunk_t0
+            rows_added = max(0, len(chunk_rows) - 1)
+            if not chunk_rows:
+                yield _sse("chunk_done", {
+                    "chunk_index": idx + 1,
+                    "chunks_total": len(chunk_ranges),
+                    "rows_added": 0,
+                    "elapsed_seconds": round(chunk_elapsed, 1),
+                })
+                continue
+
+            chunk_headers = chunk_rows[0]
+            chunk_data = chunk_rows[1:]
+
+            if not canonical_headers:
+                canonical_headers = chunk_headers
+                all_data_rows.extend(chunk_data)
+            else:
+                if chunk_headers == canonical_headers:
+                    all_data_rows.extend(chunk_data)
+                else:
+                    idx_map = {h: i for i, h in enumerate(chunk_headers)}
+                    for r in chunk_data:
+                        aligned = [
+                            r[idx_map[h]] if h in idx_map and idx_map[h] < len(r) else ""
+                            for h in canonical_headers
+                        ]
+                        all_data_rows.append(aligned)
+
+            yield _sse("chunk_done", {
+                "chunk_index": idx + 1,
+                "chunks_total": len(chunk_ranges),
+                "rows_added": len(chunk_data),
+                "rows_total": len(all_data_rows),
+                "elapsed_seconds": round(chunk_elapsed, 1),
+            })
+
+        # Re-serialize merged CSV.
+        out_buf = io.StringIO()
+        writer = csv_mod.writer(out_buf)
+        if canonical_headers:
+            writer.writerow(canonical_headers)
+        writer.writerows(all_data_rows)
+        csv_text = out_buf.getvalue().strip()
+
+        overall_elapsed = time.time() - overall_start
+        partial_warning = None
+        if failed_chunks:
+            failed_idx_str = ", ".join(str(i + 1) for i, _ in failed_chunks)
+            first_err = failed_chunks[0][1][:140]
+            partial_warning = (
+                f"Partial extraction: {len(failed_chunks)} of {len(chunk_ranges)} chunk(s) "
+                f"failed (chunks {failed_idx_str}). First error: {first_err}"
+            )
+
+        # Persistence stamp.
+        if persisted_pdf_id:
+            try:
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        set_tenant(conn, persist_tenant)
+                        cur.execute(
+                            """
+                            UPDATE imported_pdfs SET
+                                status = %s, csv_text = %s, headers = %s::jsonb,
+                                row_count = %s, chunk_count = %s, chunks_failed = %s,
+                                duration_ms = %s, error = %s
+                            WHERE pdf_id = %s
+                            """,
+                            (
+                                "extracted" if not failed_chunks else "partial",
+                                csv_text, json.dumps(canonical_headers),
+                                len(all_data_rows), len(chunk_ranges), len(failed_chunks),
+                                int(overall_elapsed * 1000), partial_warning, persisted_pdf_id,
+                            ),
+                        )
+                    conn.commit()
+            except Exception as e:
+                logger.warning("PDF persistence (stream) update failed: %s", e)
+
+        yield _sse("complete", {
+            "csv_text": csv_text,
+            "headers": canonical_headers,
+            "rows": all_data_rows,
+            "document_count": len(all_data_rows),
+            "filename": filename,
+            "page_count": total_pages,
+            "chunk_count": len(chunk_ranges),
+            "chunks_failed": len(failed_chunks),
+            "partial_warning": partial_warning,
+            "elapsed_seconds": round(overall_elapsed, 1),
+            "pdf_id": persisted_pdf_id,
+        })
+
+    return StreamingResponse(gen(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
 @router.post("/v1/op/substrate-chat", response_model=ChatResponse)
 def substrate_chat(
     payload: SubstrateChatRequest,

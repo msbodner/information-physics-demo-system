@@ -29,10 +29,30 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
 import { csvToAio, type ConvertedFile } from "@/lib/aio-utils"
-import { extractPdfToCsv, type PdfExtractResult } from "@/lib/api-client"
+import { extractPdfToCsvStream, type PdfExtractResult, type PdfStreamProgressEvent } from "@/lib/api-client"
 
 type Status = "pending" | "processing" | "success" | "error"
+
+// V5.0.2+ — live progress signal flowing in from the SSE stream.
+interface ChunkLogEntry {
+  index: number
+  status: "running" | "done" | "error"
+  page_start?: number
+  page_end?: number
+  rows_added?: number
+  elapsed_seconds?: number
+  error?: string
+}
+
+interface ProgressState {
+  totalPages?: number
+  totalChunks?: number          // 0 until the meta event arrives
+  currentChunk?: number         // 1-based; undefined before first chunk_start
+  rowsTotal?: number
+  log: ChunkLogEntry[]          // append-only chunk history
+}
 
 interface QueueItem {
   id: string
@@ -44,6 +64,7 @@ interface QueueItem {
   finishedAt?: number      // wall-clock ms when processing finished
   imported?: boolean       // user clicked Import to Converter for this item
   cancelled?: boolean      // operator clicked Cancel — error state but with a softer label
+  progress?: ProgressState // live SSE progress; populated while status==="processing"
 }
 
 const PROCESSING_STATES: Set<Status> = new Set(["processing"])
@@ -95,12 +116,88 @@ export function PdfImportView({
     const controller = new AbortController()
     activeControllersRef.current.set(next.id, controller)
     setQueue((prev) => prev.map((q) =>
-      q.id === next.id ? { ...q, status: "processing", startedAt: Date.now() } : q,
+      q.id === next.id
+        ? { ...q, status: "processing", startedAt: Date.now(), progress: { log: [] } }
+        : q,
     ))
+
+    // ── Progress callback wires SSE events into queue state. Each
+    //    event triggers a small targeted setQueue update so the
+    //    progress bar + chunk badge animate in real time without
+    //    re-rendering siblings.
+    const handleProgress = (ev: PdfStreamProgressEvent) => {
+      setQueue((prev) => prev.map((q) => {
+        if (q.id !== next.id) return q
+        const prog: ProgressState = q.progress ?? { log: [] }
+        if (ev.type === "meta") {
+          return {
+            ...q,
+            progress: {
+              ...prog,
+              totalPages: ev.data.total_pages,
+              totalChunks: ev.data.total_chunks,
+            },
+          }
+        }
+        if (ev.type === "chunk_start") {
+          return {
+            ...q,
+            progress: {
+              ...prog,
+              currentChunk: ev.data.chunk_index,
+              totalChunks: ev.data.chunks_total,
+              log: [
+                ...prog.log,
+                {
+                  index: ev.data.chunk_index,
+                  status: "running",
+                  page_start: ev.data.page_start,
+                  page_end: ev.data.page_end,
+                },
+              ],
+            },
+          }
+        }
+        if (ev.type === "chunk_done") {
+          return {
+            ...q,
+            progress: {
+              ...prog,
+              currentChunk: ev.data.chunk_index,
+              rowsTotal: ev.data.rows_total ?? prog.rowsTotal,
+              log: prog.log.map((entry) =>
+                entry.index === ev.data.chunk_index
+                  ? { ...entry, status: "done", rows_added: ev.data.rows_added, elapsed_seconds: ev.data.elapsed_seconds }
+                  : entry,
+              ),
+            },
+          }
+        }
+        if (ev.type === "chunk_error") {
+          return {
+            ...q,
+            progress: {
+              ...prog,
+              log: prog.log.map((entry) =>
+                entry.index === ev.data.chunk_index
+                  ? { ...entry, status: "error", error: ev.data.error, elapsed_seconds: ev.data.elapsed_seconds }
+                  : entry,
+              ),
+            },
+          }
+        }
+        return q
+      }))
+    }
+
     // Hard 8-minute frontend ceiling; the backend has its own per-chunk
     // timeout, but this is a final safety net so the pump can never
     // wedge indefinitely on a file that hangs server-side.
-    void extractPdfToCsv(next.file, { signal: controller.signal, timeoutMs: 480_000 }).then((data) => {
+    void extractPdfToCsvStream(next.file, {
+      signal: controller.signal,
+      timeoutMs: 480_000,
+      onProgress: handleProgress,
+    }).then((data) => {
       if (cancelled) return
       activeControllersRef.current.delete(next.id)
       const finishedAt = Date.now()
@@ -407,15 +504,8 @@ function QueueItemCard({
                   {item.status === "success" && item.result && (
                     <> · <span className="text-emerald-700">{item.result.document_count} record{item.result.document_count !== 1 ? "s" : ""}</span> · {item.result.headers.length} columns</>
                   )}
-                  {item.status === "processing" && (
-                    <>
-                      {" "}· <span className="tabular-nums">{fmtElapsed(elapsedMs)}</span> elapsed
-                      {elapsedMs > 120_000 && (
-                        <span className="text-amber-700 ml-2">
-                          (slow — {elapsedMs > 360_000 ? "approaching 8-min cap, will auto-fail soon" : "still working, click Cancel if you want to abort"})
-                        </span>
-                      )}
-                    </>
+                  {item.status === "processing" && item.progress?.totalPages != null && (
+                    <> · {item.progress.totalPages} page{item.progress.totalPages !== 1 ? "s" : ""}{item.progress.totalChunks && item.progress.totalChunks > 1 ? <> in {item.progress.totalChunks} chunks</> : null}</>
                   )}
                   {item.status === "success" && finalElapsedMs !== null && (
                     <> · {fmtElapsed(finalElapsedMs)}</>
@@ -477,6 +567,80 @@ function QueueItemCard({
                 )}
               </div>
             </div>
+
+            {/* V5.0.2+ — Live progress block. Shown only while
+                processing. Renders a determinate progress bar driven
+                by SSE chunk events (or indeterminate-style if total
+                chunks not yet known), a big elapsed timer, and the
+                per-chunk log so the operator can see exactly which
+                chunk is in flight. */}
+            {item.status === "processing" && (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-mono font-semibold tabular-nums text-foreground">{fmtElapsed(elapsedMs)}</span>
+                    {item.progress?.totalChunks ? (
+                      <Badge variant="outline" className="border-blue-300 text-blue-700">
+                        Chunk {Math.min(item.progress.currentChunk ?? 1, item.progress.totalChunks)} / {item.progress.totalChunks}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-muted-foreground">
+                        Uploading…
+                      </Badge>
+                    )}
+                    {item.progress?.rowsTotal != null && item.progress.rowsTotal > 0 && (
+                      <Badge variant="outline" className="border-emerald-300 text-emerald-700">
+                        {item.progress.rowsTotal} row{item.progress.rowsTotal !== 1 ? "s" : ""} so far
+                      </Badge>
+                    )}
+                  </div>
+                  {elapsedMs > 120_000 && (
+                    <span className="text-xs text-amber-700">
+                      {elapsedMs > 360_000 ? "approaching 8-min cap, will auto-fail soon" : "taking longer than usual — click Cancel to abort"}
+                    </span>
+                  )}
+                </div>
+                <Progress
+                  value={
+                    item.progress?.totalChunks
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (item.progress.log.filter((l) => l.status === "done" || l.status === "error").length /
+                              item.progress.totalChunks) *
+                              100,
+                          ) + (item.progress.log.some((l) => l.status === "running") ? 5 : 0),
+                        )
+                      : Math.min(95, Math.round((elapsedMs / 1000 / 30) * 5))
+                  }
+                  className="h-2"
+                />
+                {item.progress && item.progress.log.length > 0 && (
+                  <ul className="text-[11px] text-muted-foreground space-y-0.5 mt-2 max-h-32 overflow-y-auto">
+                    {item.progress.log.map((entry) => (
+                      <li key={entry.index} className="flex items-center gap-2">
+                        {entry.status === "running" && <Loader2 className="w-3 h-3 animate-spin text-blue-500" />}
+                        {entry.status === "done" && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+                        {entry.status === "error" && <AlertCircle className="w-3 h-3 text-red-500" />}
+                        <span className="tabular-nums">
+                          Chunk {entry.index}
+                          {entry.page_start != null && entry.page_end != null && (
+                            <> · pages {entry.page_start}–{entry.page_end}</>
+                          )}
+                          {entry.status === "done" && entry.elapsed_seconds != null && (
+                            <> · done in {entry.elapsed_seconds.toFixed(1)}s ({entry.rows_added ?? 0} rows)</>
+                          )}
+                          {entry.status === "running" && <> · running…</>}
+                          {entry.status === "error" && entry.error && (
+                            <span className="text-red-600 ml-1">· {entry.error.slice(0, 80)}</span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {/* Error detail */}
             {item.status === "error" && item.error && (
