@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -463,8 +464,25 @@ def run_exhaustive(
     in_tok_total = 0
     out_tok_total = 0
 
-    for i, chunk in enumerate(chunks):
-        output, in_tok, out_tok, err = synthesize_chunk(
+    # ── V5.0+ Concurrent chunk dispatch ─────────────────────────
+    # Each chunk is independent — no shared state, no ordering
+    # requirement on outputs (merge_results sorts by similarity at
+    # the end). Sequential dispatch on a 3-chunk run took ~42s
+    # observed; parallel dispatch with a small thread pool brings
+    # that to ~14s without changing token usage.
+    #
+    # Pool size capped at 4 — empirical sweet spot. Going wider
+    # risks tripping Anthropic's per-key RPM limit on tier-1
+    # accounts and yields diminishing returns once the slowest
+    # chunk dominates wall time. Tunable via env if a paid tier
+    # wants to push higher: AIO_EXHAUSTIVE_MAX_PARALLEL.
+    import concurrent.futures
+    max_parallel = int(os.environ.get("AIO_EXHAUSTIVE_MAX_PARALLEL", "4"))
+    pool_size = max(1, min(max_parallel, total_chunks))
+
+    def _run_chunk(idx_chunk):
+        i, chunk = idx_chunk
+        return i, synthesize_chunk(
             client=client,
             chunk_records=chunk,
             chunk_index=i,
@@ -475,6 +493,19 @@ def run_exhaustive(
             exclusions=exclusions,
             max_tokens=max_chunk_tokens,
         )
+
+    if pool_size > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=pool_size) as ex:
+            results = list(ex.map(_run_chunk, list(enumerate(chunks))))
+    else:
+        # 1-chunk run — no point spinning up a pool.
+        results = [_run_chunk((0, chunks[0]))]
+
+    # Sort by chunk index so failed_indices stays deterministic
+    # and the per_chunk_outputs order matches the input order
+    # (helpful for logs + future per-chunk progress streaming).
+    results.sort(key=lambda r: r[0])
+    for i, (output, in_tok, out_tok, err) in results:
         in_tok_total += in_tok
         out_tok_total += out_tok
         if output is None:
