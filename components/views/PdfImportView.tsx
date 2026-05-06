@@ -52,6 +52,8 @@ interface ProgressState {
   currentChunk?: number         // 1-based; undefined before first chunk_start
   rowsTotal?: number
   log: ChunkLogEntry[]          // append-only chunk history
+  model?: string                // V5.0.3+ — Anthropic model used (from meta event)
+  finalizing?: boolean          // V5.0.3+ — true after all chunks done, before complete
 }
 
 interface QueueItem {
@@ -136,6 +138,16 @@ export function PdfImportView({
               ...prog,
               totalPages: ev.data.total_pages,
               totalChunks: ev.data.total_chunks,
+              model: ev.data.model,
+            },
+          }
+        }
+        if (ev.type === "finalizing") {
+          return {
+            ...q,
+            progress: {
+              ...prog,
+              finalizing: true,
             },
           }
         }
@@ -573,13 +585,18 @@ function QueueItemCard({
                 by SSE chunk events (or indeterminate-style if total
                 chunks not yet known), a big elapsed timer, and the
                 per-chunk log so the operator can see exactly which
-                chunk is in flight. */}
+                chunk is in flight. V5.0.3+ adds a finalizing state
+                + model badge. */}
             {item.status === "processing" && (
               <div className="mt-3 space-y-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-2xl font-mono font-semibold tabular-nums text-foreground">{fmtElapsed(elapsedMs)}</span>
-                    {item.progress?.totalChunks ? (
+                    {item.progress?.finalizing ? (
+                      <Badge variant="outline" className="border-purple-300 text-purple-700">
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" />Finalizing CSV…
+                      </Badge>
+                    ) : item.progress?.totalChunks ? (
                       <Badge variant="outline" className="border-blue-300 text-blue-700">
                         Chunk {Math.min(item.progress.currentChunk ?? 1, item.progress.totalChunks)} / {item.progress.totalChunks}
                       </Badge>
@@ -593,6 +610,11 @@ function QueueItemCard({
                         {item.progress.rowsTotal} row{item.progress.rowsTotal !== 1 ? "s" : ""} so far
                       </Badge>
                     )}
+                    {item.progress?.model && (
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground font-mono">
+                        {item.progress.model.replace(/^claude-/, "").replace(/-(\d+-\d+)$/, " $1")}
+                      </Badge>
+                    )}
                   </div>
                   {elapsedMs > 120_000 && (
                     <span className="text-xs text-amber-700">
@@ -602,7 +624,9 @@ function QueueItemCard({
                 </div>
                 <Progress
                   value={
-                    item.progress?.totalChunks
+                    item.progress?.finalizing
+                      ? 95
+                      : item.progress?.totalChunks
                       ? Math.min(
                           100,
                           Math.round(

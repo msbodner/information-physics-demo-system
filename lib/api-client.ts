@@ -1397,6 +1397,7 @@ export interface PdfStreamMetaEvent {
   total_pages: number
   total_chunks: number
   chunk_timeout_seconds: number
+  model?: string
 }
 
 export interface PdfStreamChunkStartEvent {
@@ -1426,6 +1427,7 @@ export type PdfStreamProgressEvent =
   | { type: "chunk_start"; data: PdfStreamChunkStartEvent }
   | { type: "chunk_done"; data: PdfStreamChunkDoneEvent }
   | { type: "chunk_error"; data: PdfStreamChunkErrorEvent }
+  | { type: "finalizing"; data: { chunks_done: number } }
 
 export async function extractPdfToCsvStream(
   file: File,
@@ -1463,17 +1465,24 @@ export async function extractPdfToCsvStream(
 
     // SSE parser: framing is `event: NAME\ndata: JSON\n\n`. We split on
     // the blank-line separator and dispatch each frame.
+    //
+    // V5.0.3+ — return as soon as we see `complete` or `error`. The
+    // backend may still be doing best-effort persistence after yielding
+    // `complete`; if we kept reading until the stream closes naturally
+    // we'd hang until that finishes. reader.cancel() releases the
+    // connection cleanly, the server's gen() gets GeneratorExit, and
+    // the persistence cleanup completes in the request thread without
+    // blocking the user.
     const reader = res.body.getReader()
     const decoder = new TextDecoder("utf-8")
     let buffer = ""
     let finalResult: PdfExtractResult | null = null
     let hardError: string | null = null
 
-    while (true) {
+    streamLoop: while (true) {
       const { value, done } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
-      // Process complete frames (separator: blank line).
       let sepIdx: number
       while ((sepIdx = buffer.indexOf("\n\n")) >= 0) {
         const frame = buffer.slice(0, sepIdx)
@@ -1490,7 +1499,6 @@ export async function extractPdfToCsvStream(
         try {
           payload = JSON.parse(dataLines.join("\n"))
         } catch {
-          // SSE-quoted strings — skip
           continue
         }
         switch (evName) {
@@ -1498,17 +1506,21 @@ export async function extractPdfToCsvStream(
           case "chunk_start":
           case "chunk_done":
           case "chunk_error":
+          case "finalizing":
             opts.onProgress?.({ type: evName as PdfStreamProgressEvent["type"], data: payload as never })
             break
           case "complete":
             finalResult = payload as PdfExtractResult
-            break
+            break streamLoop
           case "error":
             hardError = (payload as { detail?: string })?.detail ?? "Unknown stream error"
-            break
+            break streamLoop
         }
       }
     }
+    // Release the connection so the backend's post-completion work
+    // (e.g. persistence UPDATE) doesn't hold our request thread open.
+    await reader.cancel().catch(() => { /* ignore */ })
 
     if (hardError) return { error: hardError }
     if (finalResult) return finalResult

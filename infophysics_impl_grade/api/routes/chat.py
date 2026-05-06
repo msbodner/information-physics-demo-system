@@ -2016,6 +2016,10 @@ async def pdf_extract(
     # each chunk at PDF_EXTRACT_CHUNK_TIMEOUT seconds and let the
     # SDK's built-in retry handle transient blips.
     chunk_timeout = float(os.environ.get("PDF_EXTRACT_CHUNK_TIMEOUT", "180"))
+    # V5.0.3+ — default to Haiku (3-5× faster than Sonnet/Opus for
+    # structured CSV extraction). Operators can override via
+    # PDF_EXTRACT_MODEL.
+    pdf_model = os.environ.get("PDF_EXTRACT_MODEL", "claude-haiku-4-5")
     client = anthropic.Anthropic(
         api_key=api_key,
         timeout=chunk_timeout,
@@ -2028,8 +2032,8 @@ async def pdf_extract(
 
     overall_start = time.time()
     logger.info(
-        "PDF extraction starting: file=%s pages=%d chunks=%d (%d pages/chunk max, %.0fs/chunk timeout)",
-        file.filename, total_pages, len(chunk_ranges), MAX_PAGES_PER_CALL, chunk_timeout,
+        "PDF extraction starting: file=%s pages=%d chunks=%d (%d pages/chunk max, %.0fs/chunk timeout, model=%s)",
+        file.filename, total_pages, len(chunk_ranges), MAX_PAGES_PER_CALL, chunk_timeout, pdf_model,
     )
 
     for idx, (start, end) in enumerate(chunk_ranges):
@@ -2067,7 +2071,7 @@ async def pdf_extract(
 
         try:
             response = client.messages.create(
-                model=get_default_model(),
+                model=pdf_model,
                 max_tokens=8192,
                 system=sys_prompt,
                 messages=[{
@@ -2328,6 +2332,12 @@ async def pdf_extract_stream(
     )
 
     chunk_timeout = float(os.environ.get("PDF_EXTRACT_CHUNK_TIMEOUT", "180"))
+    # V5.0.3+ — default to Haiku for PDF extraction. Haiku is 3-5× faster
+    # than Sonnet on document-block calls and plenty for structured CSV
+    # extraction (the task isn't reasoning-heavy). Operators can still
+    # override per-deployment via PDF_EXTRACT_MODEL. A 2-page PDF should
+    # come back in <10s on Haiku versus 60-90s on Opus/Sonnet.
+    pdf_model = os.environ.get("PDF_EXTRACT_MODEL", "claude-haiku-4-5")
 
     def gen():
         try:
@@ -2347,6 +2357,7 @@ async def pdf_extract_stream(
             "total_pages": total_pages,
             "total_chunks": len(chunk_ranges),
             "chunk_timeout_seconds": chunk_timeout,
+            "model": pdf_model,
         })
 
         canonical_headers: list[str] = []
@@ -2390,7 +2401,7 @@ async def pdf_extract_stream(
 
             try:
                 response = client.messages.create(
-                    model=get_default_model(),
+                    model=pdf_model,
                     max_tokens=8192,
                     system=sys_prompt,
                     messages=[{
@@ -2461,6 +2472,11 @@ async def pdf_extract_stream(
                 "elapsed_seconds": round(chunk_elapsed, 1),
             })
 
+        # V5.0.3+ — emit a finalizing marker so the UI flips out of
+        # "Chunk N/M" into a "Saving CSV…" state rather than appearing
+        # frozen during the post-loop merge + DB UPDATE work.
+        yield _sse("finalizing", {"chunks_done": len(chunk_ranges) - len(failed_chunks)})
+
         # Re-serialize merged CSV.
         out_buf = io.StringIO()
         writer = csv_mod.writer(out_buf)
@@ -2479,7 +2495,28 @@ async def pdf_extract_stream(
                 f"failed (chunks {failed_idx_str}). First error: {first_err}"
             )
 
-        # Persistence stamp.
+        # V5.0.3+ — Yield `complete` BEFORE the persistence UPDATE so
+        # the user sees the result immediately. Persistence is a
+        # best-effort admin convenience; if it hangs or fails the
+        # extraction result has already been delivered.
+        yield _sse("complete", {
+            "csv_text": csv_text,
+            "headers": canonical_headers,
+            "rows": all_data_rows,
+            "document_count": len(all_data_rows),
+            "filename": filename,
+            "page_count": total_pages,
+            "chunk_count": len(chunk_ranges),
+            "chunks_failed": len(failed_chunks),
+            "partial_warning": partial_warning,
+            "elapsed_seconds": round(overall_elapsed, 1),
+            "pdf_id": persisted_pdf_id,
+            "model": pdf_model,
+        })
+
+        # Post-completion best-effort persistence stamp. If this hangs
+        # or errors, the client has already received the result and
+        # closed the stream (see frontend reader.cancel() on complete).
         if persisted_pdf_id:
             try:
                 with db() as conn:
@@ -2503,20 +2540,6 @@ async def pdf_extract_stream(
                     conn.commit()
             except Exception as e:
                 logger.warning("PDF persistence (stream) update failed: %s", e)
-
-        yield _sse("complete", {
-            "csv_text": csv_text,
-            "headers": canonical_headers,
-            "rows": all_data_rows,
-            "document_count": len(all_data_rows),
-            "filename": filename,
-            "page_count": total_pages,
-            "chunk_count": len(chunk_ranges),
-            "chunks_failed": len(failed_chunks),
-            "partial_warning": partial_warning,
-            "elapsed_seconds": round(overall_elapsed, 1),
-            "pdf_id": persisted_pdf_id,
-        })
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache",
