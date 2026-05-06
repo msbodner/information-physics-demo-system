@@ -2561,6 +2561,325 @@ async def pdf_extract_stream(
     })
 
 
+# ─────────────────────────────────────────────────────────────────────
+# V5.0.5+ — Background-job + polling PDF extraction.
+#
+# After multiple iterations trying to make SSE-based progress reliable,
+# the symptom kept recurring: small SSE events (meta, chunk_done,
+# finalizing) flowed fine, but the final `complete` event got trapped
+# in some buffering layer between FastAPI/uvicorn and the browser
+# fetch reader, freezing the UI on "Finalizing CSV…" forever.
+#
+# This endpoint replaces SSE with a request/poll pattern that is
+# robust to any proxy buffering:
+#
+#   1. POST /v1/op/pdf-extract-async  → validates, persists pending row,
+#                                       spawns worker thread, returns
+#                                       {pdf_id, total_pages, total_chunks}
+#                                       immediately (HTTP 202-style).
+#   2. Worker thread runs the chunked extraction, updating the
+#      imported_pdfs row's status / current_chunk / row_count /
+#      chunks_failed / error as it progresses.
+#   3. Client polls GET /v1/imported-pdfs/{pdf_id} every ~1.5s and
+#      renders progress from the row's fields.
+#   4. When status hits a terminal value (extracted/partial/failed),
+#      client fetches GET /v1/imported-pdfs/{pdf_id}/csv-result for
+#      the actual CSV.
+#
+# This requires zero streaming and works identically through dev
+# servers, Cloudflare, Railway, etc.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _pdf_extract_worker(
+    pdf_id: str,
+    tenant: str,
+    pdf_bytes: bytes,
+    filename: str,
+    total_pages: int,
+    chunk_ranges: list,
+    api_key: str,
+    pdf_model: str,
+    chunk_timeout: float,
+) -> None:
+    """Background extraction. Updates imported_pdfs row as it progresses."""
+    import base64
+    import csv as csv_mod_local
+    import io as io_local
+    import json as json_local
+    import time as time_local
+
+    def _update(set_clause: str, params: tuple):
+        try:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    set_tenant(conn, tenant)
+                    cur.execute(
+                        f"UPDATE imported_pdfs SET {set_clause} WHERE pdf_id = %s",
+                        (*params, pdf_id),
+                    )
+                conn.commit()
+        except Exception as e:
+            logger.warning("pdf_extract_worker DB update failed: %s", e)
+
+    base_system_prompt = (
+        "You are a document data extractor. Analyze the provided PDF document(s) and extract ALL structured data into CSV format.\n\n"
+        "Rules:\n"
+        "- Create a single CSV with consistent column headers\n"
+        "- If the PDF contains multiple documents (e.g., multiple invoices), create one row per document\n"
+        "- Extract every data field you can identify (dates, amounts, names, addresses, line items, totals, etc.)\n"
+        "- Use clear, descriptive column headers\n"
+        "- Return ONLY the CSV content, no explanation or markdown code fences\n"
+        "- First row must be headers\n"
+        "- Use comma as delimiter, quote fields containing commas\n"
+    )
+
+    overall_start = time_local.time()
+    canonical_headers: list[str] = []
+    all_data_rows: list[list[str]] = []
+    failed_chunks: list[tuple[int, str]] = []
+
+    try:
+        from pypdf import PdfReader, PdfWriter
+        reader_pdf = PdfReader(io_local.BytesIO(pdf_bytes))
+
+        def _split(start: int, end: int) -> bytes:
+            writer = PdfWriter()
+            for i in range(start, end):
+                writer.add_page(reader_pdf.pages[i])
+            buf = io_local.BytesIO()
+            writer.write(buf)
+            return buf.getvalue()
+
+        try:
+            import anthropic
+        except Exception as e:
+            _update(
+                "status = %s, error = %s",
+                ("failed", f"anthropic SDK missing: {str(e)}"),
+            )
+            return
+        client = anthropic.Anthropic(api_key=api_key, timeout=chunk_timeout, max_retries=1)
+
+        _update("status = %s, chunk_count = %s, current_chunk = %s",
+                ("extracting", len(chunk_ranges), 0))
+
+        for idx, (start, end) in enumerate(chunk_ranges):
+            _update("current_chunk = %s", (idx + 1,))
+            chunk_bytes = _split(start, end) if len(chunk_ranges) > 1 else pdf_bytes
+            chunk_b64 = base64.standard_b64encode(chunk_bytes).decode("utf-8")
+
+            if canonical_headers:
+                sys_prompt = base_system_prompt + (
+                    "\nIMPORTANT: This is a continuation chunk. You MUST use these exact column "
+                    "headers as the first row, in this exact order:\n"
+                    f"{','.join(canonical_headers)}\n"
+                    "Map every record to these columns. Leave a field empty if the data is not "
+                    "present in this chunk.\n"
+                )
+                user_text = (
+                    f"Extract structured data from this PDF chunk (pages {start+1}-{end} "
+                    f"of {total_pages}). Return only the CSV with the headers I specified."
+                )
+            else:
+                sys_prompt = base_system_prompt
+                user_text = (
+                    f"Extract all structured data from this PDF into CSV format "
+                    f"(pages {start+1}-{end} of {total_pages}). Return only the CSV with headers."
+                    if len(chunk_ranges) > 1 else
+                    "Extract all structured data from this PDF into CSV format. "
+                    "Return only the CSV with headers."
+                )
+
+            try:
+                response = client.messages.create(
+                    model=pdf_model,
+                    max_tokens=8192,
+                    system=sys_prompt,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": chunk_b64}},
+                            {"type": "text", "text": user_text},
+                        ],
+                    }],
+                )
+            except Exception as e:
+                err_str = str(e)
+                logger.error("pdf_extract_worker chunk %d/%d failed: %s", idx + 1, len(chunk_ranges), err_str)
+                failed_chunks.append((idx, err_str))
+                if len(chunk_ranges) == 1:
+                    _update("status = %s, chunks_failed = %s, error = %s",
+                            ("failed", 1, err_str[:500]))
+                    return
+                _update("chunks_failed = %s", (len(failed_chunks),))
+                continue
+
+            chunk_csv = response.content[0].text.strip()
+            if chunk_csv.startswith("```"):
+                lines = chunk_csv.split("\n")
+                lines = [l for l in lines if not l.startswith("```")]
+                chunk_csv = "\n".join(lines).strip()
+
+            chunk_rows = list(csv_mod_local.reader(io_local.StringIO(chunk_csv)))
+            if not chunk_rows:
+                continue
+            chunk_headers = chunk_rows[0]
+            chunk_data = chunk_rows[1:]
+            if not canonical_headers:
+                canonical_headers = chunk_headers
+                all_data_rows.extend(chunk_data)
+            else:
+                if chunk_headers == canonical_headers:
+                    all_data_rows.extend(chunk_data)
+                else:
+                    idx_map = {h: i for i, h in enumerate(chunk_headers)}
+                    for r in chunk_data:
+                        aligned = [
+                            r[idx_map[h]] if h in idx_map and idx_map[h] < len(r) else ""
+                            for h in canonical_headers
+                        ]
+                        all_data_rows.append(aligned)
+
+            _update("row_count = %s", (len(all_data_rows),))
+
+        # Finalize
+        _update("status = %s", ("finalizing",))
+        out_buf = io_local.StringIO()
+        writer = csv_mod_local.writer(out_buf)
+        if canonical_headers:
+            writer.writerow(canonical_headers)
+        writer.writerows(all_data_rows)
+        csv_text = out_buf.getvalue().strip()
+
+        overall_elapsed = time_local.time() - overall_start
+        partial_warning = None
+        if failed_chunks:
+            failed_idx_str = ", ".join(str(i + 1) for i, _ in failed_chunks)
+            first_err = failed_chunks[0][1][:140]
+            partial_warning = (
+                f"Partial extraction: {len(failed_chunks)} of {len(chunk_ranges)} chunk(s) "
+                f"failed (chunks {failed_idx_str}). First error: {first_err}"
+            )
+
+        _update(
+            """status = %s, csv_text = %s, headers = %s::jsonb,
+               row_count = %s, chunk_count = %s, chunks_failed = %s,
+               duration_ms = %s, error = %s, current_chunk = %s""",
+            (
+                "extracted" if not failed_chunks else "partial",
+                csv_text,
+                json_local.dumps(canonical_headers),
+                len(all_data_rows),
+                len(chunk_ranges),
+                len(failed_chunks),
+                int(overall_elapsed * 1000),
+                partial_warning,
+                len(chunk_ranges),
+            ),
+        )
+        logger.info(
+            "pdf_extract_worker COMPLETE pdf_id=%s pages=%d chunks=%d rows=%d failed=%d elapsed=%.1fs",
+            pdf_id, total_pages, len(chunk_ranges), len(all_data_rows), len(failed_chunks), overall_elapsed,
+        )
+    except Exception as e:
+        logger.exception("pdf_extract_worker crashed: %s", e)
+        _update("status = %s, error = %s", ("failed", str(e)[:500]))
+
+
+@router.post("/v1/op/pdf-extract-async")
+async def pdf_extract_async(
+    file: UploadFile = File(...),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Kick off PDF extraction in the background; return pdf_id immediately.
+
+    Client polls GET /v1/imported-pdfs/{pdf_id} for progress and
+    GET /v1/imported-pdfs/{pdf_id}/csv-result for the final data once
+    status is 'extracted' or 'partial'.
+    """
+    api_key = get_effective_api_key()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+
+    pdf_bytes = await file.read()
+    if len(pdf_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(pdf_bytes) > 100 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="PDF too large (max 100MB)")
+
+    MAX_PAGES_PER_CALL = 100
+    try:
+        from pypdf import PdfReader
+        reader_pdf = PdfReader(io.BytesIO(pdf_bytes))
+        total_pages = len(reader_pdf.pages)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {str(e)}")
+
+    if total_pages == 0:
+        raise HTTPException(status_code=400, detail="PDF has no pages")
+
+    chunk_ranges: list[tuple[int, int]] = []
+    if total_pages <= MAX_PAGES_PER_CALL:
+        chunk_ranges.append((0, total_pages))
+    else:
+        for s in range(0, total_pages, MAX_PAGES_PER_CALL):
+            chunk_ranges.append((s, min(s + MAX_PAGES_PER_CALL, total_pages)))
+
+    persist_tenant = x_tenant_id or "tenantA"
+    import hashlib
+    pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+
+    # Insert pending row (synchronous so we can return its id immediately).
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                set_tenant(conn, persist_tenant)
+                cur.execute(
+                    """
+                    INSERT INTO imported_pdfs
+                      (tenant_id, filename, size_bytes, page_count, sha256, content,
+                       status, chunk_count, current_chunk, row_count, chunks_failed)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'pending', %s, 0, 0, 0)
+                    RETURNING pdf_id
+                    """,
+                    (persist_tenant, file.filename, len(pdf_bytes), total_pages, pdf_sha256,
+                     pdf_bytes, len(chunk_ranges)),
+                )
+                pdf_id = str(cur.fetchone()[0])
+            conn.commit()
+    except Exception as e:
+        logger.exception("pdf_extract_async persistence failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Could not start extraction: {str(e)}")
+
+    chunk_timeout = float(os.environ.get("PDF_EXTRACT_CHUNK_TIMEOUT", "180"))
+    pdf_model = os.environ.get("PDF_EXTRACT_MODEL", "claude-haiku-4-5")
+
+    import threading
+    threading.Thread(
+        target=_pdf_extract_worker,
+        args=(pdf_id, persist_tenant, pdf_bytes, file.filename, total_pages,
+              chunk_ranges, api_key, pdf_model, chunk_timeout),
+        daemon=True,
+        name=f"pdf_extract_{pdf_id[:8]}",
+    ).start()
+
+    logger.info(
+        "pdf_extract_async started: pdf_id=%s pages=%d chunks=%d model=%s",
+        pdf_id, total_pages, len(chunk_ranges), pdf_model,
+    )
+    return {
+        "pdf_id": pdf_id,
+        "filename": file.filename,
+        "total_pages": total_pages,
+        "total_chunks": len(chunk_ranges),
+        "model": pdf_model,
+    }
+
+
 @router.post("/v1/op/substrate-chat", response_model=ChatResponse)
 def substrate_chat(
     payload: SubstrateChatRequest,

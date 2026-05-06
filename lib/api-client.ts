@@ -1375,20 +1375,23 @@ export interface PdfExtractResult {
   pdf_id?: string | null  // present when backend persisted the original
 }
 
-// V5.0.2+ — Streaming PDF extraction.
+// V5.0.5+ — Polling-based PDF extraction.
 //
-// The non-streaming extractPdfToCsv kept the request open for the full
-// run with no progress signal. extractPdfToCsvStream consumes the SSE
-// progress events from /api/op/pdf-extract/stream so the UI can render
-// a live progress bar.
+// SSE progress kept failing with payload-buffering issues that left
+// the UI frozen on "Finalizing CSV…" forever. We replaced it with a
+// request/poll pattern that's bulletproof through any proxy chain:
 //
-// Event flow (matching backend chat.py):
-//   meta         — once at start: total_pages, total_chunks, ...
-//   chunk_start  — fires before each Anthropic call
-//   chunk_done   — fires after each successful chunk
-//   chunk_error  — fires when a single chunk fails (multi-chunk only)
-//   complete     — fires once at the end with the final result
-//   error        — fires on hard failures (single-chunk failure, SDK missing)
+//   1. POST /api/op/pdf-extract-async → kicks off extraction,
+//      returns {pdf_id, total_pages, total_chunks, model}
+//   2. Poll GET /api/imported-pdfs/{pdf_id} every 1.5s for progress
+//      (status, current_chunk, row_count, chunks_failed, error)
+//   3. When status reaches a terminal value (extracted/partial/failed),
+//      fetch GET /api/imported-pdfs/{pdf_id}/csv-result for the data
+//
+// The progress event shape stays the same as the SSE flow so the UI
+// code didn't have to change.
+//
+// V5.0.2+ — Streaming PDF extraction (legacy, kept for reference).
 
 export interface PdfStreamMetaEvent {
   pdf_id: string | null
@@ -1578,13 +1581,172 @@ export interface ImportedPdfMeta {
   size_bytes: number
   page_count: number | null
   sha256: string | null
-  status: string                 // pending | extracted | partial | failed
+  status: string                 // pending | extracting | finalizing | extracted | partial | failed
   row_count: number | null
   chunk_count: number | null
   chunks_failed: number | null
+  current_chunk: number | null   // V5.0.5+ — live progress index
   duration_ms: number | null
   error: string | null
   created_at: string
+}
+
+// V5.0.5+ — Polling-based PDF extraction. Replaces SSE streaming.
+export async function extractPdfToCsvPolling(
+  file: File,
+  opts: {
+    signal?: AbortSignal
+    timeoutMs?: number
+    pollIntervalMs?: number
+    onProgress?: (event: PdfStreamProgressEvent) => void
+  } = {},
+): Promise<PdfExtractResult | { error: string } | null> {
+  const timeoutMs = opts.timeoutMs ?? 480_000
+  const pollIntervalMs = opts.pollIntervalMs ?? 1500
+  const ac = new AbortController()
+  const timeoutId = setTimeout(() => {
+    ac.abort(new DOMException("PdfExtractTimeout", "TimeoutError"))
+  }, timeoutMs)
+  if (opts.signal) {
+    if (opts.signal.aborted) ac.abort(opts.signal.reason)
+    else opts.signal.addEventListener("abort", () => ac.abort(opts.signal!.reason), { once: true })
+  }
+
+  try {
+    // 1. Kick off extraction
+    const formData = new FormData()
+    formData.append("file", file)
+    const startRes = await fetch("/api/op/pdf-extract-async", {
+      method: "POST",
+      body: formData,
+      signal: ac.signal,
+    })
+    if (!startRes.ok) {
+      const body = await startRes.json().catch(() => ({}))
+      return { error: body?.detail ?? body?.error ?? `HTTP ${startRes.status}` }
+    }
+    const startData = await startRes.json() as {
+      pdf_id: string
+      filename: string
+      total_pages: number
+      total_chunks: number
+      model: string
+    }
+    const { pdf_id: pdfId, total_pages: totalPages, total_chunks: totalChunks, model } = startData
+
+    // Synthesize the meta event so the UI gets the same flow as SSE.
+    opts.onProgress?.({
+      type: "meta",
+      data: {
+        pdf_id: pdfId,
+        filename: startData.filename,
+        size_bytes: file.size,
+        total_pages: totalPages,
+        total_chunks: totalChunks,
+        chunk_timeout_seconds: 180,
+        model,
+      },
+    })
+
+    // 2. Poll for progress until terminal status
+    let lastChunk = 0
+    let lastStartedChunk = 0
+    while (true) {
+      if (ac.signal.aborted) {
+        const reason = ac.signal.reason
+        if (reason instanceof DOMException && reason.name === "TimeoutError") {
+          return { error: `Extraction exceeded ${Math.round(timeoutMs / 1000)}s — try breaking the PDF into smaller files.` }
+        }
+        return { error: "Cancelled by operator" }
+      }
+
+      // Wait, but break early if signal aborts.
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, pollIntervalMs)
+        ac.signal.addEventListener("abort", () => { clearTimeout(t); resolve() }, { once: true })
+      })
+      if (ac.signal.aborted) continue  // loop top will handle it
+
+      const statusRes = await fetch(`/api/imported-pdfs/${pdfId}`, { cache: "no-store" })
+      if (!statusRes.ok) continue  // transient; keep polling
+      const status = await statusRes.json() as ImportedPdfMeta
+
+      const cur = status.current_chunk ?? 0
+      const total = status.chunk_count ?? totalChunks
+
+      // Synthesize chunk_start when current_chunk advances past lastStartedChunk
+      if (cur > lastStartedChunk && cur > 0) {
+        // Approximate page range for the synthesized event
+        const pagesPerChunk = Math.ceil(totalPages / total)
+        const pageStart = (cur - 1) * pagesPerChunk + 1
+        const pageEnd = Math.min(cur * pagesPerChunk, totalPages)
+        opts.onProgress?.({
+          type: "chunk_start",
+          data: { chunk_index: cur, chunks_total: total, page_start: pageStart, page_end: pageEnd },
+        })
+        lastStartedChunk = cur
+      }
+
+      // Synthesize chunk_done when row_count growth crosses a chunk boundary
+      // Heuristic: when current_chunk increments past lastChunk, assume the
+      // previous chunk just finished. For terminal status, also flush.
+      if (cur > lastChunk + 1 || (status.status === "finalizing" && cur > lastChunk) ||
+          (status.status === "extracted" && cur > lastChunk) ||
+          (status.status === "partial" && cur > lastChunk)) {
+        // Mark all chunks between lastChunk+1 and cur (or cur-1 if cur is still running)
+        const upTo = (status.status === "extracting") ? Math.max(0, cur - 1) : cur
+        for (let i = lastChunk + 1; i <= upTo; i++) {
+          opts.onProgress?.({
+            type: "chunk_done",
+            data: {
+              chunk_index: i,
+              chunks_total: total,
+              rows_added: 0,
+              rows_total: status.row_count ?? 0,
+              elapsed_seconds: 0,
+            },
+          })
+        }
+        lastChunk = upTo
+      }
+
+      // Terminal states
+      if (status.status === "finalizing") {
+        opts.onProgress?.({ type: "finalizing", data: { chunks_done: total - (status.chunks_failed ?? 0) } })
+      }
+      if (status.status === "extracted" || status.status === "partial") {
+        // 3. Fetch the actual CSV result
+        const resultRes = await fetch(`/api/imported-pdfs/${pdfId}/csv-result`, { cache: "no-store" })
+        if (!resultRes.ok) {
+          const body = await resultRes.json().catch(() => ({}))
+          return { error: `Result fetch failed: ${body?.detail ?? `HTTP ${resultRes.status}`}` }
+        }
+        const data = await resultRes.json() as PdfExtractResult
+        return {
+          ...data,
+          partial_warning: status.error ?? data.partial_warning ?? null,
+          chunk_count: total,
+          chunks_failed: status.chunks_failed ?? 0,
+          model,
+        }
+      }
+      if (status.status === "failed") {
+        return { error: status.error ?? "Extraction failed (no error detail)" }
+      }
+    }
+  } catch (err) {
+    if (err instanceof DOMException) {
+      if (err.name === "TimeoutError") {
+        return { error: `Extraction exceeded ${Math.round(timeoutMs / 1000)}s — try breaking the PDF into smaller files.` }
+      }
+      if (err.name === "AbortError") {
+        return { error: "Cancelled by operator" }
+      }
+    }
+    return null
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 export async function listImportedPdfs(): Promise<ImportedPdfMeta[]> {

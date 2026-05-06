@@ -44,6 +44,7 @@ class ImportedPdfMeta(BaseModel):
     row_count: Optional[int] = None
     chunk_count: Optional[int] = None
     chunks_failed: Optional[int] = None
+    current_chunk: Optional[int] = None  # V5.0.5+ — live progress index
     duration_ms: Optional[int] = None
     error: Optional[str] = None
     created_at: datetime
@@ -51,7 +52,7 @@ class ImportedPdfMeta(BaseModel):
 
 _META_COLS = (
     "pdf_id, filename, size_bytes, page_count, sha256, status, "
-    "row_count, chunk_count, chunks_failed, duration_ms, error, created_at"
+    "row_count, chunk_count, chunks_failed, current_chunk, duration_ms, error, created_at"
 )
 
 
@@ -66,9 +67,10 @@ def _row_to_meta(row) -> ImportedPdfMeta:
         row_count=row[6],
         chunk_count=row[7],
         chunks_failed=row[8],
-        duration_ms=row[9],
-        error=row[10],
-        created_at=row[11],
+        current_chunk=row[9],
+        duration_ms=row[10],
+        error=row[11],
+        created_at=row[12],
     )
 
 

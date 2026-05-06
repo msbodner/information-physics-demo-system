@@ -31,7 +31,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { csvToAio, type ConvertedFile } from "@/lib/aio-utils"
-import { extractPdfToCsvStream, type PdfExtractResult, type PdfStreamProgressEvent } from "@/lib/api-client"
+import { extractPdfToCsvPolling, type PdfExtractResult, type PdfStreamProgressEvent } from "@/lib/api-client"
 
 type Status = "pending" | "processing" | "success" | "error"
 
@@ -202,10 +202,10 @@ export function PdfImportView({
       }))
     }
 
-    // Hard 8-minute frontend ceiling; the backend has its own per-chunk
-    // timeout, but this is a final safety net so the pump can never
-    // wedge indefinitely on a file that hangs server-side.
-    void extractPdfToCsvStream(next.file, {
+    // V5.0.5+ — polling-based extraction. Hard 8-minute frontend
+    // ceiling; the backend's worker keeps running but the user sees
+    // an actionable timeout error.
+    void extractPdfToCsvPolling(next.file, {
       signal: controller.signal,
       timeoutMs: 480_000,
       onProgress: handleProgress,
