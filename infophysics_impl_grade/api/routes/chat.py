@@ -1288,6 +1288,11 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
     if mro_context_lines:
         context_section += "\n\n## Prior Retrieval Episodes (MRO priors linked in HSL)\n"
         context_section += "\n\n".join(mro_context_lines)
+    # ``sample`` is what actually goes into the LLM context. We declare
+    # it at outer scope so the citation post-pass (shipped_records,
+    # below) can reuse it instead of re-diversifying — that way the
+    # token-budget trim applied here is honored by citations too.
+    sample: List[str] = []
     if matched_aio_lines:
         # Adaptive bundle sizing (#5): cap = clamp(50 + 50*len(needles), 100, 300).
         # Single-cue queries get a tight window so the model doesn't drown
@@ -1304,6 +1309,42 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
         # ts diversifyByCSV) so Live and Recall produce comparable
         # substrates.
         sample = diversify_by_csv(matched_aio_lines, cap)
+
+        # ── Token-budget guardrail (V5.0+ — fixes 200k overflow) ────
+        # Anthropic's input cap is 200k tokens. Cap=2000 records ×
+        # ~110 tokens/record = ~220k tokens — observed crashing with
+        # `prompt is too long: 212946 tokens > 200000 maximum`. Trim
+        # from the end (lowest-ranked) until the assembled prompt fits
+        # under a safe ceiling. ~4 chars/token is the standard
+        # approximation for English/bracket-notation text; we target
+        # 175k tokens (700k chars) leaving headroom for the response
+        # plus tokenization variance.
+        MAX_INPUT_CHARS = int(os.environ.get("AIO_SEARCH_MAX_INPUT_CHARS", "700000"))
+        # Estimate fixed overhead: system prompt boilerplate + filter
+        # notes + MRO priors + user prompt + JSON wire wrapping. The
+        # answer_system template is ~2500 chars; we add 2000 for the
+        # filter/exclusion lines + headers; mro and user_prompt are
+        # variable.
+        fixed_overhead = (
+            4500
+            + (len(filter_summary) if filter_summary else 0)
+            + sum(len(s) for s in (exclusions or []))
+            + sum(len(line) for line in mro_context_lines)
+            + len(user_prompt)
+        )
+        sample_chars = sum(len(line) + 1 for line in sample)
+        original_count = len(sample)
+        while sample and (fixed_overhead + sample_chars) > MAX_INPUT_CHARS:
+            dropped = sample.pop()
+            sample_chars -= len(dropped) + 1
+        if len(sample) < original_count:
+            logger.info(
+                "AIO Search: token-budget trim dropped %d records "
+                "(cap=%d → kept=%d, est_chars=%d/%d)",
+                original_count - len(sample), original_count, len(sample),
+                fixed_overhead + sample_chars, MAX_INPUT_CHARS,
+            )
+
         context_section += f"\n\n## Matched AIO Records ({len(sample)} of {len(matched_aio_lines)} total)\n"
         context_section += "\n".join(sample)
 
@@ -1356,17 +1397,12 @@ def _aio_search_prepare(payload: ChatRequest, x_tenant_id: Optional[str]) -> Dic
 
     # ``shipped_records`` is what actually went into the LLM context
     # window — the citation post-pass scores its tokens against the
-    # answer text. We deliberately ship the post-cap slice (``sample``)
-    # rather than the full matched list, so "sources used: N of M"
-    # reports against what Claude could plausibly cite. Apply the same
-    # diversity cap so citation scoring matches what the model saw.
-    shipped_records = (
-        diversify_by_csv(
-            matched_aio_lines,
-            adaptive_aio_cap(len(needles), ceiling=get_live_aio_cap_max(), total_matches=len(matched_aio_lines)),
-        )
-        if matched_aio_lines else []
-    )
+    # answer text. Reuse the same trimmed ``sample`` (post-diversify,
+    # post-token-budget) the model actually saw. Re-running
+    # diversify_by_csv here would skip the token-budget trim and
+    # silently mis-report citations against records the model never
+    # got to see.
+    shipped_records = sample
 
     _t_prep_end = time.perf_counter()
     parse_ms     = int((_t_parse_end - _t_prep_start) * 1000)
