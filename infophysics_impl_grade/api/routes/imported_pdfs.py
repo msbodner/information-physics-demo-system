@@ -162,11 +162,14 @@ def get_imported_pdf_csv_result(
 ):
     """Return the parsed CSV + rows extracted from this PDF.
 
-    V5.0.4+ — used by the streaming PDF extraction flow. The streaming
-    endpoint persists the extraction result then yields a tiny
-    `complete` event with just the pdf_id; the client fetches the
-    actual rows via this endpoint. Avoids ~3KB+ SSE payloads getting
-    stuck in proxy buffers.
+    V5.0.4+ — used by the polling PDF extraction flow. The async
+    endpoint persists the extraction result then the client fetches
+    the actual rows via this endpoint.
+
+    V5.0.6+ — returns 200 as soon as csv_text is populated, regardless
+    of whether status reached 'extracted'. Earlier versions required
+    status to be terminal, which left clients hanging when the
+    terminal-status UPDATE failed but the csv_text write succeeded.
     """
     tenant = x_tenant_id or "tenantA"
     with db() as conn:
@@ -185,7 +188,7 @@ def get_imported_pdf_csv_result(
     if row is None:
         raise HTTPException(status_code=404, detail="PDF not found")
     filename, csv_text, headers_json, row_count, page_count, chunk_count, chunks_failed, duration_ms, status, error = row
-    if csv_text is None:
+    if not csv_text:
         raise HTTPException(status_code=409, detail="PDF extraction not yet complete")
     # Parse CSV back into rows (we stored the canonical CSV text).
     import csv as csv_mod

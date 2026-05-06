@@ -2744,7 +2744,9 @@ def _pdf_extract_worker(
             _update("row_count = %s", (len(all_data_rows),))
 
         # Finalize
+        logger.info("pdf_extract_worker FINALIZING pdf_id=%s rows=%d failed=%d", pdf_id, len(all_data_rows), len(failed_chunks))
         _update("status = %s", ("finalizing",))
+
         out_buf = io_local.StringIO()
         writer = csv_mod_local.writer(out_buf)
         if canonical_headers:
@@ -2762,24 +2764,81 @@ def _pdf_extract_worker(
                 f"failed (chunks {failed_idx_str}). First error: {first_err}"
             )
 
-        _update(
-            """status = %s, csv_text = %s, headers = %s::jsonb,
-               row_count = %s, chunk_count = %s, chunks_failed = %s,
-               duration_ms = %s, error = %s, current_chunk = %s""",
-            (
-                "extracted" if not failed_chunks else "partial",
-                csv_text,
-                json_local.dumps(canonical_headers),
-                len(all_data_rows),
-                len(chunk_ranges),
-                len(failed_chunks),
-                int(overall_elapsed * 1000),
-                partial_warning,
-                len(chunk_ranges),
-            ),
-        )
+        terminal_status = "extracted" if not failed_chunks else "partial"
+
+        # V5.0.6+ — Split terminal UPDATE into essential + cosmetic.
+        # Earlier versions did one big UPDATE with 9 columns; if any
+        # single column wrote failed (column missing, type error, etc.)
+        # the entire UPDATE was rolled back and status stayed
+        # 'finalizing' forever. Now we ESSENTIAL fields first (status,
+        # csv_text, error) — these MUST land for the polling client
+        # to know we're done. Then cosmetic fields (headers, counts,
+        # current_chunk) in a best-effort second statement.
+        essential_ok = False
+        try:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    set_tenant(conn, tenant)
+                    cur.execute(
+                        """UPDATE imported_pdfs SET
+                             status = %s, csv_text = %s, error = %s
+                           WHERE pdf_id = %s""",
+                        (terminal_status, csv_text, partial_warning, pdf_id),
+                    )
+                conn.commit()
+            essential_ok = True
+            logger.info(
+                "pdf_extract_worker ESSENTIAL UPDATE ok pdf_id=%s status=%s csv_len=%d",
+                pdf_id, terminal_status, len(csv_text),
+            )
+        except Exception as e:
+            logger.exception("pdf_extract_worker ESSENTIAL UPDATE failed: %s", e)
+            # Last resort: try to at least set status to failed so the
+            # client doesn't poll forever.
+            try:
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        set_tenant(conn, tenant)
+                        cur.execute(
+                            "UPDATE imported_pdfs SET status = %s, error = %s WHERE pdf_id = %s",
+                            ("failed", f"DB UPDATE failed: {str(e)[:400]}", pdf_id),
+                        )
+                    conn.commit()
+            except Exception:
+                logger.exception("pdf_extract_worker FAILED-status UPDATE also failed")
+
+        # Cosmetic fields — best-effort. status is already terminal so
+        # the client can proceed even if these don't write.
+        if essential_ok:
+            try:
+                with db() as conn:
+                    with conn.cursor() as cur:
+                        set_tenant(conn, tenant)
+                        cur.execute(
+                            """UPDATE imported_pdfs SET
+                                 headers = %s::jsonb,
+                                 row_count = %s,
+                                 chunk_count = %s,
+                                 chunks_failed = %s,
+                                 duration_ms = %s,
+                                 current_chunk = %s
+                               WHERE pdf_id = %s""",
+                            (
+                                json_local.dumps(canonical_headers),
+                                len(all_data_rows),
+                                len(chunk_ranges),
+                                len(failed_chunks),
+                                int(overall_elapsed * 1000),
+                                len(chunk_ranges),
+                                pdf_id,
+                            ),
+                        )
+                    conn.commit()
+            except Exception as e:
+                logger.warning("pdf_extract_worker COSMETIC UPDATE failed (status already terminal): %s", e)
+
         logger.info(
-            "pdf_extract_worker COMPLETE pdf_id=%s pages=%d chunks=%d rows=%d failed=%d elapsed=%.1fs",
+            "pdf_extract_worker DONE pdf_id=%s pages=%d chunks=%d rows=%d failed=%d elapsed=%.1fs",
             pdf_id, total_pages, len(chunk_ranges), len(all_data_rows), len(failed_chunks), overall_elapsed,
         )
     except Exception as e:

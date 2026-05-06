@@ -1651,6 +1651,7 @@ export async function extractPdfToCsvPolling(
     // 2. Poll for progress until terminal status
     let lastChunk = 0
     let lastStartedChunk = 0
+    let finalizingFirstSeenAt: number | null = null
     while (true) {
       if (ac.signal.aborted) {
         const reason = ac.signal.reason
@@ -1713,6 +1714,28 @@ export async function extractPdfToCsvPolling(
       // Terminal states
       if (status.status === "finalizing") {
         opts.onProgress?.({ type: "finalizing", data: { chunks_done: total - (status.chunks_failed ?? 0) } })
+        if (finalizingFirstSeenAt == null) finalizingFirstSeenAt = Date.now()
+        // V5.0.6+ — Stuck-on-finalizing escape hatch. After ~10s in
+        // finalizing, attempt to fetch /csv-result directly. If the
+        // worker wrote csv_text but failed to flip status (the
+        // recurring bug class), the result is already there — return
+        // it instead of polling forever.
+        if (Date.now() - finalizingFirstSeenAt > 10_000) {
+          try {
+            const resultRes = await fetch(`/api/imported-pdfs/${pdfId}/csv-result`, { cache: "no-store" })
+            if (resultRes.ok) {
+              const data = await resultRes.json() as PdfExtractResult
+              return {
+                ...data,
+                partial_warning: status.error ?? data.partial_warning ?? null,
+                chunk_count: total,
+                chunks_failed: status.chunks_failed ?? 0,
+                model,
+              }
+            }
+            // 409 means csv_text isn't populated yet; keep polling.
+          } catch { /* keep polling */ }
+        }
       }
       if (status.status === "extracted" || status.status === "partial") {
         // 3. Fetch the actual CSV result
