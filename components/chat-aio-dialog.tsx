@@ -35,6 +35,59 @@ function asErrorString(e: unknown): string {
   return String(e)
 }
 
+// ── Backend error formatter ───────────────────────────────────────
+//
+// Translates the raw error string from a failed search call into a
+// human-readable Markdown block with likely causes + remediation.
+// HTTP 5xx errors from the proxy/backend almost always indicate one
+// of three things (in order of frequency on a fresh deploy):
+//
+//   503 → ANTHROPIC_API_KEY not configured (handler explicitly
+//         raises this)
+//   502 → upstream gateway error — Anthropic API call timed out, the
+//         backend service is restarting, or Railway is throttling
+//   504 → request exceeded the 90s aio-search proxy timeout
+//
+// Surfacing the cause inline (instead of just "Error: HTTP 502")
+// saves the operator a console-tab debugging trip.
+function formatBackendError(errMsg: string, elapsedMs: number): string {
+  const elapsedSec = (elapsedMs / 1000).toFixed(1)
+  const is502 = errMsg.includes("502")
+  const is503 = errMsg.includes("503")
+  const is504 = errMsg.includes("504") || errMsg.toLowerCase().includes("timeout")
+
+  if (is503 || /api[_ ]?key/i.test(errMsg)) {
+    return `**❌ Backend error: ${errMsg}** (after ${elapsedSec}s)\n\n` +
+      `The backend rejected the request. Most common cause: **ANTHROPIC_API_KEY not configured**.\n\n` +
+      `**Try this:**\n` +
+      `- System Admin → API Key → paste a valid \`sk-ant-…\` key and Save\n` +
+      `- Confirm the key works at <https://console.anthropic.com/settings/keys>\n` +
+      `- After saving, retry this query — no restart needed`
+  }
+
+  if (is502) {
+    return `**❌ Backend error: ${errMsg}** (after ${elapsedSec}s)\n\n` +
+      `The proxy returned HTTP 502 (Bad Gateway). The request reached the backend but the LLM call failed mid-flight.\n\n` +
+      `**Most likely causes (in order):**\n` +
+      `1. \`ANTHROPIC_API_KEY\` is set but invalid or expired — check System Admin → API Key\n` +
+      `2. Anthropic API outage or rate limit — check <https://status.anthropic.com>\n` +
+      `3. Backend service restarted mid-request — retry in 30s\n` +
+      `4. Daily token budget exceeded — check System Admin → Settings → Daily Token Budget\n\n` +
+      `Retry this query in a moment. If it persists, check the backend logs.`
+  }
+
+  if (is504) {
+    return `**⏱ Request timeout: ${errMsg}** (${elapsedSec}s)\n\n` +
+      `The backend took longer than 90s to respond. This can happen on:\n` +
+      `- Large Exhaustive Live runs (try a tighter query, or split into smaller asks)\n` +
+      `- Cold-started Railway services (retry — the second call should be fast)\n` +
+      `- Anthropic API slowness — try Recall instead of Live`
+  }
+
+  // Fallback: raw error, no context.
+  return `**❌ Error: ${errMsg}** (after ${elapsedSec}s)`
+}
+
 // ── Pane header metadata for assistant replies ────────────────────
 //
 // Each successful assistant message gets a header chip rendered ABOVE
@@ -850,7 +903,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
     if (errMsg && !acc) {
-      setChatMessages([...next, { role: "assistant", content: `Error: ${errMsg}` }])
+      setChatMessages([...next, { role: "assistant", content: formatBackendError(errMsg, elapsedMs) }])
       return
     }
     if (!metaCaptured) {
@@ -1057,11 +1110,13 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     setIsChatLoading(false)
     if ("error" in result) {
       const errMsg = asErrorString(result.error)
-      const errLower = errMsg.toLowerCase()
-      const isKeyMissing = errLower.includes("api_key") || errLower.includes("not configured")
-      setChatMessages([...next, { role: "assistant", content: isKeyMissing
-        ? "❌ Anthropic API key not configured.\n\nGo to System Admin → API Key tab and paste your key (starts with sk-ant-…)."
-        : `❌ ${errMsg}` }])
+      // formatBackendError handles 502 / 503 / 504 / API-key-missing
+      // with contextual remediation so the operator doesn't have to
+      // dig through the network tab to see what went wrong.
+      setChatMessages([...next, {
+        role: "assistant",
+        content: formatBackendError(errMsg, elapsedMs),
+      }])
     } else {
       const inTok = result.input_tokens ?? 0
       const outTok = result.output_tokens ?? 0
