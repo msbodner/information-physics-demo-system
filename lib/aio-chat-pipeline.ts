@@ -170,17 +170,27 @@ export interface MroGatingHit {
  * Score-based gate alone returned a Prompt-5 cache hit for a Prompt-4
  * query — wrong answer with zero LLM tokens spent.
  *
- * The overlap guard is a Jaccard on de-duped 4+-char tokens (case-
- * insensitive, alphanumeric split). Threshold 0.30 = at least 30% of
- * either side's significant tokens must appear in both. Prose-on-prose
- * matches with no real semantic overlap fall below this; restated
- * questions ("What's the budget?" → "Tell me the budget") clear it.
+ * V5.0.1 — switched from min-Jaccard to standard Jaccard. Min-Jaccard
+ * (intersection / smaller side) was producing inflated scores when the
+ * prior had very few tokens vs. a long new query. Concrete failure:
+ *
+ *   New query: 34 significant tokens about PM workload analysis
+ *   Prior:      5 significant tokens — "List all projects with their status"
+ *   Intersection: 3 ("list", "projects", "their")
+ *   Min-Jaccard: 3/5 = 0.60   ← incorrectly above 0.30 threshold
+ *   Standard Jaccard: 3/36 = 0.08   ← correctly below threshold
+ *
+ * Standard Jaccard (intersection / union) handles asymmetric-size
+ * matches correctly. The threshold drops to 0.20 to keep legit
+ * paraphrases working — e.g. "What's the budget?" vs "Tell me the
+ * budget for the Riverside project" gives ~0.20 with standard
+ * Jaccard, still allows the cache hit.
  */
 export function shouldShortCircuitOnMro(
   topHit: MroGatingHit | undefined,
   newQuery: string = "",
   threshold: number = MRO_SHORT_CIRCUIT_THRESHOLD,
-  minQueryOverlap: number = 0.30,
+  minQueryOverlap: number = 0.20,
 ): boolean {
   if (!topHit) return false
   if (!topHit.result_full_available) return false
@@ -195,7 +205,7 @@ export function shouldShortCircuitOnMro(
   return true
 }
 
-/** Jaccard-min overlap on de-duped, case-insensitive, alphanumeric
+/** Standard Jaccard overlap on de-duped, case-insensitive, alphanumeric
  *  tokens of length ≥ 4. Returns 0 when either side has no significant
  *  tokens. Pure / unit-testable. Exported so tests + callers can reason
  *  about the gating threshold. */
@@ -212,10 +222,11 @@ export function jaccardSignificantTokenOverlap(a: string, b: string): number {
   if (aSet.size === 0 || bSet.size === 0) return 0
   let inter = 0
   for (const w of aSet) if (bSet.has(w)) inter++
-  // "Min Jaccard": divide by the smaller side so a short follow-up
-  // ("What was the budget?") can still match a longer prior even
-  // though it shares only a few tokens.
-  return inter / Math.min(aSet.size, bSet.size)
+  // Standard Jaccard: |A ∩ B| / |A ∪ B|. Symmetrically penalizes
+  // asymmetric-size matches so a 5-token prior can't spuriously
+  // match a 34-token new query just because 3 common words overlap.
+  const union = aSet.size + bSet.size - inter
+  return union === 0 ? 0 : inter / union
 }
 
 /** Union extracted cues with cues from the top-K MRO hits whose score

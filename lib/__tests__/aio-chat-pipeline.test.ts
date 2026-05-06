@@ -142,8 +142,8 @@ test("shouldShortCircuitOnMro: respects custom threshold override", () => {
 test("shouldShortCircuitOnMro: blocks structurally unrelated long-prose query", () => {
   // Reproduces the production false-positive: bid-strategy prompt
   // returned a PM-workload cached MRO at score 0.85+ because trigram
-  // similarity on long prose found surface overlap. Overlap on
-  // 4+-char tokens is below 0.30 — the V5.0 guard should reject.
+  // similarity on long prose found surface overlap. Standard-Jaccard
+  // overlap on 4+-char tokens is below 0.20 — the V5.0 guard rejects.
   const newQuery = "I want to understand Meridian CG's bid performance and competitive positioning. Using the proposal documents, bid tabulation records, and the project register, calculate the average spread between awarded low bid and second-lowest bid"
   const cachedPriorQuery = "Conduct a project manager performance and workload analysis across the full portfolio. Using the project register, daily field reports, RFI log, and change order data, list active projects per PM"
   const hit: MroGatingHit = {
@@ -152,7 +152,29 @@ test("shouldShortCircuitOnMro: blocks structurally unrelated long-prose query", 
     query_text: cachedPriorQuery,
   }
   assert.equal(shouldShortCircuitOnMro(hit, newQuery), false,
-    "must not short-circuit when prior query has < 30% token overlap")
+    "must not short-circuit when prior query has < 20% token overlap")
+})
+
+test("shouldShortCircuitOnMro: V5.0.1 — blocks short prior matched against long new query", () => {
+  // V5.0.1 regression: min-Jaccard inflated this case.
+  //   New (34 tokens): "For each active PM (Sarah Mitchell, James Okafor,
+  //                     Daniel Torres, Angela Brooks, ...), list: number
+  //                     of active projects, total current contract value
+  //                     under management, and aggregate % work completed
+  //                     across their portfolio."
+  //   Prior (5 tokens): "List all projects with their status"
+  //   Intersection: 3 ("list", "projects", "their")
+  //   Min-Jaccard: 3/5 = 0.60   (incorrect — passed old threshold 0.30)
+  //   Standard:    3/36 = 0.08  (correct — below new threshold 0.20)
+  const newQuery = "For each active PM (Sarah Mitchell, James Okafor, Daniel Torres, Angela Brooks, Jennifer Cross, Laura Vance, Chen Wei, Priya Nair, Marcus Reid), list: number of active projects, total current contract value under management, and aggregate % work completed across their portfolio."
+  const shortPrior = "List all projects with their status"
+  const hit: MroGatingHit = {
+    score: 0.90,
+    result_full_available: true,
+    query_text: shortPrior,
+  }
+  assert.equal(shouldShortCircuitOnMro(hit, newQuery), false,
+    "short asymmetric prior must not pass the standard-Jaccard gate")
 })
 
 test("shouldShortCircuitOnMro: allows true follow-up restatement", () => {

@@ -43,6 +43,17 @@ const ENUMERATION_PATTERNS: RegExp[] = [
   /\b(every|all)\s+(record|row|item|aio|hsl|mro|document|file|entry)/i,
   /\bevery\s+\w+\s+(that|which|with|matching)\b/i,
   /\benumerate\b/i,
+  // V5.0+ — additional enumeration markers observed in the Prompt
+  // Library v3 corpus that the original 9 patterns missed:
+  //   * "For each X, list ..." — common per-entity report shape
+  //   * "list:" colon form — "list: A, B, C" or "list:\n- A\n- B"
+  //   * "for each PM" / "for each project" — strong full-coverage signal
+  //   * "across all/every" — totaling across a population
+  //   * "per <entity>" with "list" or "report" nearby
+  /\bfor\s+each\s+\w+/i,
+  /\blist\s*:/i,
+  /\bacross\s+(all|every)\b/i,
+  /\b(list|report)\s+for\s+each\b/i,
 ]
 
 const FRESHNESS_PATTERNS: RegExp[] = [
