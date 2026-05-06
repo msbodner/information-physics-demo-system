@@ -7,8 +7,9 @@ import {
   Users, Key, Loader2, ShieldCheck, User, Lock, FileSpreadsheet, FileText,
   Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network, BarChart2, LayoutGrid,
   BookOpen, Cpu, Brain, Library, Printer, AlertTriangle,
-  RotateCcw, Archive, ShieldAlert, CheckCircle2, FileDown, Layers,
+  RotateCcw, Archive, ShieldAlert, CheckCircle2, FileDown, Layers, Sparkles,
 } from "lucide-react"
+import { MODE_CATALOG } from "@/lib/smart-search"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -1991,6 +1992,11 @@ function ModelsPane() {
   // false the backend's effective parse_model is just default_model and
   // we render the "Use default" option as selected.
   const [parseOverridden, setParseOverridden] = useState(false)
+  // V5.0+ — Smart Search auto-mode toggle. When true, ChatAIO hides the
+  // multi-button row (Force Fresh / Thorough / Recall / Exhaustive / Live /
+  // Raw / Broad) and shows a single Smart Search button that classifies
+  // the query via lib/smart-search.ts and routes to the right handler.
+  const [smartSearchEnabled, setSmartSearchEnabled] = useState(false)
 
   useEffect(() => {
     getModelSettings().then((r) => {
@@ -1999,6 +2005,7 @@ function ModelsPane() {
         setParseModel(r.parse_model)
         setParseOverridden(r.parse_model !== r.default_model)
         setAvailable(r.available)
+        setSmartSearchEnabled(!!r.smart_search_enabled)
       }
       setIsLoading(false)
     })
@@ -2010,14 +2017,16 @@ function ModelsPane() {
       default_model: defaultModel,
       // Empty string signals the backend to clear the parse_model override.
       parse_model: parseOverridden ? parseModel : "",
+      smart_search_enabled: smartSearchEnabled,
     })
     if (result?.ok) {
-      toast.success("Model settings saved.")
+      toast.success("Settings saved.")
       setDefaultModel(result.default_model)
       setParseModel(result.parse_model)
       setParseOverridden(result.parse_model !== result.default_model)
+      setSmartSearchEnabled(!!result.smart_search_enabled)
     } else {
-      toast.error("Failed to save model settings.")
+      toast.error("Failed to save settings.")
     }
     setIsSaving(false)
   }
@@ -2032,12 +2041,73 @@ function ModelsPane() {
   const dropdownOptions = Array.from(new Set([...available, defaultModel])).filter(Boolean)
 
   return (
-    <div className="max-w-lg space-y-6">
+    <div className="max-w-3xl space-y-8">
       <p className="text-sm text-muted-foreground">
-        Selects which Anthropic Claude model is used for all ChatAIO modes (Recall, Live, Broad, Raw),
+        Selects which Anthropic Claude model is used for all ChatAIO modes (Recall, Live, Exhaustive Live, Broad, Raw),
         summarize, and entity-resolution. Takes effect on the next request — no redeploy required.
       </p>
 
+      {/* ── Smart Search toggle ─────────────────────────────────── */}
+      <Card className="border-blue-200/60">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Sparkles className="w-4 h-4 text-blue-600" />
+            Smart Search
+            <Badge variant="outline" className="ml-2 text-[10px] uppercase tracking-wide">
+              {smartSearchEnabled ? "On" : "Off"}
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            When <strong>on</strong>, ChatAIO replaces the multi-button row (Force Fresh, Thorough,
+            Recall, Exhaustive, Live, Raw, Broad) with a single <strong>Smart Search</strong> button.
+            Each query is automatically classified — the system picks the optimized search mode
+            using the rules below — and the chosen mode + reason are surfaced in the answer footer.
+            Operators see one button; Claude does the routing.
+          </p>
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={smartSearchEnabled}
+              onChange={(e) => setSmartSearchEnabled(e.target.checked)}
+              className="h-4 w-4 accent-blue-600 cursor-pointer"
+            />
+            <span className="text-sm font-medium">
+              Show only the Smart Search button in ChatAIO
+            </span>
+          </label>
+
+          {/* Mode catalog — what the modes are and what triggers each. */}
+          <div className="rounded-md border border-border overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/40">
+                <tr className="text-left">
+                  <th className="px-3 py-2 font-medium">Mode</th>
+                  <th className="px-3 py-2 font-medium">Triggered when query…</th>
+                  <th className="px-3 py-2 font-medium">Routes to</th>
+                </tr>
+              </thead>
+              <tbody>
+                {MODE_CATALOG.map((m) => (
+                  <tr key={m.id} className="border-t border-border align-top">
+                    <td className="px-3 py-2 font-semibold whitespace-nowrap">{m.label}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{m.triggers}</td>
+                    <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{m.endpoint}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Decision priority (first match wins): <strong>Compare</strong> → <strong>Enumeration</strong> → <strong>Freshness</strong> → <strong>Cache-stale</strong> → <strong>Single-fact</strong> → <strong>Recall (default)</strong>.
+            Tie-breakers: enumeration words beat freshness words ("list every fresh vendor" → Exhaustive); comparison words beat everything ("compare modes for: how many" → Compare-Modes).
+            Source: <em>Tips for AIO Search Model</em> (May 2026); see Search Modes Compendium V5.0 §6 + §10 in References for full rules.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* ── Model selection ─────────────────────────────────────── */}
       <div className="space-y-2">
         <Label htmlFor="default-model">Default model</Label>
         <Select value={defaultModel} onValueChange={setDefaultModel}>
@@ -2085,7 +2155,7 @@ function ModelsPane() {
 
       <Button onClick={handleSave} disabled={isSaving || !defaultModel} className="gap-2">
         {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-        Save Model Settings
+        Save Settings
       </Button>
 
       <BudgetPane />
@@ -3989,13 +4059,16 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
             {([
               { value: "users",         icon: <Users className="w-4 h-4" />,          label: "Users" },
               { value: "roles",         icon: <Shield className="w-4 h-4" />,          label: "Roles" },
+              // V5.0+ — Settings (formerly "Models"). Promoted up the menu so
+              // the Smart Search toggle + LLM picker live alongside Users/Roles
+              // rather than buried below Search Stats / API Key.
+              { value: "models",        icon: <Cpu className="w-4 h-4" />,             label: "Settings" },
               { value: "aio-data",      icon: <Database className="w-4 h-4" />,        label: "AIO Data" },
               { value: "hsl-data",      icon: <LayoutList className="w-4 h-4" />,      label: "HSL Data" },
               { value: "mro-data",      icon: <Brain className="w-4 h-4" />,           label: "MRO Data" },
               { value: "demo-reset",    icon: <ShieldAlert className="w-4 h-4" />,     label: "Demo Reset" },
               { value: "search-stats",  icon: <BarChart2 className="w-4 h-4" />,       label: "Search Stats" },
               { value: "apikey",        icon: <Key className="w-4 h-4" />,             label: "API Key" },
-              { value: "models",        icon: <Cpu className="w-4 h-4" />,             label: "Models" },
               { value: "csvs",          icon: <FileSpreadsheet className="w-4 h-4" />, label: "Saved CSVs" },
               { value: "aios",          icon: <FileText className="w-4 h-4" />,        label: "Saved AIOs" },
               { value: "saved-prompts", icon: <Bookmark className="w-4 h-4" />,        label: "Saved Prompts" },
@@ -4083,7 +4156,7 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
             </TabsContent>
 
             <TabsContent value="models" className="mt-0">
-              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Cpu className="w-5 h-5" />LLM Model Selection</CardTitle></CardHeader>
+              <Card><CardHeader><CardTitle className="flex items-center gap-2"><Cpu className="w-5 h-5" />Settings — LLM Model + Smart Search</CardTitle></CardHeader>
                 <CardContent><ModelsPane /></CardContent></Card>
             </TabsContent>
 

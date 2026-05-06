@@ -31,6 +31,7 @@ class ApiKeyRequest(BaseModel):
 class ModelSettingsRequest(BaseModel):
     default_model: Optional[str] = None
     parse_model: Optional[str] = None  # empty string clears the override
+    smart_search_enabled: Optional[bool] = None  # toggles Smart Search auto-mode in ChatAIO
 
 
 # ---------------------------------------------------------------------------
@@ -131,19 +132,45 @@ def update_api_key_setting(payload: ApiKeyRequest):
 # Model selection
 # ---------------------------------------------------------------------------
 
+def _get_smart_search_enabled() -> bool:
+    """Read the Smart Search toggle from system_settings.
+
+    Default: False (operators see the legacy multi-button row in ChatAIO).
+    Stored as the literal strings 'true'/'false' in system_settings.value
+    so the column stays text-typed alongside default_model / parse_model.
+    """
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT value FROM system_settings WHERE key = 'smart_search_enabled'"
+                )
+                row = cur.fetchone()
+                if row and row[0]:
+                    return str(row[0]).strip().lower() in ("true", "1", "yes", "on")
+    except Exception:
+        pass
+    return False
+
+
 @router.get("/v1/settings/models")
 def get_model_settings():
-    """Return the currently effective default + parse models and the dropdown list."""
+    """Return the currently effective default + parse models and the dropdown list.
+
+    Also returns the Smart Search toggle so the System Admin → Settings
+    pane and the ChatAIO dialog both read from one endpoint on mount.
+    """
     return {
         "default_model": get_default_model(),
         "parse_model": get_parse_model(),
         "available": AVAILABLE_MODELS,
+        "smart_search_enabled": _get_smart_search_enabled(),
     }
 
 
 @router.put("/v1/settings/models")
 def update_model_settings(payload: ModelSettingsRequest):
-    """Upsert default_model and/or parse_model in system_settings.
+    """Upsert default_model, parse_model, and/or smart_search_enabled.
 
     An empty string for parse_model clears the override (parse_model then
     falls back to default_model). Pass None (omit) to leave a setting alone.
@@ -172,11 +199,21 @@ def update_model_settings(payload: ModelSettingsRequest):
                     """,
                     (payload.parse_model.strip(), now),
                 )
+            if payload.smart_search_enabled is not None:
+                cur.execute(
+                    """
+                    INSERT INTO system_settings (key, value, updated_at)
+                    VALUES ('smart_search_enabled', %s, %s)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+                    """,
+                    ("true" if payload.smart_search_enabled else "false", now),
+                )
         conn.commit()
     return {
         "ok": True,
         "default_model": get_default_model(),
         "parse_model": get_parse_model(),
+        "smart_search_enabled": _get_smart_search_enabled(),
     }
 
 

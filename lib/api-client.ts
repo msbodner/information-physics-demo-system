@@ -842,11 +842,15 @@ export async function updateApiKeySetting(apiKey: string): Promise<{ ok: boolean
   })
 }
 
-// Model settings
+// Model + Smart Search settings (V5.0+).
+// `smart_search_enabled` toggles the auto-mode classifier in ChatAIO.
+// When true, the dialog hides the multi-button row and shows a single
+// "Smart Search" button that runs lib/smart-search.ts → handler.
 export interface ModelSettings {
   default_model: string
   parse_model: string
   available: string[]
+  smart_search_enabled: boolean
 }
 
 export async function getModelSettings(): Promise<ModelSettings | null> {
@@ -856,7 +860,11 @@ export async function getModelSettings(): Promise<ModelSettings | null> {
 export async function updateModelSettings(payload: {
   default_model?: string
   parse_model?: string
-}): Promise<{ ok: boolean; default_model: string; parse_model: string } | null> {
+  smart_search_enabled?: boolean
+}): Promise<
+  | { ok: boolean; default_model: string; parse_model: string; smart_search_enabled: boolean }
+  | null
+> {
   return safeFetch("/api/settings/models", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

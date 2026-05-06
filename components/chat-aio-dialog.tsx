@@ -4,7 +4,8 @@ import { useState, useCallback, useEffect, useRef } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { MessageSquare, Send, Download, FileText, History, Loader2, X, Printer, Bookmark, Search, BookOpen, Brain, Eye, Sparkles } from "lucide-react"
-import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, aioSearchParse, listSavedPrompts, createSavedPrompt, listMroObjects, getMroObject, createMroObject, listAioData, listHslKeyValuePairs, findHslsByNeedlesFull, createChatStat, linkMroToHsl, findHslsByNeedles, getCapSettings, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type HslKeyValuePair, type AioSearchStreamMeta } from "@/lib/api-client"
+import { chatWithAIO, pureLlmChat, aioSearchChat, aioSearchChatStream, aioSearchParse, listSavedPrompts, createSavedPrompt, listMroObjects, getMroObject, createMroObject, listAioData, listHslKeyValuePairs, findHslsByNeedlesFull, createChatStat, linkMroToHsl, findHslsByNeedles, getCapSettings, getModelSettings, type ChatMessage, type SavedPrompt, type MroObject, type AioDataRecord, type HslDataRecord, type HslKeyValuePair, type AioSearchStreamMeta } from "@/lib/api-client"
+import { classifyQuery, type SearchMode } from "@/lib/smart-search"
 import { runChatPipeline } from "@/lib/aio-chat-pipeline"
 import { parseAioLine } from "@/lib/aio-utils"
 import type { ParsedAio } from "@/lib/aio-utils"
@@ -544,6 +545,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   // available for hardest-of-the-hard cases. Stored locally — not
   // persisted server-side, since it's a per-query operator choice.
   const [chunkModel, setChunkModel] = useState<string>("claude-haiku-4-5")
+  // V5.0+ — Smart Search toggle, fetched from /v1/settings/models on mount.
+  // When true, the multi-button row is replaced by a single Smart Search
+  // button that classifies the query via lib/smart-search.ts and routes
+  // to the corresponding handler. Operator manages this in System Admin →
+  // Settings.
+  const [smartSearchEnabled, setSmartSearchEnabled] = useState(false)
   // V4.6+ — operator-tunable substrate caps fetched once at dialog open.
   // Falls back to the same defaults the backend uses (800 / 2500) if the
   // caps endpoint is unreachable.
@@ -615,6 +622,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         if (typeof caps.recall_thorough_max_aios === "number") setRecallThoroughCap(caps.recall_thorough_max_aios)
       }
     }).catch(() => { /* keep defaults */ })
+    // V5.0+ — fetch the Smart Search toggle. When operator has enabled it
+    // in System Admin → Settings, the dialog renders a single Smart Search
+    // button instead of the multi-button row.
+    getModelSettings().then((m) => {
+      if (m) setSmartSearchEnabled(!!m.smart_search_enabled)
+    }).catch(() => { /* default false */ })
     Promise.all([
       listAioData().catch(() => [] as AioDataRecord[]),
       // Summary mode: drops result_text + context_bundle (~80% smaller
@@ -753,22 +766,31 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     }
   }, [chatInput, chatMessages, isChatLoading])
 
-  const handleAioSearch = useCallback(async () => {
+  // smartOpts (V5.0+) lets handleSmartSearch override the toggle-derived
+  // values WITHOUT first calling setState (which is async + would race the
+  // dispatch). When smartOpts is omitted, the handler reads state as
+  // before — the pre-Smart-Search behavior is byte-identical.
+  const handleAioSearch = useCallback(async (smartOpts?: {
+    exhaustive?: boolean
+    chunkModel?: string
+    smartLabel?: string
+  }) => {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
+    const effectiveExhaustive = smartOpts?.exhaustive ?? exhaustiveLive
+    const effectiveChunkModel = smartOpts?.chunkModel ?? chunkModel
     const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
     // V5.0 — pane header reflects mode. "Exhaustive Live" gets a model
     // shorthand suffix so the operator can see at a glance which
     // chunk-classifier ran: -H (Haiku), -S (Sonnet), -O (Opus).
-    const modelSuffix = exhaustiveLive
-      ? (chunkModel.includes("haiku") ? "-H"
-          : chunkModel.includes("sonnet") ? "-S"
-          : chunkModel.includes("opus") ? "-O"
+    const modelSuffix = effectiveExhaustive
+      ? (effectiveChunkModel.includes("haiku") ? "-H"
+          : effectiveChunkModel.includes("sonnet") ? "-S"
+          : effectiveChunkModel.includes("opus") ? "-O"
           : "")
       : ""
-    const liveLabel = exhaustiveLive
-      ? `Exhaustive Live${modelSuffix}`
-      : "Live Search"
+    const liveLabel = smartOpts?.smartLabel
+      ?? (effectiveExhaustive ? `Exhaustive Live${modelSuffix}` : "Live Search")
     setHeaderAt(next.length, makePaneHeader(liveLabel, new Date()))
     setChatMessages([...next, { role: "assistant", content: "" }])
     setChatInput("")
@@ -808,7 +830,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       // backend path with the operator's chosen chunk classifier.
     }, {
       bypassCache: true,
-      ...(exhaustiveLive ? { mode: "exhaustive" as const, chunkModel } : {}),
+      ...(effectiveExhaustive
+        ? { mode: "exhaustive" as const, chunkModel: effectiveChunkModel }
+        : {}),
     }).catch((e) => { errMsg = String(e) })
     const elapsedMs = Date.now() - t0
     setIsChatLoading(false)
@@ -899,16 +923,23 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     }).catch((e) => { console.error("createChatStat failed (AIOSearch)", e) })
   }, [chatInput, chatMessages, isChatLoading, exhaustiveLive, chunkModel])
 
-  const handleRecallSearch = useCallback(async () => {
+  const handleRecallSearch = useCallback(async (smartOpts?: {
+    forceFresh?: boolean
+    thorough?: boolean
+    smartLabel?: string
+  }) => {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
+    const effectiveForceFresh = smartOpts?.forceFresh ?? forceFresh
+    const effectiveThorough = smartOpts?.thorough ?? thoroughRecall
     const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
     // Pane header chip: search type + suffix + timestamp. Assigned
     // BEFORE the assistant slot is appended so PaneHeaderChip renders
     // immediately. Suffix mirrors the footer (-T for Thorough, -F for
     // Force fresh).
-    const recallSuffix = thoroughRecall ? "-T" : (forceFresh ? "-F" : "")
-    setHeaderAt(next.length, makePaneHeader(`Recall Search${recallSuffix}`, new Date()))
+    const recallSuffix = effectiveThorough ? "-T" : (effectiveForceFresh ? "-F" : "")
+    const recallLabel = smartOpts?.smartLabel ?? `Recall Search${recallSuffix}`
+    setHeaderAt(next.length, makePaneHeader(recallLabel, new Date()))
     setChatMessages([...next, { role: "assistant", content: "" }])
     setChatInput("")
     setPromptHistory((prev) => (prev.includes(text) ? prev : [text, ...prev].slice(0, 20)))
@@ -927,7 +958,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       history,
       // Thorough mode raises priors 3 → 8 so more cached findings flow
       // into the LLM context section as framing.
-      maxPriors: thoroughRecall ? 8 : 3,
+      maxPriors: effectiveThorough ? 8 : 3,
       // V4.5 update: raised from 40 → 200 to close the substrate-cap
       // gap with Live Search's adaptive 100–300 cap. Thorough mode
       // raises further to 600 — useful for fuzzy/typo-laden queries
@@ -936,14 +967,14 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       // V4.6+ — operator-tunable caps fetched on dialog open from
       // /v1/settings/caps. Defaults: 500 / 1500. Hard clamp [50, 5000]
       // is enforced server-side.
-      maxAios: thoroughRecall ? recallThoroughCap : recallCap,
+      maxAios: effectiveThorough ? recallThoroughCap : recallCap,
       saveMRO: true,
       // Force fresh OR Thorough both bypass the score-≥-0.85 short-circuit.
       // Force fresh: just disables the cache early-return. Thorough: also
       // raises caps so Recall captures everything the cache would have
       // skipped. Priors still inform the bundle at the 0.50 threshold
       // in both cases; only the zero-token early-return is suppressed.
-      bypassMroCache: forceFresh || thoroughRecall,
+      bypassMroCache: effectiveForceFresh || effectiveThorough,
       cachedMros: recallCache?.mros,
       hslCatalog,
       resolveHsls: async (cueValues, signal) => {
@@ -959,7 +990,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         //      (V4.5), this catches token-break and short-cue cases trigram
         //      alone misses.
         let augmentedCues = cueValues
-        if (thoroughRecall) {
+        if (effectiveThorough) {
           try {
             const parse = await aioSearchParse(next, { signal })
             if (parse && !("error" in parse)) {
@@ -989,7 +1020,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         }
         const rows = await findHslsByNeedlesFull(augmentedCues, {
           signal,
-          ...(thoroughRecall ? { similarity: 0.20 } : {}),
+          ...(effectiveThorough ? { similarity: 0.20 } : {}),
         })
         // Side-channel: stash the rows for the meta-line renderer.
         queryHsls.length = 0
@@ -1107,6 +1138,71 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       }
     }
   }, [chatInput, chatMessages, isChatLoading, recallAios, hslCatalog, recallCache, forceFresh, thoroughRecall])
+
+  // ── V5.0+ Smart Search ──────────────────────────────────────────
+  //
+  // Classify the query via lib/smart-search.ts (which mirrors the
+  // aio-search-auto skill's decision rules) and route to the
+  // corresponding handler with explicit smartOpts overrides — bypasses
+  // the Force Fresh / Thorough / Exhaustive / chunk-model toggles
+  // (which are hidden when smart_search_enabled is on).
+  //
+  // Decision priority: Compare > Enumeration > Freshness > Cache-stale
+  // > Single-fact > Recall (default). See lib/smart-search.ts for the
+  // full lexicon.
+  const handleSmartSearch = useCallback(async () => {
+    const text = chatInput.trim()
+    if (!text || isChatLoading) return
+    const cls = classifyQuery(text)
+    // Toast surfaces the routing decision so the operator sees what
+    // happened. Description carries the human-readable rule that fired.
+    toast.info(`Smart Search → ${cls.modeLabel}`, { description: cls.reason })
+
+    // smartLabel decorates the pane header so the chip reads e.g.
+    // "Smart Search → Exhaustive Live · enumeration intent".
+    const smartLabel = `Smart → ${cls.modeLabel}`
+
+    switch (cls.mode) {
+      case "recall":
+        await handleRecallSearch({
+          forceFresh: false,
+          thorough: false,
+          smartLabel,
+        })
+        return
+      case "exhaustive":
+        await handleAioSearch({
+          exhaustive: true,
+          chunkModel: "claude-haiku-4-5",
+          smartLabel,
+        })
+        return
+      case "live":
+      case "live-bypass":
+        // Both route to the legacy Live path — bypassCache=true is
+        // already the default in handleAioSearch (in-app users always
+        // want fresh retrieval). The "live-bypass" classification
+        // exists to flag the operator's intent in the toast, not to
+        // change the call shape.
+        await handleAioSearch({
+          exhaustive: false,
+          smartLabel,
+        })
+        return
+      case "compare-modes":
+        // V5.0 first-cut: run Recall first; the operator can manually
+        // re-ask via /live-search for a side-by-side comparison.
+        // Future: chain Recall + Live + Exhaustive serially and emit
+        // a combined report. Tracked as V5.1+ work.
+        toast.info("Compare Modes — running Recall now; re-ask with /live-search to compare.")
+        await handleRecallSearch({
+          forceFresh: false,
+          thorough: false,
+          smartLabel: `${smartLabel} · step 1 of N (Recall)`,
+        })
+        return
+    }
+  }, [chatInput, isChatLoading, handleRecallSearch, handleAioSearch])
 
   const handleDownloadChat = useCallback(() => {
     if (chatMessages.length === 0) return
@@ -1497,96 +1593,121 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                     e.preventDefault()
                     // Default to Substrate (fast, cheap, MRO-capturing). Fall back to
                     // broad Send only while the AIO corpus is still loading.
-                    if (recallReady) handleRecallSearch()
+                    // V5.0+ — when Smart Search is enabled, Enter triggers
+                    // Smart Search instead so the same toggle the operator sees
+                    // in the button row also drives the keyboard shortcut.
+                    if (smartSearchEnabled) handleSmartSearch()
+                    else if (recallReady) handleRecallSearch()
                     else handleSend()
                   }
                 }}
-                placeholder="Ask about your AIO data…"
+                placeholder={smartSearchEnabled ? "Ask anything — Smart Search picks the optimized mode…" : "Ask about your AIO data…"}
                 className="flex-1 text-sm px-3 py-2 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
                 disabled={isChatLoading} />
             </div>
-            {/* Row 2: action buttons — Substrate is the default (Enter key) */}
-            <div className="flex gap-2 justify-end items-center">
-              {/* Force-fresh toggle for Recall. Off by default (production
-                  uses the MRO cache for cost discipline); flip on for one-
-                  off diagnostics or when a stale cached answer is masking
-                  a deployed retrieval fix. Affects only Recall — Live and
-                  Raw never short-circuit on MROs anyway. */}
-              <label
-                className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer h-9 px-2 rounded-md border border-border hover:bg-muted/40"
-                title="When checked, Recall skips its MRO short-circuit (score ≥ 0.85) and always runs the full retrieval through to the LLM. Priors still seed cues and inject at the 0.50 threshold; only the zero-token cache hit is suppressed."
-              >
-                <input
-                  type="checkbox"
-                  checked={forceFresh}
-                  onChange={(e) => setForceFresh(e.target.checked)}
-                  disabled={isChatLoading || thoroughRecall}
-                  className="h-3.5 w-3.5 accent-purple-600 cursor-pointer"
-                />
-                Force fresh
-              </label>
-              <label
-                className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer h-9 px-2 rounded-md border border-border hover:bg-muted/40"
-                title="Thorough Recall: bypass the MRO short-circuit AND raise the substrate cap (200 → 600 AIOs) AND raise the prior count (3 → 8). Use for fuzzy/typo-laden queries or whenever you want the cached MRO findings merged WITH a wider fresh retrieval, instead of one replacing the other. Costs more tokens; supersedes Force fresh."
-              >
-                <input
-                  type="checkbox"
-                  checked={thoroughRecall}
-                  onChange={(e) => setThoroughRecall(e.target.checked)}
-                  disabled={isChatLoading}
-                  className="h-3.5 w-3.5 accent-amber-600 cursor-pointer"
-                />
-                Thorough
-              </label>
-              <Button size="sm" onClick={handleRecallSearch}
-                disabled={!chatInput.trim() || isChatLoading || !recallReady}
-                className="gap-2 shrink-0 h-9 bg-purple-600 hover:bg-purple-700 text-white"
-                title="Recall Search (formerly Substrate Mode — default, Enter key): extract cues, traverse HSL neighborhoods, pre-fetch MRO priors from past episodes, and persist this answer as a new MRO. Memory-augmented — gets richer with use.">
-                <Brain className="w-4 h-4" />Recall
-              </Button>
-              {/* V5.0 — Exhaustive toggle for Live Search. When checked,
-                  the next Live click routes through the chunked
-                  map-reduce path (api/exhaustive.py) instead of the
-                  bounded single-call path. Guarantees full coverage on
-                  enumeration queries that the legacy Live can silently
-                  truncate via diversify_by_csv + LLM filter drift. */}
-              <label
-                className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer h-9 px-2 rounded-md border border-border hover:bg-muted/40"
-                title="Exhaustive Live: chunked map-reduce — every matched AIO is processed by per-chunk LLM classification with strict JSON output, then merged in-Python by max similarity. Guarantees completeness on enumeration queries (no diversify_by_csv truncation, no LLM filter drift). Costs more tokens (~N×Live)."
-              >
-                <input
-                  type="checkbox"
-                  checked={exhaustiveLive}
-                  onChange={(e) => setExhaustiveLive(e.target.checked)}
-                  disabled={isChatLoading}
-                  className="h-3.5 w-3.5 accent-blue-600 cursor-pointer"
-                />
-                Exhaustive
-              </label>
-              {/* V5.0 — chunk-model dropdown. Only enabled when
-                  Exhaustive is on. Haiku is the default (cheapest +
-                  fastest, sufficient for record classification). */}
-              <select
-                value={chunkModel}
-                onChange={(e) => setChunkModel(e.target.value)}
-                disabled={isChatLoading || !exhaustiveLive}
-                className="h-9 px-2 rounded-md border border-border text-xs bg-background hover:bg-muted/40 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Per-chunk classifier model for Exhaustive Live. Haiku is the default — fastest and cheapest, sufficient for record-level matching. Sonnet trades latency/$ for higher recall on fuzzy queries. Opus is for hardest-of-the-hard cases."
-              >
-                <option value="claude-haiku-4-5">Haiku (default)</option>
-                <option value="claude-sonnet-4-6">Sonnet</option>
-                <option value="claude-opus-4-7">Opus</option>
-              </select>
-              <Button size="sm" variant="outline" onClick={handleAioSearch} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Live Search (formerly AIO Search): fresh four-phase retrieval — parse cues, match HSLs, gather AIOs, synthesize. No memory of prior queries. Toggle Exhaustive to route through chunked map-reduce for guaranteed enumeration completeness.">
-                <Search className="w-4 h-4" />Live Search
-              </Button>
-              <Button size="sm" variant="outline" onClick={handlePureLlm} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Raw Search (formerly CSV→LLM Raw): standard Claude prompt with the raw saved CSV files as context (no AIO/HSL/MRO machinery — control case)">
-                <Sparkles className="w-4 h-4" />Raw Search
-              </Button>
-              <Button size="sm" variant="outline" onClick={handleSend} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Broad Search (formerly Blind Dump AIO/HSL): NO retrieval — ships the first 300 AIOs + 10 HSLs from the DB to Claude with no relevance filtering. Slow and token-heavy.">
-                <Send className="w-4 h-4" />Broad Search
-              </Button>
-            </div>
+            {/* Row 2: action buttons.
+                V5.0+ — when smart_search_enabled (System Admin → Settings),
+                hide the entire multi-button row and show only Smart Search.
+                Otherwise show the full Recall / Live / Exhaustive / Raw /
+                Broad row with toggles. */}
+            {smartSearchEnabled ? (
+              <div className="flex gap-3 justify-end items-center">
+                <span className="text-xs text-muted-foreground italic">
+                  System chooses optimized search mode
+                </span>
+                <Button
+                  size="sm"
+                  onClick={handleSmartSearch}
+                  disabled={!chatInput.trim() || isChatLoading}
+                  className="gap-2 shrink-0 h-9 bg-blue-600 hover:bg-blue-700 text-white"
+                  title="Smart Search — classifies the query (enumeration / freshness / comparison / lookup) and routes to the optimized mode (Recall / Live / Exhaustive Live / Compare-Modes). Decision rules from Tips for AIO Search Model (May 2026); see Settings tab in System Admin for the full mode catalog."
+                >
+                  <Sparkles className="w-4 h-4" />Smart Search
+                </Button>
+              </div>
+            ) : (
+              <div className="flex gap-2 justify-end items-center">
+                {/* Force-fresh toggle for Recall. Off by default (production
+                    uses the MRO cache for cost discipline); flip on for one-
+                    off diagnostics or when a stale cached answer is masking
+                    a deployed retrieval fix. Affects only Recall — Live and
+                    Raw never short-circuit on MROs anyway. */}
+                <label
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer h-9 px-2 rounded-md border border-border hover:bg-muted/40"
+                  title="When checked, Recall skips its MRO short-circuit (score ≥ 0.85) and always runs the full retrieval through to the LLM. Priors still seed cues and inject at the 0.50 threshold; only the zero-token cache hit is suppressed."
+                >
+                  <input
+                    type="checkbox"
+                    checked={forceFresh}
+                    onChange={(e) => setForceFresh(e.target.checked)}
+                    disabled={isChatLoading || thoroughRecall}
+                    className="h-3.5 w-3.5 accent-purple-600 cursor-pointer"
+                  />
+                  Force fresh
+                </label>
+                <label
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer h-9 px-2 rounded-md border border-border hover:bg-muted/40"
+                  title="Thorough Recall: bypass the MRO short-circuit AND raise the substrate cap (200 → 600 AIOs) AND raise the prior count (3 → 8). Use for fuzzy/typo-laden queries or whenever you want the cached MRO findings merged WITH a wider fresh retrieval, instead of one replacing the other. Costs more tokens; supersedes Force fresh."
+                >
+                  <input
+                    type="checkbox"
+                    checked={thoroughRecall}
+                    onChange={(e) => setThoroughRecall(e.target.checked)}
+                    disabled={isChatLoading}
+                    className="h-3.5 w-3.5 accent-amber-600 cursor-pointer"
+                  />
+                  Thorough
+                </label>
+                <Button size="sm" onClick={() => handleRecallSearch()}
+                  disabled={!chatInput.trim() || isChatLoading || !recallReady}
+                  className="gap-2 shrink-0 h-9 bg-purple-600 hover:bg-purple-700 text-white"
+                  title="Recall Search (formerly Substrate Mode — default, Enter key): extract cues, traverse HSL neighborhoods, pre-fetch MRO priors from past episodes, and persist this answer as a new MRO. Memory-augmented — gets richer with use.">
+                  <Brain className="w-4 h-4" />Recall
+                </Button>
+                {/* V5.0 — Exhaustive toggle for Live Search. When checked,
+                    the next Live click routes through the chunked
+                    map-reduce path (api/exhaustive.py) instead of the
+                    bounded single-call path. Guarantees full coverage on
+                    enumeration queries that the legacy Live can silently
+                    truncate via diversify_by_csv + LLM filter drift. */}
+                <label
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer h-9 px-2 rounded-md border border-border hover:bg-muted/40"
+                  title="Exhaustive Live: chunked map-reduce — every matched AIO is processed by per-chunk LLM classification with strict JSON output, then merged in-Python by max similarity. Guarantees completeness on enumeration queries (no diversify_by_csv truncation, no LLM filter drift). Costs more tokens (~N×Live)."
+                >
+                  <input
+                    type="checkbox"
+                    checked={exhaustiveLive}
+                    onChange={(e) => setExhaustiveLive(e.target.checked)}
+                    disabled={isChatLoading}
+                    className="h-3.5 w-3.5 accent-blue-600 cursor-pointer"
+                  />
+                  Exhaustive
+                </label>
+                {/* V5.0 — chunk-model dropdown. Only enabled when
+                    Exhaustive is on. Haiku is the default (cheapest +
+                    fastest, sufficient for record classification). */}
+                <select
+                  value={chunkModel}
+                  onChange={(e) => setChunkModel(e.target.value)}
+                  disabled={isChatLoading || !exhaustiveLive}
+                  className="h-9 px-2 rounded-md border border-border text-xs bg-background hover:bg-muted/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Per-chunk classifier model for Exhaustive Live. Haiku is the default — fastest and cheapest, sufficient for record-level matching. Sonnet trades latency/$ for higher recall on fuzzy queries. Opus is for hardest-of-the-hard cases."
+                >
+                  <option value="claude-haiku-4-5">Haiku (default)</option>
+                  <option value="claude-sonnet-4-6">Sonnet</option>
+                  <option value="claude-opus-4-7">Opus</option>
+                </select>
+                <Button size="sm" variant="outline" onClick={() => handleAioSearch()} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Live Search (formerly AIO Search): fresh four-phase retrieval — parse cues, match HSLs, gather AIOs, synthesize. No memory of prior queries. Toggle Exhaustive to route through chunked map-reduce for guaranteed enumeration completeness.">
+                  <Search className="w-4 h-4" />Live Search
+                </Button>
+                <Button size="sm" variant="outline" onClick={handlePureLlm} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Raw Search (formerly CSV→LLM Raw): standard Claude prompt with the raw saved CSV files as context (no AIO/HSL/MRO machinery — control case)">
+                  <Sparkles className="w-4 h-4" />Raw Search
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleSend} disabled={!chatInput.trim() || isChatLoading} className="gap-2 shrink-0 h-9" title="Broad Search (formerly Blind Dump AIO/HSL): NO retrieval — ships the first 300 AIOs + 10 HSLs from the DB to Claude with no relevance filtering. Slow and token-heavy.">
+                  <Send className="w-4 h-4" />Broad Search
+                </Button>
+              </div>
+            )}
           </div>
           </div>
         </DialogContent>
