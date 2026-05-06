@@ -622,12 +622,10 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         if (typeof caps.recall_thorough_max_aios === "number") setRecallThoroughCap(caps.recall_thorough_max_aios)
       }
     }).catch(() => { /* keep defaults */ })
-    // V5.0+ — fetch the Smart Search toggle. When operator has enabled it
-    // in System Admin → Settings, the dialog renders a single Smart Search
-    // button instead of the multi-button row.
-    getModelSettings().then((m) => {
-      if (m) setSmartSearchEnabled(!!m.smart_search_enabled)
-    }).catch(() => { /* default false */ })
+    // (Smart Search settings live in their own useEffect below — they
+    // need to be re-read EVERY time the dialog opens, not just on the
+    // first open when the recall corpus loads. See the dedicated
+    // effect after this one.)
     Promise.all([
       listAioData().catch(() => [] as AioDataRecord[]),
       // Summary mode: drops result_text + context_bundle (~80% smaller
@@ -652,6 +650,21 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       setRecallReady(true)
     })
   }, [open, recallReady])
+
+  // V5.0+ — Smart Search toggle, re-read on every dialog open.
+  //
+  // Lives in its own useEffect (separate from the corpus-load effect
+  // above) because the System Admin → Settings toggle can be flipped
+  // mid-session: open dialog → toggle in Settings → re-open dialog →
+  // expect Smart Search button to appear. The corpus-load effect
+  // short-circuits when recallReady is already true, so the settings
+  // fetch can't ride along — it needs its own dependency on `open`.
+  useEffect(() => {
+    if (!open) return
+    getModelSettings().then((m) => {
+      if (m) setSmartSearchEnabled(!!m.smart_search_enabled)
+    }).catch(() => { /* default false on fetch error */ })
+  }, [open])
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -1154,55 +1167,93 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
     const cls = classifyQuery(text)
+
+    // ── Recall corpus gating ────────────────────────────────────
+    // handleRecallSearch + runChatPipeline need recallAios + hslCatalog
+    // populated. Until the dialog finishes its initial corpus-load
+    // (recallReady=true), routing a Smart Search query to "recall" or
+    // "compare-modes" runs the pipeline against an empty corpus and
+    // either returns garbage or hangs on a downstream find-by-needles
+    // call (the symptom: "TypeError: Load Failed" timeout). Fall back
+    // to Live in that window — it goes to the backend directly and
+    // doesn't need the local corpus.
+    let effectiveMode = cls.mode
+    let modeLabel = cls.modeLabel
+    let reason = cls.reason
+    if (
+      (cls.mode === "recall" || cls.mode === "compare-modes")
+      && !recallReady
+    ) {
+      effectiveMode = "live-bypass"
+      modeLabel = "Live (corpus loading)"
+      reason = `${cls.reason} · recall corpus still loading — fell back to Live`
+    }
+
     // Toast surfaces the routing decision so the operator sees what
     // happened. Description carries the human-readable rule that fired.
-    toast.info(`Smart Search → ${cls.modeLabel}`, { description: cls.reason })
+    toast.info(`Smart Search → ${modeLabel}`, { description: reason })
 
     // smartLabel decorates the pane header so the chip reads e.g.
     // "Smart Search → Exhaustive Live · enumeration intent".
-    const smartLabel = `Smart → ${cls.modeLabel}`
+    const smartLabel = `Smart → ${modeLabel}`
 
-    switch (cls.mode) {
-      case "recall":
-        await handleRecallSearch({
-          forceFresh: false,
-          thorough: false,
-          smartLabel,
-        })
-        return
-      case "exhaustive":
-        await handleAioSearch({
-          exhaustive: true,
-          chunkModel: "claude-haiku-4-5",
-          smartLabel,
-        })
-        return
-      case "live":
-      case "live-bypass":
-        // Both route to the legacy Live path — bypassCache=true is
-        // already the default in handleAioSearch (in-app users always
-        // want fresh retrieval). The "live-bypass" classification
-        // exists to flag the operator's intent in the toast, not to
-        // change the call shape.
-        await handleAioSearch({
-          exhaustive: false,
-          smartLabel,
-        })
-        return
-      case "compare-modes":
-        // V5.0 first-cut: run Recall first; the operator can manually
-        // re-ask via /live-search for a side-by-side comparison.
-        // Future: chain Recall + Live + Exhaustive serially and emit
-        // a combined report. Tracked as V5.1+ work.
-        toast.info("Compare Modes — running Recall now; re-ask with /live-search to compare.")
-        await handleRecallSearch({
-          forceFresh: false,
-          thorough: false,
-          smartLabel: `${smartLabel} · step 1 of N (Recall)`,
-        })
-        return
+    // Wrap the dispatch in try/catch so any fetch / SSE failure
+    // surfaces as a toast + the assistant slot is left in a clean
+    // state, instead of a silent unhandled rejection.
+    try {
+      switch (effectiveMode) {
+        case "recall":
+          await handleRecallSearch({
+            forceFresh: false,
+            thorough: false,
+            smartLabel,
+          })
+          return
+        case "exhaustive":
+          await handleAioSearch({
+            exhaustive: true,
+            chunkModel: "claude-haiku-4-5",
+            smartLabel,
+          })
+          return
+        case "live":
+        case "live-bypass":
+          // Both route to the legacy Live path — bypassCache=true is
+          // already the default in handleAioSearch (in-app users always
+          // want fresh retrieval). The "live-bypass" classification
+          // exists to flag the operator's intent in the toast, not to
+          // change the call shape.
+          await handleAioSearch({
+            exhaustive: false,
+            smartLabel,
+          })
+          return
+        case "compare-modes":
+          // V5.0 first-cut: run Recall first; the operator can manually
+          // re-ask via /live-search for a side-by-side comparison.
+          // Future: chain Recall + Live + Exhaustive serially and emit
+          // a combined report. Tracked as V5.1+ work.
+          toast.info("Compare Modes — running Recall now; re-ask with /live-search to compare.")
+          await handleRecallSearch({
+            forceFresh: false,
+            thorough: false,
+            smartLabel: `${smartLabel} · step 1 of N (Recall)`,
+          })
+          return
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error("Smart Search dispatch failed:", err)
+      toast.error("Smart Search failed", {
+        description: msg.includes("Load failed") || msg.includes("Failed to fetch")
+          ? "Backend unreachable — check that the API service is running."
+          : msg,
+      })
+      // Make sure the loading state is cleared so the operator can
+      // retry without a frozen UI.
+      setIsChatLoading(false)
     }
-  }, [chatInput, isChatLoading, handleRecallSearch, handleAioSearch])
+  }, [chatInput, isChatLoading, recallReady, handleRecallSearch, handleAioSearch])
 
   const handleDownloadChat = useCallback(() => {
     if (chatMessages.length === 0) return
@@ -1613,14 +1664,16 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
             {smartSearchEnabled ? (
               <div className="flex gap-3 justify-end items-center">
                 <span className="text-xs text-muted-foreground italic">
-                  System chooses optimized search mode
+                  {recallReady
+                    ? "System chooses optimized search mode"
+                    : "Loading corpus… Smart Search will route to Live until ready."}
                 </span>
                 <Button
                   size="sm"
                   onClick={handleSmartSearch}
                   disabled={!chatInput.trim() || isChatLoading}
                   className="gap-2 shrink-0 h-9 bg-blue-600 hover:bg-blue-700 text-white"
-                  title="Smart Search — classifies the query (enumeration / freshness / comparison / lookup) and routes to the optimized mode (Recall / Live / Exhaustive Live / Compare-Modes). Decision rules from Tips for AIO Search Model (May 2026); see Settings tab in System Admin for the full mode catalog."
+                  title="Smart Search — classifies the query (enumeration / freshness / comparison / lookup) and routes to the optimized mode (Recall / Live / Exhaustive Live / Compare-Modes). Decision rules from Tips for AIO Search Model (May 2026); see Settings tab in System Admin for the full mode catalog. While the local recall corpus is still loading, queries fall back to Live."
                 >
                   <Sparkles className="w-4 h-4" />Smart Search
                 </Button>
