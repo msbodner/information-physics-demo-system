@@ -153,6 +153,61 @@ def get_imported_pdf_content(
     )
 
 
+@router.get("/v1/imported-pdfs/{pdf_id}/csv-result")
+def get_imported_pdf_csv_result(
+    pdf_id: str,
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Return the parsed CSV + rows extracted from this PDF.
+
+    V5.0.4+ — used by the streaming PDF extraction flow. The streaming
+    endpoint persists the extraction result then yields a tiny
+    `complete` event with just the pdf_id; the client fetches the
+    actual rows via this endpoint. Avoids ~3KB+ SSE payloads getting
+    stuck in proxy buffers.
+    """
+    tenant = x_tenant_id or "tenantA"
+    with db() as conn:
+        with conn.cursor() as cur:
+            set_tenant(conn, tenant)
+            cur.execute(
+                """
+                SELECT filename, csv_text, headers, row_count, page_count,
+                       chunk_count, chunks_failed, duration_ms, status, error
+                FROM imported_pdfs
+                WHERE tenant_id = %s AND pdf_id = %s
+                """,
+                (tenant, pdf_id),
+            )
+            row = cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="PDF not found")
+    filename, csv_text, headers_json, row_count, page_count, chunk_count, chunks_failed, duration_ms, status, error = row
+    if csv_text is None:
+        raise HTTPException(status_code=409, detail="PDF extraction not yet complete")
+    # Parse CSV back into rows (we stored the canonical CSV text).
+    import csv as csv_mod
+    import io as io_mod
+    reader = csv_mod.reader(io_mod.StringIO(csv_text))
+    parsed = list(reader)
+    out_headers = parsed[0] if parsed else []
+    out_rows = parsed[1:] if len(parsed) > 1 else []
+    return {
+        "csv_text": csv_text,
+        "headers": out_headers,
+        "rows": out_rows,
+        "filename": filename,
+        "document_count": row_count or len(out_rows),
+        "page_count": page_count,
+        "chunk_count": chunk_count,
+        "chunks_failed": chunks_failed,
+        "elapsed_seconds": (duration_ms or 0) / 1000.0,
+        "pdf_id": pdf_id,
+        "status": status,
+        "error": error,
+    }
+
+
 @router.delete("/v1/imported-pdfs/{pdf_id}", status_code=204)
 def delete_imported_pdf(
     pdf_id: str,

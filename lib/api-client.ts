@@ -1523,7 +1523,38 @@ export async function extractPdfToCsvStream(
     await reader.cancel().catch(() => { /* ignore */ })
 
     if (hardError) return { error: hardError }
-    if (finalResult) return finalResult
+    if (finalResult) {
+      // V5.0.4+ — When persistence succeeded the backend ships a tiny
+      // complete event (just pdf_id + metadata). Fetch the actual
+      // CSV/rows/headers via REST. Falls back to inline data if the
+      // backend included it (persistence failure path).
+      const hasInlineData =
+        Array.isArray((finalResult as { rows?: unknown }).rows) &&
+        Array.isArray((finalResult as { headers?: unknown }).headers) &&
+        typeof (finalResult as { csv_text?: unknown }).csv_text === "string"
+      if (hasInlineData) return finalResult
+      const pdfId = (finalResult as { pdf_id?: string | null }).pdf_id
+      if (!pdfId) return { error: "Extraction completed but no result data was returned" }
+      try {
+        const resultRes = await fetch(`/api/imported-pdfs/${pdfId}/csv-result`, { cache: "no-store" })
+        if (!resultRes.ok) {
+          const detail = await resultRes.json().catch(() => ({}))
+          return { error: `Result fetch failed: ${detail?.detail ?? `HTTP ${resultRes.status}`}` }
+        }
+        const data = await resultRes.json()
+        // Stitch the SSE-summary fields into the REST payload so the
+        // PdfExtractResult shape downstream consumers expect is intact.
+        return {
+          ...data,
+          partial_warning: (finalResult as { partial_warning?: string | null }).partial_warning ?? data.partial_warning ?? null,
+          model: (finalResult as { model?: string }).model ?? data.model,
+          chunk_count: (finalResult as { chunk_count?: number }).chunk_count ?? data.chunk_count,
+          chunks_failed: (finalResult as { chunks_failed?: number }).chunks_failed ?? data.chunks_failed,
+        } as PdfExtractResult
+      } catch (e) {
+        return { error: `Result fetch failed: ${e instanceof Error ? e.message : String(e)}` }
+      }
+    }
     return { error: "Stream ended before completion" }
   } catch (err) {
     if (err instanceof DOMException) {

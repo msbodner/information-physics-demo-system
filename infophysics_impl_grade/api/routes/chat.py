@@ -2495,28 +2495,19 @@ async def pdf_extract_stream(
                 f"failed (chunks {failed_idx_str}). First error: {first_err}"
             )
 
-        # V5.0.3+ — Yield `complete` BEFORE the persistence UPDATE so
-        # the user sees the result immediately. Persistence is a
-        # best-effort admin convenience; if it hangs or fails the
-        # extraction result has already been delivered.
-        yield _sse("complete", {
-            "csv_text": csv_text,
-            "headers": canonical_headers,
-            "rows": all_data_rows,
-            "document_count": len(all_data_rows),
-            "filename": filename,
-            "page_count": total_pages,
-            "chunk_count": len(chunk_ranges),
-            "chunks_failed": len(failed_chunks),
-            "partial_warning": partial_warning,
-            "elapsed_seconds": round(overall_elapsed, 1),
-            "pdf_id": persisted_pdf_id,
-            "model": pdf_model,
-        })
-
-        # Post-completion best-effort persistence stamp. If this hangs
-        # or errors, the client has already received the result and
-        # closed the stream (see frontend reader.cancel() on complete).
+        # V5.0.4+ — Persistence FIRST, then a tiny `complete` event.
+        # Earlier versions tried to ship csv_text + rows + headers
+        # through the SSE complete event; even small (~3KB) payloads
+        # were getting trapped in some buffering layer between
+        # FastAPI/uvicorn and the browser fetch reader. The symptom
+        # was the UI freezing on "Finalizing CSV…" forever because
+        # complete never reached the client.
+        #
+        # New flow: extract → persist → yield complete{pdf_id} →
+        # client fetches the actual CSV/rows/headers via a normal
+        # GET on /v1/imported-pdfs/{pdf_id}/csv-result. Tiny complete
+        # event, no buffering edge cases.
+        persistence_ok = False
         if persisted_pdf_id:
             try:
                 with db() as conn:
@@ -2538,8 +2529,31 @@ async def pdf_extract_stream(
                             ),
                         )
                     conn.commit()
+                persistence_ok = True
             except Exception as e:
                 logger.warning("PDF persistence (stream) update failed: %s", e)
+
+        complete_payload: dict = {
+            "pdf_id": persisted_pdf_id if persistence_ok else None,
+            "filename": filename,
+            "document_count": len(all_data_rows),
+            "page_count": total_pages,
+            "chunk_count": len(chunk_ranges),
+            "chunks_failed": len(failed_chunks),
+            "partial_warning": partial_warning,
+            "elapsed_seconds": round(overall_elapsed, 1),
+            "model": pdf_model,
+        }
+        # Fallback: if persistence didn't succeed, the client can't
+        # fetch the result via /imported-pdfs/{id}/csv-result, so
+        # ship the data inline as a last resort (less ideal but
+        # better than losing the extraction).
+        if not persistence_ok:
+            complete_payload["csv_text"] = csv_text
+            complete_payload["headers"] = canonical_headers
+            complete_payload["rows"] = all_data_rows
+
+        yield _sse("complete", complete_payload)
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache",
