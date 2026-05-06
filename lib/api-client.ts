@@ -1366,23 +1366,110 @@ export interface PdfExtractResult {
   rows: string[][]
   document_count: number
   filename: string
+  // V5.0+ extra metadata
+  page_count?: number
+  chunk_count?: number
+  chunks_failed?: number
+  partial_warning?: string | null
+  elapsed_seconds?: number
+  pdf_id?: string | null  // present when backend persisted the original
 }
 
+// V5.0+ — System Admin → PDFs pane.
+export interface ImportedPdfMeta {
+  pdf_id: string
+  filename: string
+  size_bytes: number
+  page_count: number | null
+  sha256: string | null
+  status: string                 // pending | extracted | partial | failed
+  row_count: number | null
+  chunk_count: number | null
+  chunks_failed: number | null
+  duration_ms: number | null
+  error: string | null
+  created_at: string
+}
+
+export async function listImportedPdfs(): Promise<ImportedPdfMeta[]> {
+  try {
+    const res = await fetch("/api/imported-pdfs", { cache: "no-store" })
+    if (!res.ok) return []
+    const data = await res.json()
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
+}
+
+export async function deleteImportedPdf(pdfId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/imported-pdfs/${pdfId}`, { method: "DELETE" })
+    return res.status === 204 || res.ok
+  } catch {
+    return false
+  }
+}
+
+export function importedPdfContentUrl(pdfId: string, opts: { download?: boolean } = {}): string {
+  return `/api/imported-pdfs/${pdfId}/content${opts.download ? "?download=true" : ""}`
+}
+
+// V5.0+ — extractPdfToCsv with hard timeout + cancel.
+//
+// Pre-V5.0 the call had no timeout: a slow Anthropic backend (or a
+// hung chunk inside the FastAPI handler) would leave the queue pump
+// waiting forever, surfacing as "PDF Import freezing > 6 minutes".
+//
+// We now layer two protections:
+//   1. A caller-provided AbortSignal — wired to a Cancel button in
+//      the queue UI so the operator can bail on a stuck file.
+//   2. A hard timeoutMs ceiling (default 480s = 8 min) implemented
+//      via an internal AbortController combined with the caller's.
+//      When the timeout fires we return a structured error rather
+//      than a generic null so the UI can render an actionable msg.
 export async function extractPdfToCsv(
   file: File,
+  opts: { signal?: AbortSignal; timeoutMs?: number; pdfId?: string } = {},
 ): Promise<PdfExtractResult | { error: string } | null> {
+  const timeoutMs = opts.timeoutMs ?? 480_000
+  const ac = new AbortController()
+  const timeoutId = setTimeout(() => {
+    ac.abort(new DOMException("PdfExtractTimeout", "TimeoutError"))
+  }, timeoutMs)
+  if (opts.signal) {
+    if (opts.signal.aborted) ac.abort(opts.signal.reason)
+    else opts.signal.addEventListener("abort", () => ac.abort(opts.signal!.reason), { once: true })
+  }
   try {
     const formData = new FormData()
     formData.append("file", file)
-    const res = await fetch("/api/op/pdf-extract", { method: "POST", body: formData })
+    if (opts.pdfId) formData.append("pdf_id", opts.pdfId)
+    const res = await fetch("/api/op/pdf-extract", {
+      method: "POST",
+      body: formData,
+      signal: ac.signal,
+    })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       const detail: string = body?.detail ?? body?.error ?? `HTTP ${res.status}`
       return { error: detail }
     }
     return res.json()
-  } catch {
+  } catch (err) {
+    // Distinguish timeout / explicit cancel from generic transport failures
+    // so the UI can render the right error block.
+    if (err instanceof DOMException) {
+      if (err.name === "TimeoutError") {
+        return { error: `Extraction exceeded ${Math.round(timeoutMs / 1000)}s — backend may be hung. Retry or break the PDF into smaller files.` }
+      }
+      if (err.name === "AbortError") {
+        return { error: "Cancelled by operator" }
+      }
+    }
     return null
+  } finally {
+    clearTimeout(timeoutId)
   }
 }
 

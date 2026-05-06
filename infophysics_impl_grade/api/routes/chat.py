@@ -1910,8 +1910,17 @@ def aio_search_parse(
 
 
 @router.post("/v1/op/pdf-extract")
-async def pdf_extract(file: UploadFile = File(...)):
-    """Extract structured data from a PDF using Claude AI and return as CSV."""
+async def pdf_extract(
+    file: UploadFile = File(...),
+    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id"),
+):
+    """Extract structured data from a PDF using Claude AI and return as CSV.
+
+    V5.0+ — also persists the original PDF bytes to ``imported_pdfs``
+    so admins can review/re-download/delete it from System Admin → PDFs.
+    Persistence is best-effort: a DB write failure logs but does NOT
+    fail the extraction.
+    """
     api_key = get_effective_api_key()
     if not api_key:
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
@@ -1940,6 +1949,34 @@ async def pdf_extract(file: UploadFile = File(...)):
 
     if total_pages == 0:
         raise HTTPException(status_code=400, detail="PDF has no pages")
+
+    # ── V5.0+ Persistence: insert a 'pending' row before any LLM work
+    # so even a hung/cancelled extraction leaves a recoverable record
+    # the admin can still view, download, or delete.
+    import hashlib
+    pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
+    persisted_pdf_id: Optional[str] = None
+    persist_tenant = x_tenant_id or "tenantA"
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                set_tenant(conn, persist_tenant)
+                cur.execute(
+                    """
+                    INSERT INTO imported_pdfs
+                      (tenant_id, filename, size_bytes, page_count, sha256, content, status)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'pending')
+                    RETURNING pdf_id
+                    """,
+                    (persist_tenant, file.filename, len(pdf_bytes), total_pages, pdf_sha256, pdf_bytes),
+                )
+                persisted_pdf_id = str(cur.fetchone()[0])
+            conn.commit()
+        logger.info("PDF persisted: pdf_id=%s tenant=%s sha256=%s", persisted_pdf_id, persist_tenant, pdf_sha256[:12])
+    except Exception as e:
+        # Persistence is best-effort. The extraction continues; the
+        # admin pane simply won't show this PDF after the fact.
+        logger.warning("PDF persistence failed (continuing extraction): %s", e)
 
     def _split_pdf(start: int, end: int) -> bytes:
         """Return bytes for pages [start, end) (0-indexed)."""
@@ -1973,15 +2010,26 @@ async def pdf_extract(file: UploadFile = File(...)):
         import anthropic
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"anthropic SDK missing: {str(e)}")
-    client = anthropic.Anthropic(api_key=api_key)
+    # V5.0+ — Hard per-chunk timeout. Pre-V5.0 the SDK used the
+    # default (no client-level timeout, indefinite wait) which let one
+    # slow chunk hang the whole pipeline for >6 minutes. We now cap
+    # each chunk at PDF_EXTRACT_CHUNK_TIMEOUT seconds and let the
+    # SDK's built-in retry handle transient blips.
+    chunk_timeout = float(os.environ.get("PDF_EXTRACT_CHUNK_TIMEOUT", "180"))
+    client = anthropic.Anthropic(
+        api_key=api_key,
+        timeout=chunk_timeout,
+        max_retries=1,  # one retry per chunk; otherwise default of 2 stacks 3× timeout
+    )
 
     canonical_headers: list[str] = []
     all_data_rows: list[list[str]] = []
+    failed_chunks: list[tuple[int, str]] = []  # (chunk_idx, error_msg)
 
     overall_start = time.time()
     logger.info(
-        "PDF extraction starting: file=%s pages=%d chunks=%d (%d pages/chunk max)",
-        file.filename, total_pages, len(chunk_ranges), MAX_PAGES_PER_CALL,
+        "PDF extraction starting: file=%s pages=%d chunks=%d (%d pages/chunk max, %.0fs/chunk timeout)",
+        file.filename, total_pages, len(chunk_ranges), MAX_PAGES_PER_CALL, chunk_timeout,
     )
 
     for idx, (start, end) in enumerate(chunk_ranges):
@@ -2038,11 +2086,19 @@ async def pdf_extract(file: UploadFile = File(...)):
                 }],
             )
         except Exception as e:
-            logger.error("PDF extraction failed on chunk %d/%d: %s", idx + 1, len(chunk_ranges), e)
-            raise HTTPException(
-                status_code=502,
-                detail=f"Claude API error on chunk {idx+1}/{len(chunk_ranges)}: {str(e)}",
-            )
+            err_str = str(e)
+            logger.error("PDF extraction failed on chunk %d/%d: %s", idx + 1, len(chunk_ranges), err_str)
+            # V5.0+ — Single-chunk PDFs still hard-fail the request: there
+            # is nothing else to return. Multi-chunk PDFs continue with
+            # remaining chunks and surface a partial-coverage warning so
+            # one slow/timeout chunk doesn't lose the whole document.
+            if len(chunk_ranges) == 1:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Claude API error: {err_str}",
+                )
+            failed_chunks.append((idx, err_str))
+            continue
 
         chunk_csv = response.content[0].text.strip()
         if chunk_csv.startswith("```"):
@@ -2090,9 +2146,57 @@ async def pdf_extract(file: UploadFile = File(...)):
 
     overall_elapsed = time.time() - overall_start
     logger.info(
-        "PDF extraction COMPLETE: file=%s pages=%d chunks=%d total_rows=%d total_time=%.1fs",
-        file.filename, total_pages, len(chunk_ranges), len(all_data_rows), overall_elapsed,
+        "PDF extraction COMPLETE: file=%s pages=%d chunks=%d total_rows=%d total_time=%.1fs failed_chunks=%d",
+        file.filename, total_pages, len(chunk_ranges), len(all_data_rows), overall_elapsed, len(failed_chunks),
     )
+
+    # V5.0+ — Multi-chunk PDFs that lose chunks to timeout/error still
+    # return any successfully-extracted rows, plus a structured warning
+    # the UI can render so the operator knows coverage was partial.
+    partial_warning = None
+    if failed_chunks:
+        failed_idx = ", ".join(str(i + 1) for i, _ in failed_chunks)
+        first_err = failed_chunks[0][1][:140]
+        partial_warning = (
+            f"Partial extraction: {len(failed_chunks)} of {len(chunk_ranges)} chunk(s) "
+            f"failed (chunks {failed_idx}). First error: {first_err}"
+        )
+
+    # ── V5.0+ Persistence: stamp the row with extraction results.
+    # Best-effort — same rationale as the initial insert.
+    if persisted_pdf_id:
+        try:
+            with db() as conn:
+                with conn.cursor() as cur:
+                    set_tenant(conn, persist_tenant)
+                    cur.execute(
+                        """
+                        UPDATE imported_pdfs SET
+                            status = %s,
+                            csv_text = %s,
+                            headers = %s::jsonb,
+                            row_count = %s,
+                            chunk_count = %s,
+                            chunks_failed = %s,
+                            duration_ms = %s,
+                            error = %s
+                        WHERE pdf_id = %s
+                        """,
+                        (
+                            "extracted" if not failed_chunks else "partial",
+                            csv_text,
+                            json.dumps(canonical_headers),
+                            len(all_data_rows),
+                            len(chunk_ranges),
+                            len(failed_chunks),
+                            int(overall_elapsed * 1000),
+                            partial_warning,
+                            persisted_pdf_id,
+                        ),
+                    )
+                conn.commit()
+        except Exception as e:
+            logger.warning("PDF persistence update failed: %s", e)
 
     return {
         "csv_text": csv_text,
@@ -2102,7 +2206,10 @@ async def pdf_extract(file: UploadFile = File(...)):
         "filename": file.filename,
         "page_count": total_pages,
         "chunk_count": len(chunk_ranges),
+        "chunks_failed": len(failed_chunks),
+        "partial_warning": partial_warning,
         "elapsed_seconds": round(overall_elapsed, 1),
+        "pdf_id": persisted_pdf_id,
     }
 
 

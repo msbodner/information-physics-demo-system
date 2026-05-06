@@ -51,6 +51,7 @@ DEMO_TABLES: List[str] = [
     "information_element_refs",
     "saved_prompts",
     "prompt_library",            # V5.0+ — curated library prompts (admin-managed)
+    "imported_pdfs",             # V5.0+ — persisted PDF originals + extraction results
     # Derived / auxiliary
     "field_map_keys",
     "field_map_members",
@@ -121,18 +122,39 @@ def _snapshot_table(cur, table: str, tenant: str) -> List[Dict[str, Any]]:
 
     Uses ``to_jsonb(t.*)`` so we get column→value maps that survive
     round-trip back through ``jsonb_populate_recordset`` on restore.
+
+    V5.0+ — ``imported_pdfs.content`` (bytea) is dropped from the snapshot
+    to keep backup files lean: the bytes can be many MB per row and the
+    snapshot was never the place for binary blobs. Metadata (filename,
+    size, page_count, sha256, csv extraction results) is preserved so
+    operators can still see what was imported, just not re-download it
+    after a restore. The empty-content row is restored with NULL bytes
+    and surfaces as "PDF content has been purged" in the viewer.
     """
     if not _table_exists(cur, table):
         return []
+    # Column projection to skip bytea blobs that don't belong in JSONB.
+    drop_cols = {
+        "imported_pdfs": ["content"],
+    }
+    select_expr = "to_jsonb(t.*)"
+    if table in drop_cols:
+        # Reconstruct the JSON object minus the dropped columns.
+        kept = [
+            f"'{c}', t.{c}" for c in _writable_columns(cur, table)
+            if c not in drop_cols[table]
+        ]
+        if kept:
+            select_expr = "jsonb_build_object(" + ", ".join(kept) + ")"
     if _column_has(cur, table, "tenant_id"):
         cur.execute(
-            f"SELECT to_jsonb(t.*) FROM {table} t WHERE t.tenant_id = %s",
+            f"SELECT {select_expr} FROM {table} t WHERE t.tenant_id = %s",
             (tenant,),
         )
     else:
         # Tables without tenant_id are linked to a tenant-scoped parent
         # via FK. We snapshot all rows and rely on FK chain on restore.
-        cur.execute(f"SELECT to_jsonb(t.*) FROM {table} t")
+        cur.execute(f"SELECT {select_expr} FROM {table} t")
     return [r[0] for r in cur.fetchall()]
 
 

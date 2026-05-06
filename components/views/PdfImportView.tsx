@@ -43,6 +43,7 @@ interface QueueItem {
   startedAt?: number       // wall-clock ms when processing began (for elapsed timer)
   finishedAt?: number      // wall-clock ms when processing finished
   imported?: boolean       // user clicked Import to Converter for this item
+  cancelled?: boolean      // operator clicked Cancel — error state but with a softer label
 }
 
 const PROCESSING_STATES: Set<Status> = new Set(["processing"])
@@ -73,6 +74,12 @@ export function PdfImportView({
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // V5.0+ — Per-item AbortController registry. Lets the user click
+  // Cancel on a stuck file without nuking the whole pump. Keyed by
+  // QueueItem.id; the entry is wired up the moment we kick off the
+  // fetch and torn down on completion (success or error).
+  const activeControllersRef = useRef<Map<string, AbortController>>(new Map())
+
   // The processing pump. Runs sequentially through the queue, processing
   // one item at a time. Re-fires whenever the queue changes — the effect
   // looks at the first PENDING item and processes it; on completion it
@@ -85,11 +92,17 @@ export function PdfImportView({
     if (!next) return
 
     let cancelled = false
+    const controller = new AbortController()
+    activeControllersRef.current.set(next.id, controller)
     setQueue((prev) => prev.map((q) =>
       q.id === next.id ? { ...q, status: "processing", startedAt: Date.now() } : q,
     ))
-    void extractPdfToCsv(next.file).then((data) => {
+    // Hard 8-minute frontend ceiling; the backend has its own per-chunk
+    // timeout, but this is a final safety net so the pump can never
+    // wedge indefinitely on a file that hangs server-side.
+    void extractPdfToCsv(next.file, { signal: controller.signal, timeoutMs: 480_000 }).then((data) => {
       if (cancelled) return
+      activeControllersRef.current.delete(next.id)
       const finishedAt = Date.now()
       setQueue((prev) => prev.map((q) => {
         if (q.id !== next.id) return q
@@ -102,8 +115,13 @@ export function PdfImportView({
           let msg = `Extraction failed: ${detail}`
           if (lower.includes("api_key") || lower.includes("not configured")) {
             msg = "Anthropic API key not configured. Open System Admin → API Key and paste your key."
+          } else if (lower.includes("cancelled")) {
+            msg = "Cancelled by operator"
+          } else if (lower.includes("exceeded") || lower.includes("timeout") || lower.includes("hung")) {
+            msg = detail  // already actionable from extractPdfToCsv
           }
-          return { ...q, status: "error", error: msg, finishedAt }
+          const isCancel = lower.includes("cancelled")
+          return { ...q, status: "error", error: msg, finishedAt, cancelled: isCancel }
         }
         if (!data.headers.length) {
           return {
@@ -117,8 +135,18 @@ export function PdfImportView({
       }))
     })
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      activeControllersRef.current.delete(next.id)
+    }
   }, [queue, isProcessingAny])
+
+  // V5.0+ — Cancel a processing item. Aborts the fetch; the pump's
+  // .then handler will land in the "error" branch with cancelled=true.
+  const cancelItem = useCallback((id: string) => {
+    const ac = activeControllersRef.current.get(id)
+    if (ac) ac.abort(new DOMException("Cancelled by operator", "AbortError"))
+  }, [])
 
   // ── File ingestion ────────────────────────────────────────────────
 
@@ -320,6 +348,7 @@ export function PdfImportView({
             onRetry={() => retryItem(item.id)}
             onImport={() => importItem(item)}
             onDownload={() => downloadCsv(item)}
+            onCancel={() => cancelItem(item.id)}
           />
         ))}
       </main>
@@ -336,12 +365,14 @@ function QueueItemCard({
   onRetry,
   onImport,
   onDownload,
+  onCancel,
 }: {
   item: QueueItem
   onRemove: () => void
   onRetry: () => void
   onImport: () => void
   onDownload: () => void
+  onCancel: () => void
 }) {
   const [showDetails, setShowDetails] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
@@ -377,7 +408,14 @@ function QueueItemCard({
                     <> · <span className="text-emerald-700">{item.result.document_count} record{item.result.document_count !== 1 ? "s" : ""}</span> · {item.result.headers.length} columns</>
                   )}
                   {item.status === "processing" && (
-                    <> · <span className="tabular-nums">{fmtElapsed(elapsedMs)}</span> elapsed</>
+                    <>
+                      {" "}· <span className="tabular-nums">{fmtElapsed(elapsedMs)}</span> elapsed
+                      {elapsedMs > 120_000 && (
+                        <span className="text-amber-700 ml-2">
+                          (slow — {elapsedMs > 360_000 ? "approaching 8-min cap, will auto-fail soon" : "still working, click Cancel if you want to abort"})
+                        </span>
+                      )}
+                    </>
                   )}
                   {item.status === "success" && finalElapsedMs !== null && (
                     <> · {fmtElapsed(finalElapsedMs)}</>
@@ -421,6 +459,11 @@ function QueueItemCard({
                       </Button>
                     )}
                   </>
+                )}
+                {item.status === "processing" && (
+                  <Button size="sm" variant="outline" onClick={onCancel} className="h-8 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50">
+                    <X className="w-3.5 h-3.5" />Cancel
+                  </Button>
                 )}
                 {item.status === "error" && (
                   <Button size="sm" variant="outline" onClick={onRetry} className="h-8 gap-1.5">

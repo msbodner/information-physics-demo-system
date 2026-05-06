@@ -8,11 +8,14 @@ import {
   Shield, Database, LayoutList, Bookmark, Atom, RefreshCw, Network, BarChart2, LayoutGrid,
   BookOpen, Cpu, Brain, Library, Printer, AlertTriangle,
   RotateCcw, Archive, ShieldAlert, CheckCircle2, FileDown, Layers, Sparkles,
+  FileBarChart, Download as DownloadIcon,
 } from "lucide-react"
 import { MODE_CATALOG } from "@/lib/smart-search"
 import {
   listPromptLibrary, createPromptLibraryEntry, updatePromptLibraryEntry, deletePromptLibraryEntry,
   type PromptLibraryEntry,
+  listImportedPdfs, deleteImportedPdf, importedPdfContentUrl,
+  type ImportedPdfMeta,
 } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -2886,6 +2889,185 @@ function PromptLibraryPane() {
 }
 
 
+// ── Imported PDFs Pane ─────────────────────────────────────────────
+// V5.0+ — list of every PDF persisted via /v1/op/pdf-extract.
+// Operators can preview the original document inline (iframe), force a
+// download, or delete it.
+
+function ImportedPdfsPane() {
+  const [items, setItems] = useState<ImportedPdfMeta[]>([])
+  const [loading, setLoading] = useState(true)
+  const [previewItem, setPreviewItem] = useState<ImportedPdfMeta | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const data = await listImportedPdfs()
+    setItems(data)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  const handleDelete = useCallback(async (item: ImportedPdfMeta) => {
+    if (!window.confirm(`Delete "${item.filename}" and its stored bytes?\n\nThis is irreversible.`)) return
+    setDeletingId(item.pdf_id)
+    const ok = await deleteImportedPdf(item.pdf_id)
+    setDeletingId(null)
+    if (!ok) {
+      toast.error(`Failed to delete ${item.filename}`)
+      return
+    }
+    toast.success(`Deleted ${item.filename}`)
+    setItems((prev) => prev.filter((i) => i.pdf_id !== item.pdf_id))
+  }, [])
+
+  const fmtSize = (bytes: number): string => {
+    const mb = bytes / 1_048_576
+    return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(bytes / 1024).toFixed(0)} KB`
+  }
+
+  const fmtDate = (iso: string): string => {
+    try {
+      const d = new Date(iso)
+      return d.toLocaleString()
+    } catch { return iso }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin" />Loading imported PDFs…
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          {items.length} PDF{items.length !== 1 ? "s" : ""} stored.
+          PDFs are persisted automatically when you import via the home → Import PDFs flow.
+        </p>
+        <Button variant="ghost" size="sm" onClick={() => void load()} className="gap-1.5">
+          <RefreshCw className="w-3.5 h-3.5" />Refresh
+        </Button>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="rounded border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+          No PDFs imported yet. Use <strong>Import PDFs</strong> on the home page to add some.
+        </div>
+      ) : (
+        <div className="rounded border border-border overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="text-left px-3 py-2 font-medium">Filename</th>
+                <th className="text-right px-3 py-2 font-medium">Size</th>
+                <th className="text-right px-3 py-2 font-medium">Pages</th>
+                <th className="text-right px-3 py-2 font-medium">Rows</th>
+                <th className="text-left px-3 py-2 font-medium">Status</th>
+                <th className="text-left px-3 py-2 font-medium">Imported</th>
+                <th className="text-right px-3 py-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {items.map((item) => (
+                <tr key={item.pdf_id} className="hover:bg-muted/30">
+                  <td className="px-3 py-2 max-w-[280px] truncate" title={item.filename}>
+                    <FileText className="inline w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
+                    {item.filename}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtSize(item.size_bytes)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{item.page_count ?? "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{item.row_count ?? "—"}</td>
+                  <td className="px-3 py-2">
+                    {item.status === "extracted" && (
+                      <Badge variant="outline" className="border-emerald-300 text-emerald-700">Extracted</Badge>
+                    )}
+                    {item.status === "partial" && (
+                      <Badge variant="outline" className="border-amber-300 text-amber-700" title={item.error ?? undefined}>Partial</Badge>
+                    )}
+                    {item.status === "pending" && (
+                      <Badge variant="outline" className="border-blue-300 text-blue-700">Pending</Badge>
+                    )}
+                    {item.status === "failed" && (
+                      <Badge variant="outline" className="border-red-300 text-red-700" title={item.error ?? undefined}>Failed</Badge>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                    {fmtDate(item.created_at)}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex justify-end gap-1.5">
+                      <Button size="sm" variant="outline" className="h-7 gap-1.5"
+                        onClick={() => setPreviewItem(item)}>
+                        <Eye className="w-3.5 h-3.5" />View
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 gap-1.5" asChild>
+                        <a href={importedPdfContentUrl(item.pdf_id, { download: true })}
+                           target="_blank" rel="noopener noreferrer" download={item.filename}>
+                          <DownloadIcon className="w-3.5 h-3.5" />Download
+                        </a>
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                        disabled={deletingId === item.pdf_id}
+                        onClick={() => void handleDelete(item)}>
+                        {deletingId === item.pdf_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Inline preview dialog ── */}
+      <Dialog open={!!previewItem} onOpenChange={(open) => !open && setPreviewItem(null)}>
+        <DialogContent className="max-w-5xl w-[90vw] h-[85vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <FileText className="w-4 h-4 text-muted-foreground" />
+              {previewItem?.filename}
+              {previewItem && (
+                <span className="text-xs font-normal text-muted-foreground ml-2">
+                  {fmtSize(previewItem.size_bytes)}
+                  {previewItem.page_count != null && <> · {previewItem.page_count} page{previewItem.page_count !== 1 ? "s" : ""}</>}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 bg-muted/20">
+            {previewItem && (
+              <iframe
+                key={previewItem.pdf_id}
+                src={importedPdfContentUrl(previewItem.pdf_id)}
+                className="w-full h-full border-0"
+                title={previewItem.filename}
+              />
+            )}
+          </div>
+          <DialogFooter className="px-6 py-3 border-t border-border shrink-0">
+            {previewItem && (
+              <Button variant="outline" size="sm" asChild>
+                <a href={importedPdfContentUrl(previewItem.pdf_id, { download: true })}
+                   target="_blank" rel="noopener noreferrer" download={previewItem.filename}>
+                  <DownloadIcon className="w-3.5 h-3.5 mr-1.5" />Download original
+                </a>
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => setPreviewItem(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+
 // ── Information Elements Pane ──────────────────────────────────────
 
 function InformationElementsPane() {
@@ -4285,6 +4467,7 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
               { value: "aios",          icon: <FileText className="w-4 h-4" />,        label: "Saved AIOs" },
               { value: "saved-prompts", icon: <Bookmark className="w-4 h-4" />,        label: "Saved Prompts" },
               { value: "prompt-library", icon: <Library className="w-4 h-4" />,        label: "Prompt Library" },
+              { value: "imported-pdfs", icon: <FileBarChart className="w-4 h-4" />,    label: "Imported PDFs" },
               { value: "info-elements", icon: <Atom className="w-4 h-4" />,            label: "Info Elements" },
               { value: "architecture",  icon: <Network className="w-4 h-4" />,         label: "Architecture" },
               { value: "references",    icon: <Library className="w-4 h-4" />,          label: "References" },
@@ -4391,6 +4574,18 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
             <TabsContent value="prompt-library" className="mt-0">
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Library className="w-5 h-5" />Prompt Library</CardTitle></CardHeader>
                 <CardContent><PromptLibraryPane /></CardContent></Card>
+            </TabsContent>
+
+            <TabsContent value="imported-pdfs" className="mt-0">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><FileBarChart className="w-5 h-5" />Imported PDFs</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    Every PDF run through the importer is persisted here. View the original document, re-download it, or delete it.
+                  </p>
+                </CardHeader>
+                <CardContent><ImportedPdfsPane /></CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="info-elements" className="mt-0">
