@@ -874,8 +874,39 @@ const PRIOR_RESULT_TRUNCATE_CHARS = 200
  * The shape is documented in the substrate-chat system prompt so it stays
  * a contract — don't rename fields without updating ``api/routes/chat.py``.
  */
-export function serializeBundle(bundle: ContextBundle): string {
-  const envelope = {
+// V5.0+ — token-budget guardrail for the serialized bundle.
+// Anthropic's input cap is 200k tokens. With ~4 chars/token for
+// English/bracket-notation text we target 175k tokens (700k chars)
+// leaving headroom for the system prompt template + user message +
+// tokenization variance. Tunable via env so operators on a higher-
+// context model (1M-token Sonnets when those land) can crank this up.
+const BUNDLE_MAX_CHARS = (() => {
+  // Read from a Next.js public env var if present; the reading happens
+  // at module load so changing the env requires a rebuild — fine for
+  // a tunable that operators rarely touch. Default 700k chars.
+  const envVal =
+    typeof process !== "undefined"
+      ? process.env?.NEXT_PUBLIC_BUNDLE_MAX_CHARS
+      : undefined
+  const parsed = envVal ? parseInt(envVal, 10) : NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 700_000
+})()
+
+export function serializeBundle(bundle: ContextBundle, maxChars: number = BUNDLE_MAX_CHARS): string {
+  // Build the AIO list separately so we can trim before serialization.
+  // Cues, priors, and hsl_neighborhoods are kept whole — they're the
+  // lowest-token components and have the highest information density.
+  // Trimming seed_aios is the right knob: each AIO is ~80-120 tokens
+  // and Recall passes can ship 1500+ records on dense corpora, which
+  // is what blows past 200k.
+  const aios = bundle.seed_aios.map((a) => ({
+    file: a.fileName,
+    raw: a.raw,
+  }))
+
+  // Helper: build the envelope with the current `aios` slice and
+  // return both the JSON string and its char count.
+  const build = (slice: typeof aios) => JSON.stringify({
     cues: bundle.cue_set.map((c) => c.raw),
     traversal_cost: bundle.traversal_cost,
     priors: bundle.mro_priors.map((s) => ({
@@ -887,12 +918,30 @@ export function serializeBundle(bundle: ContextBundle): string {
       finding: (s.mro.result_text ?? "").slice(0, PRIOR_RESULT_TRUNCATE_CHARS),
     })),
     hsl_neighborhoods: bundle.hsl_neighborhoods,
-    aios: bundle.seed_aios.map((a) => ({
-      file: a.fileName,
-      raw: a.raw,
-    })),
+    aios: slice,
+  })
+
+  let serialized = build(aios)
+  // Fast path: most queries don't need trimming.
+  if (serialized.length <= maxChars) return serialized
+
+  // Trim from the end (lowest-ranked AIOs first — bundle.seed_aios
+  // arrives diversified+ranked from the assembler). Pop one at a time
+  // until we fit. ~110 chars per pop on average → ~10ms even on a
+  // 1500-record bundle that needs to drop 600 records.
+  const originalCount = aios.length
+  while (aios.length > 0 && serialized.length > maxChars) {
+    aios.pop()
+    serialized = build(aios)
   }
-  return JSON.stringify(envelope)
+
+  if (typeof console !== "undefined" && aios.length < originalCount) {
+    console.info(
+      `[serializeBundle] Token-budget trim: dropped ${originalCount - aios.length} ` +
+      `AIOs (kept ${aios.length}, ${serialized.length}/${maxChars} chars)`,
+    )
+  }
+  return serialized
 }
 
 // ── 7. MRO construction helper ───────────────────────────────────────
