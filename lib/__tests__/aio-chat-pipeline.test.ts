@@ -129,9 +129,55 @@ test("shouldShortCircuitOnMro: true at exact threshold with hydratable result", 
 })
 
 test("shouldShortCircuitOnMro: respects custom threshold override", () => {
+  // V5.0+ — signature now (hit, newQuery, threshold, minOverlap).
+  // newQuery="" / no query_text on hit means the overlap check is skipped,
+  // so this case still exercises score-based gating only.
   const hit: MroGatingHit = { score: 0.55, result_full_available: true }
-  assert.equal(shouldShortCircuitOnMro(hit, 0.5), true)
-  assert.equal(shouldShortCircuitOnMro(hit, 0.6), false)
+  assert.equal(shouldShortCircuitOnMro(hit, "", 0.5), true)
+  assert.equal(shouldShortCircuitOnMro(hit, "", 0.6), false)
+})
+
+// ── shouldShortCircuitOnMro: V5.0 query-overlap guard ───────────────
+
+test("shouldShortCircuitOnMro: blocks structurally unrelated long-prose query", () => {
+  // Reproduces the production false-positive: bid-strategy prompt
+  // returned a PM-workload cached MRO at score 0.85+ because trigram
+  // similarity on long prose found surface overlap. Overlap on
+  // 4+-char tokens is below 0.30 — the V5.0 guard should reject.
+  const newQuery = "I want to understand Meridian CG's bid performance and competitive positioning. Using the proposal documents, bid tabulation records, and the project register, calculate the average spread between awarded low bid and second-lowest bid"
+  const cachedPriorQuery = "Conduct a project manager performance and workload analysis across the full portfolio. Using the project register, daily field reports, RFI log, and change order data, list active projects per PM"
+  const hit: MroGatingHit = {
+    score: 0.90,
+    result_full_available: true,
+    query_text: cachedPriorQuery,
+  }
+  assert.equal(shouldShortCircuitOnMro(hit, newQuery), false,
+    "must not short-circuit when prior query has < 30% token overlap")
+})
+
+test("shouldShortCircuitOnMro: allows true follow-up restatement", () => {
+  // Same intent restated — should clear the overlap bar.
+  const newQuery = "What is the budget for project Riverside?"
+  const cachedPriorQuery = "Tell me the budget for the Riverside project"
+  const hit: MroGatingHit = {
+    score: 0.90,
+    result_full_available: true,
+    query_text: cachedPriorQuery,
+  }
+  assert.equal(shouldShortCircuitOnMro(hit, newQuery), true,
+    "should short-circuit when prior is a clear paraphrase")
+})
+
+test("shouldShortCircuitOnMro: backward-compat — empty newQuery skips overlap check", () => {
+  // Legacy callers (and benchmarks) that don't pass a query must keep
+  // working with score-only gating.
+  const hit: MroGatingHit = {
+    score: 0.95,
+    result_full_available: true,
+    query_text: "anything",
+  }
+  assert.equal(shouldShortCircuitOnMro(hit), true)
+  assert.equal(shouldShortCircuitOnMro(hit, ""), true)
 })
 
 // ── seedCuesWithMroHits ─────────────────────────────────────────────

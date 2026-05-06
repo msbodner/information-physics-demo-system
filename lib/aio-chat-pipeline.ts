@@ -154,14 +154,68 @@ export interface MroGatingHit {
   search_terms?: unknown
 }
 
-/** Whether the top hit clears the cache short-circuit bar. Pure. */
+/** Whether the top hit clears the cache short-circuit bar. Pure.
+ *
+ * V5.0+ — added a query-text overlap guard. The mro_search backend
+ * scores priors via trigram + tsvector similarity, which can return
+ * 0.85+ on long prose queries that mention overlapping common words
+ * (project, register, performance) but ask structurally unrelated
+ * questions. Observed in production:
+ *
+ *   New query:  "I want to understand Meridian CG's bid performance
+ *                and competitive positioning…" (Prompt 4)
+ *   Cached prior: "Conduct a project manager performance and workload
+ *                  analysis across the portfolio…" (Prompt 5)
+ *
+ * Score-based gate alone returned a Prompt-5 cache hit for a Prompt-4
+ * query — wrong answer with zero LLM tokens spent.
+ *
+ * The overlap guard is a Jaccard on de-duped 4+-char tokens (case-
+ * insensitive, alphanumeric split). Threshold 0.30 = at least 30% of
+ * either side's significant tokens must appear in both. Prose-on-prose
+ * matches with no real semantic overlap fall below this; restated
+ * questions ("What's the budget?" → "Tell me the budget") clear it.
+ */
 export function shouldShortCircuitOnMro(
   topHit: MroGatingHit | undefined,
+  newQuery: string = "",
   threshold: number = MRO_SHORT_CIRCUIT_THRESHOLD,
+  minQueryOverlap: number = 0.30,
 ): boolean {
   if (!topHit) return false
   if (!topHit.result_full_available) return false
-  return topHit.score >= threshold
+  if (topHit.score < threshold) return false
+  // Skip the overlap check only when we have nothing to compare.
+  // No new query OR no stored prior text → fall back to score-only
+  // (legacy behavior, used by some tests).
+  if (newQuery && topHit.query_text) {
+    const overlap = jaccardSignificantTokenOverlap(newQuery, topHit.query_text)
+    if (overlap < minQueryOverlap) return false
+  }
+  return true
+}
+
+/** Jaccard-min overlap on de-duped, case-insensitive, alphanumeric
+ *  tokens of length ≥ 4. Returns 0 when either side has no significant
+ *  tokens. Pure / unit-testable. Exported so tests + callers can reason
+ *  about the gating threshold. */
+export function jaccardSignificantTokenOverlap(a: string, b: string): number {
+  const tokenize = (s: string): Set<string> => {
+    const out = new Set<string>()
+    for (const w of s.toLowerCase().split(/[^a-z0-9]+/)) {
+      if (w.length >= 4) out.add(w)
+    }
+    return out
+  }
+  const aSet = tokenize(a)
+  const bSet = tokenize(b)
+  if (aSet.size === 0 || bSet.size === 0) return 0
+  let inter = 0
+  for (const w of aSet) if (bSet.has(w)) inter++
+  // "Min Jaccard": divide by the smaller side so a short follow-up
+  // ("What was the budget?") can still match a longer prior even
+  // though it shares only a few tokens.
+  return inter / Math.min(aSet.size, bSet.size)
 }
 
 /** Union extracted cues with cues from the top-K MRO hits whose score
@@ -306,7 +360,7 @@ export async function runChatPipeline(
   // by the benchmark runner so every run measures actual LLM cost).
   // Priors still seed cues and still inject at the 0.50 threshold;
   // only the zero-token early-return is skipped.
-  if (!options.bypassMroCache && shouldShortCircuitOnMro(topMroHit)) {
+  if (!options.bypassMroCache && shouldShortCircuitOnMro(topMroHit, query)) {
     const fullPrior = await getMroObject(topMroHit.mro_id, { signal: options.signal }).catch(() => null)
     const replyText = fullPrior?.result_text || topMroHit.result_summary
     if (replyText) {
