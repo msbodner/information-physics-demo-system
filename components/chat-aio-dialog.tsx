@@ -52,9 +52,14 @@ function asErrorString(e: unknown): string {
 // saves the operator a console-tab debugging trip.
 function formatBackendError(errMsg: string, elapsedMs: number): string {
   const elapsedSec = (elapsedMs / 1000).toFixed(1)
+  const lower = errMsg.toLowerCase()
   const is502 = errMsg.includes("502")
   const is503 = errMsg.includes("503")
-  const is504 = errMsg.includes("504") || errMsg.toLowerCase().includes("timeout")
+  const is504 = errMsg.includes("504") || lower.includes("timeout")
+  const isLoadFailed = lower.includes("load failed") || lower.includes("failed to fetch") || lower.includes("networkerror")
+  const isFirstByteTimeout = errMsg.includes("sse_first_byte_timeout") || lower.includes("did not start streaming")
+  const isHeartbeatTimeout = errMsg.includes("sse_heartbeat_timeout") || lower.includes("stream stalled")
+  const isTotalTimeout = errMsg.includes("sse_total_timeout") || lower.includes("3-minute hard ceiling")
 
   if (is503 || /api[_ ]?key/i.test(errMsg)) {
     return `**❌ Backend error: ${errMsg}** (after ${elapsedSec}s)\n\n` +
@@ -82,6 +87,40 @@ function formatBackendError(errMsg: string, elapsedMs: number): string {
       `- Large Exhaustive Live runs (try a tighter query, or split into smaller asks)\n` +
       `- Cold-started Railway services (retry — the second call should be fast)\n` +
       `- Anthropic API slowness — try Recall instead of Live`
+  }
+
+  // V5.0+ — SSE stream timeouts (consumeSSE in api-client.ts emits
+  // these explicit reasons so we can give targeted remediation).
+  if (isFirstByteTimeout) {
+    return `**⏱ Backend never started streaming** (waited 60s, total ${elapsedSec}s)\n\n` +
+      `The proxy got the request but the backend didn't send any tokens within 60s. **Most likely causes:**\n` +
+      `1. \`ANTHROPIC_API_KEY\` is invalid or expired — check System Admin → API Key\n` +
+      `2. Anthropic API is throttling or down — check <https://status.anthropic.com>\n` +
+      `3. The backend service is cold-starting on Railway (retry — second call should warm up)\n` +
+      `4. Daily token budget exceeded — check Daily Token Budget in Settings`
+  }
+  if (isHeartbeatTimeout) {
+    return `**⚠ Stream stalled mid-response** (${elapsedSec}s)\n\n` +
+      `The backend started streaming but went silent for 30s+ before finishing. **Most likely causes:**\n` +
+      `1. Backend service restarted mid-stream — retry the query\n` +
+      `2. Network connection dropped — check connectivity\n` +
+      `3. Anthropic API timeout mid-response — retry`
+  }
+  if (isTotalTimeout) {
+    return `**⏱ Request exceeded 3-minute ceiling** (${elapsedSec}s)\n\n` +
+      `Even very large Exhaustive Live runs should finish within 3 minutes. **Try this:**\n` +
+      `- Use Live (or a tighter Exhaustive query) — fewer chunks to dispatch\n` +
+      `- Narrow the query scope ("List all completed projects in 2024" vs "List all projects")\n` +
+      `- Switch chunk_model to Haiku in System Admin → Settings (faster classification)`
+  }
+  if (isLoadFailed) {
+    return `**❌ Network error: ${errMsg}** (after ${elapsedSec}s)\n\n` +
+      `The fetch couldn't complete. **Most likely causes:**\n` +
+      `1. Backend is down or not reachable — try opening <api/health> in a new tab\n` +
+      `2. Browser blocked the request (CORS, mixed-content, ad-blocker)\n` +
+      `3. Network connection dropped mid-request\n` +
+      `4. The request was aborted (clicked Smart Search again before the first finished)\n\n` +
+      `Retry. If it persists, check that the backend is running and reachable.`
   }
 
   // Fallback: raw error, no context.

@@ -294,51 +294,108 @@ interface SSECallbacks<MetaT> {
   onError?: (err: string) => void
 }
 
+// V5.0+ — SSE stream timeouts.
+// Two limits: how long to wait for the FIRST byte (most likely
+// failure mode is the backend never starting to stream because the
+// LLM call hung), and how long between successive bytes (network
+// drop / backend died mid-stream). Both are user-cancelable via the
+// AbortController so a stalled call fails fast with a clear error
+// instead of leaving the user staring at a spinner for 60+s.
+const SSE_FIRST_BYTE_TIMEOUT_MS = 60_000   // 60s for first chunk — covers slow LLM cold starts
+const SSE_HEARTBEAT_TIMEOUT_MS  = 30_000   // 30s between chunks — kills a hung stream
+const SSE_TOTAL_TIMEOUT_MS      = 180_000  // 3min hard ceiling — even legit Exhaustive runs finish here
+
 async function consumeSSE<MetaT>(
   url: string,
   body: unknown,
   cb: SSECallbacks<MetaT>,
 ): Promise<void> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok || !res.body) {
-    cb.onError?.(`HTTP ${res.status}`)
-    return
+  // Hook a single AbortController to the fetch + the read loop so
+  // any of the three timeouts below can kill the connection cleanly.
+  const ctrl = new AbortController()
+  const overall = setTimeout(() => ctrl.abort(new Error("sse_total_timeout")), SSE_TOTAL_TIMEOUT_MS)
+  let firstByte: ReturnType<typeof setTimeout> | null = setTimeout(
+    () => ctrl.abort(new Error("sse_first_byte_timeout")),
+    SSE_FIRST_BYTE_TIMEOUT_MS,
+  )
+  let heartbeat: ReturnType<typeof setTimeout> | null = null
+
+  const cleanupTimers = () => {
+    clearTimeout(overall)
+    if (firstByte) { clearTimeout(firstByte); firstByte = null }
+    if (heartbeat) { clearTimeout(heartbeat); heartbeat = null }
   }
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buf = ""
-  // SSE messages are separated by a blank line ("\n\n"). Each message
-  // can have multiple lines (event:, data:, id:, retry:). We collect
-  // messages by splitting on blank-line and then parse each.
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    let sep: number
-    while ((sep = buf.indexOf("\n\n")) !== -1) {
-      const raw = buf.slice(0, sep)
-      buf = buf.slice(sep + 2)
-      let event = "message"
-      const dataLines: string[] = []
-      for (const line of raw.split("\n")) {
-        if (line.startsWith("event:")) event = line.slice(6).trim()
-        else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim())
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    })
+    if (!res.ok || !res.body) {
+      cleanupTimers()
+      cb.onError?.(`HTTP ${res.status}`)
+      return
+    }
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ""
+    let sawFirstByte = false
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      // Reset heartbeat on each successful read.
+      if (!sawFirstByte) {
+        sawFirstByte = true
+        if (firstByte) { clearTimeout(firstByte); firstByte = null }
       }
-      if (dataLines.length === 0) continue
-      const data = dataLines.join("\n")
-      try {
-        const parsed = JSON.parse(data)
-        if (event === "text") cb.onText(typeof parsed === "string" ? parsed : String(parsed))
-        else if (event === "meta") cb.onMeta?.(parsed as MetaT)
-        else if (event === "error") cb.onError?.(parsed?.error ?? "unknown error")
-      } catch {
-        // Treat unparseable text events as raw strings.
-        if (event === "text") cb.onText(data)
+      if (heartbeat) clearTimeout(heartbeat)
+      heartbeat = setTimeout(
+        () => ctrl.abort(new Error("sse_heartbeat_timeout")),
+        SSE_HEARTBEAT_TIMEOUT_MS,
+      )
+      buf += decoder.decode(value, { stream: true })
+      let sep: number
+      while ((sep = buf.indexOf("\n\n")) !== -1) {
+        const raw = buf.slice(0, sep)
+        buf = buf.slice(sep + 2)
+        let event = "message"
+        const dataLines: string[] = []
+        for (const line of raw.split("\n")) {
+          if (line.startsWith("event:")) event = line.slice(6).trim()
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim())
+        }
+        if (dataLines.length === 0) continue
+        const data = dataLines.join("\n")
+        try {
+          const parsed = JSON.parse(data)
+          if (event === "text") cb.onText(typeof parsed === "string" ? parsed : String(parsed))
+          else if (event === "meta") cb.onMeta?.(parsed as MetaT)
+          else if (event === "error") cb.onError?.(parsed?.error ?? "unknown error")
+        } catch {
+          // Treat unparseable text events as raw strings.
+          if (event === "text") cb.onText(data)
+        }
       }
+    }
+    cleanupTimers()
+  } catch (err) {
+    cleanupTimers()
+    // Map abort reasons → meaningful error messages so the chat-aio
+    // dialog's formatBackendError can render contextual help instead
+    // of a vague "Load failed".
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes("sse_first_byte_timeout")) {
+      cb.onError?.("Backend did not start streaming within 60s. Likely causes: ANTHROPIC_API_KEY invalid, Anthropic outage, or backend service restarting.")
+    } else if (msg.includes("sse_heartbeat_timeout")) {
+      cb.onError?.("Stream stalled after 30s of silence. The backend or network connection dropped mid-response.")
+    } else if (msg.includes("sse_total_timeout")) {
+      cb.onError?.("Request exceeded 3-minute hard ceiling. The query is unusually large — try Live or a tighter scope.")
+    } else if (msg.includes("Load failed") || msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+      cb.onError?.(`Network error: ${msg}. Check the backend at /api/health.`)
+    } else {
+      cb.onError?.(msg)
     }
   }
 }
