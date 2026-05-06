@@ -1,113 +1,226 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect } from "react"
-import { ArrowLeft, ArrowRight, Settings, Upload, Download, Loader2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { csvToAio, type ConvertedFile } from "@/lib/aio-utils"
-import { extractPdfToCsv } from "@/lib/api-client"
+// V5.0+ — Multi-PDF import.
+//
+// Predecessor (V4.x) accepted one PDF at a time. The replacement flow:
+//
+//   1. Drop zone accepts N PDFs (drag/drop or file picker)
+//   2. Queue renders one card per file with status badges:
+//        pending → processing → success | error
+//   3. Files are processed SEQUENTIALLY — one Anthropic Vision call at
+//      a time so we don't hammer Anthropic's per-key RPM limit and the
+//      operator sees clean progress (a 5-PDF batch isn't 5 simultaneous
+//      spinners). Each file also surfaces its own elapsed timer.
+//   4. Per-file actions: Download CSV, Import to Converter, Retry, Remove.
+//   5. Bulk actions when ≥2 files done: Import All, Download All as ZIP,
+//      Clear queue. "Import All" calls onImportCsv N times in a tight
+//      loop; React 18+ batches the setConvertedFiles + setCurrentView
+//      calls so the converter receives the full batch in one render.
+//
+// onImportCsv is unchanged — single-CSV signature. The page.tsx handler
+// already appends each call to convertedFiles, so multi-import "just
+// works" without touching the converter contract.
 
-export function PdfImportView({ onBack, onSysAdmin, onImportCsv }: { onBack: () => void; onSysAdmin: () => void; onImportCsv: (csv: ConvertedFile) => void }) {
+import { useState, useCallback, useRef, useEffect } from "react"
+import {
+  ArrowLeft, ArrowRight, Settings, Upload, Download, Loader2,
+  FileText, X, RefreshCw, CheckCircle2, AlertCircle, Files,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { csvToAio, type ConvertedFile } from "@/lib/aio-utils"
+import { extractPdfToCsv, type PdfExtractResult } from "@/lib/api-client"
+
+type Status = "pending" | "processing" | "success" | "error"
+
+interface QueueItem {
+  id: string
+  file: File
+  status: Status
+  result?: PdfExtractResult
+  error?: string
+  startedAt?: number       // wall-clock ms when processing began (for elapsed timer)
+  finishedAt?: number      // wall-clock ms when processing finished
+  imported?: boolean       // user clicked Import to Converter for this item
+}
+
+const PROCESSING_STATES: Set<Status> = new Set(["processing"])
+
+function fmtSize(bytes: number): string {
+  const mb = bytes / 1_048_576
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(bytes / 1024).toFixed(0)} KB`
+}
+
+function fmtElapsed(ms: number): string {
+  const sec = Math.floor(ms / 1000)
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return `${m}:${String(s).padStart(2, "0")}`
+}
+
+export function PdfImportView({
+  onBack,
+  onSysAdmin,
+  onImportCsv,
+}: {
+  onBack: () => void
+  onSysAdmin: () => void
+  onImportCsv: (csv: ConvertedFile) => void
+}) {
   const [isDragOver, setIsDragOver] = useState(false)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [result, setResult] = useState<PdfExtractResult | null>(null)
+  const [queue, setQueue] = useState<QueueItem[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [processingFile, setProcessingFile] = useState<{ name: string; sizeMB: number; estimatedChunks: number } | null>(null)
-  const [elapsedSec, setElapsedSec] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Live elapsed-time counter during processing. Resets when isProcessing
-  // flips false. The backend has no SSE channel, so this is a UX-only
-  // signal showing the user the request is alive — not a real progress
-  // bar. Page-count estimate ≈ filesize / 50KB per page (rough rule of
-  // thumb for text-PDFs); chunk estimate = ceil(pages / 100).
+  // The processing pump. Runs sequentially through the queue, processing
+  // one item at a time. Re-fires whenever the queue changes — the effect
+  // looks at the first PENDING item and processes it; on completion it
+  // updates state, which retriggers the effect to pick up the next.
+  // Empty/error/done queue → effect short-circuits.
+  const isProcessingAny = queue.some((q) => q.status === "processing")
   useEffect(() => {
-    if (!isProcessing) {
-      setElapsedSec(0)
-      return
-    }
-    const t0 = Date.now()
-    const id = setInterval(() => {
-      setElapsedSec(Math.floor((Date.now() - t0) / 1000))
-    }, 1000)
-    return () => clearInterval(id)
-  }, [isProcessing])
+    if (isProcessingAny) return
+    const next = queue.find((q) => q.status === "pending")
+    if (!next) return
 
-  const handleFile = useCallback(async (file: File) => {
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
-      setError("Please select a PDF file")
-      return
-    }
-    setIsProcessing(true)
-    setError(null)
-    setResult(null)
-    const sizeMB = file.size / 1_048_576
-    // Heuristic: avg ~50KB per page for text-heavy PDFs. Caps at 1
-    // chunk for tiny files. This is intentionally rough — gives users
-    // a "this is going to take ~N minutes" expectation, not a precise
-    // forecast.
-    const estimatedPages = Math.max(1, Math.round(file.size / 51200))
-    const estimatedChunks = Math.max(1, Math.ceil(estimatedPages / 100))
-    setProcessingFile({ name: file.name, sizeMB, estimatedChunks })
-    const data = await extractPdfToCsv(file)
-    setIsProcessing(false)
-    setProcessingFile(null)
-    if (!data) {
-      setError("Backend unreachable. Check that the API service is running.")
-      return
-    }
-    if ("error" in data) {
-      const detail = data.error
-      const lower = detail.toLowerCase()
-      if (lower.includes("api_key") || lower.includes("not configured")) {
-        setError("Anthropic API key not configured. Open System Admin → API Key and paste your key (starts with sk-ant-…).")
-      } else {
-        setError(`PDF extraction failed: ${detail}`)
-      }
-      return
-    }
-    if (data.headers.length > 0) {
-      setResult(data)
+    let cancelled = false
+    setQueue((prev) => prev.map((q) =>
+      q.id === next.id ? { ...q, status: "processing", startedAt: Date.now() } : q,
+    ))
+    void extractPdfToCsv(next.file).then((data) => {
+      if (cancelled) return
+      const finishedAt = Date.now()
+      setQueue((prev) => prev.map((q) => {
+        if (q.id !== next.id) return q
+        if (!data) {
+          return { ...q, status: "error", error: "Backend unreachable. Is the API running?", finishedAt }
+        }
+        if ("error" in data) {
+          const detail = data.error
+          const lower = detail.toLowerCase()
+          let msg = `Extraction failed: ${detail}`
+          if (lower.includes("api_key") || lower.includes("not configured")) {
+            msg = "Anthropic API key not configured. Open System Admin → API Key and paste your key."
+          }
+          return { ...q, status: "error", error: msg, finishedAt }
+        }
+        if (!data.headers.length) {
+          return {
+            ...q,
+            status: "error",
+            error: "Extraction returned no rows — PDF may be image-only or empty.",
+            finishedAt,
+          }
+        }
+        return { ...q, status: "success", result: data, finishedAt }
+      }))
+    })
+
+    return () => { cancelled = true }
+  }, [queue, isProcessingAny])
+
+  // ── File ingestion ────────────────────────────────────────────────
+
+  const enqueueFiles = useCallback((files: FileList | File[]) => {
+    const arr = Array.from(files)
+    const pdfs = arr.filter((f) => f.name.toLowerCase().endsWith(".pdf"))
+    const skipped = arr.length - pdfs.length
+    if (skipped > 0) {
+      setError(`${skipped} non-PDF file${skipped > 1 ? "s" : ""} skipped (only .pdf accepted)`)
     } else {
-      setError("PDF extraction returned no rows. The PDF may be image-only or empty — try a text-based PDF.")
+      setError(null)
     }
+    if (!pdfs.length) return
+    setQueue((prev) => [
+      ...prev,
+      ...pdfs.map((f) => ({
+        id: `pdf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${f.name}`,
+        file: f,
+        status: "pending" as Status,
+      })),
+    ])
   }, [])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
-    const file = e.dataTransfer.files[0]
-    if (file) handleFile(file)
-  }, [handleFile])
+    if (e.dataTransfer.files?.length) enqueueFiles(e.dataTransfer.files)
+  }, [enqueueFiles])
 
-  const handleDownloadCsv = useCallback(() => {
-    if (!result) return
-    const blob = new Blob([result.csv_text], { type: "text/csv;charset=utf-8;" })
+  // ── Per-item actions ──────────────────────────────────────────────
+
+  const removeItem = useCallback((id: string) => {
+    setQueue((prev) => prev.filter((q) => q.id !== id))
+  }, [])
+
+  const retryItem = useCallback((id: string) => {
+    setQueue((prev) => prev.map((q) =>
+      q.id === id ? { ...q, status: "pending", error: undefined, startedAt: undefined, finishedAt: undefined } : q,
+    ))
+  }, [])
+
+  const importItem = useCallback((item: QueueItem) => {
+    if (!item.result) return
+    const baseName = (item.result.filename ?? item.file.name).replace(/\.pdf$/i, "")
+    const now = new Date()
+    const date = now.toISOString().substring(0, 10)
+    const time = now.toISOString().substring(11, 19)
+    const converted: ConvertedFile = {
+      originalName: `${baseName}.csv`,
+      csvData: [item.result.headers, ...item.result.rows],
+      headers: item.result.headers,
+      aioLines: item.result.rows.map((row) =>
+        csvToAio(item.result!.headers, row, `${baseName}.csv`, date, time),
+      ),
+      fileDate: date,
+      fileTime: time,
+    }
+    onImportCsv(converted)
+    setQueue((prev) => prev.map((q) => q.id === item.id ? { ...q, imported: true } : q))
+  }, [onImportCsv])
+
+  const downloadCsv = useCallback((item: QueueItem) => {
+    if (!item.result) return
+    const blob = new Blob([item.result.csv_text], { type: "text/csv;charset=utf-8;" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    const baseName = result.filename?.replace(/\.pdf$/i, "") ?? "extracted"
+    const baseName = (item.result.filename ?? item.file.name).replace(/\.pdf$/i, "")
     a.download = `${baseName}.csv`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
-  }, [result])
+  }, [])
 
-  const handleImportToConverter = useCallback(() => {
-    if (!result) return
-    const baseName = result.filename?.replace(/\.pdf$/i, "") ?? "extracted"
-    const now = new Date()
-    const converted: ConvertedFile = {
-      originalName: `${baseName}.csv`,
-      csvData: [result.headers, ...result.rows],
-      headers: result.headers,
-      aioLines: result.rows.map((row) => csvToAio(result.headers, row, `${baseName}.csv`, now.toISOString().substring(0, 10), now.toISOString().substring(11, 19))),
-      fileDate: now.toISOString().substring(0, 10),
-      fileTime: now.toISOString().substring(11, 19),
-    }
-    onImportCsv(converted)
-  }, [result, onImportCsv])
+  // ── Bulk actions ──────────────────────────────────────────────────
+
+  const successItems = queue.filter((q) => q.status === "success")
+  const importableItems = successItems.filter((q) => !q.imported)
+
+  // Import all successfully-extracted, not-yet-imported items in one
+  // burst. React 18+ batches the resulting setConvertedFiles +
+  // setCurrentView calls inside onImportCsv (page.tsx handler) into
+  // one render commit, so the converter receives the full batch.
+  const importAll = useCallback(() => {
+    for (const item of importableItems) importItem(item)
+  }, [importableItems, importItem])
+
+  const clearAll = useCallback(() => {
+    setQueue([])
+    setError(null)
+  }, [])
+
+  const removeFinished = useCallback(() => {
+    setQueue((prev) => prev.filter((q) => q.status === "pending" || q.status === "processing"))
+  }, [])
+
+  const totalCount = queue.length
+  const successCount = successItems.length
+  const errorCount = queue.filter((q) => q.status === "error").length
+  const pendingCount = queue.filter((q) => q.status === "pending").length
+  const processingCount = queue.filter((q) => PROCESSING_STATES.has(q.status)).length
 
   return (
     <div className="min-h-screen bg-background">
@@ -121,126 +234,256 @@ export function PdfImportView({ onBack, onSysAdmin, onImportCsv }: { onBack: () 
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-8 space-y-6">
-        {/* Upload Area */}
-        {!result && !isProcessing && (
-          <Card>
-            <CardContent className="pt-6">
-              <div
-                onDragOver={(e) => { e.preventDefault(); setIsDragOver(true) }}
-                onDragLeave={() => setIsDragOver(false)}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${isDragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"}`}
-              >
-                <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                <p className="text-lg font-medium text-foreground mb-2">Drop a PDF file here or click to browse</p>
-                <p className="text-sm text-muted-foreground">Supports invoices, reports, statements, and other structured documents</p>
-                <p className="text-xs text-muted-foreground mt-2">Claude AI will extract all structured data and create a CSV</p>
-                <input ref={fileInputRef} type="file" accept=".pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = "" }} />
-              </div>
-              {error && <p className="text-sm text-red-500 mt-4 text-center">{error}</p>}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Processing */}
-        {isProcessing && (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <Loader2 className="w-12 h-12 mx-auto mb-4 text-primary animate-spin" />
-              <p className="text-lg font-medium text-foreground mb-1">Analyzing PDF with Claude AI…</p>
-              {processingFile && (
-                <p className="text-sm text-muted-foreground mb-4">
-                  <span className="font-mono">{processingFile.name}</span>
-                  {" · "}
-                  {processingFile.sizeMB.toFixed(1)} MB
-                  {processingFile.estimatedChunks > 1 && (
-                    <>
-                      {" · "}~{processingFile.estimatedChunks} chunks (100 pages each)
-                    </>
-                  )}
-                </p>
-              )}
-              <div className="inline-flex items-center gap-3 px-4 py-2 rounded-md border border-border bg-muted/40">
-                <div className="text-2xl font-mono font-semibold tabular-nums text-foreground">
-                  {Math.floor(elapsedSec / 60)}:{String(elapsedSec % 60).padStart(2, "0")}
-                </div>
-                <div className="text-xs text-muted-foreground text-left">
-                  elapsed
-                  {processingFile && processingFile.estimatedChunks > 1 && (
-                    <div>typical: ~{processingFile.estimatedChunks * 45}s for this size</div>
-                  )}
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground mt-5 max-w-md mx-auto">
-                {processingFile && processingFile.estimatedChunks > 1
-                  ? "Large PDFs are split into 100-page chunks and processed sequentially. Each chunk takes ~30–60s on Claude. The request is still alive — please don't close this tab."
-                  : "Extracting structured data and building CSV. Typical time: 15–45s."}
+      <main className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+        {/* ── Drop zone — always visible so the operator can keep adding ── */}
+        <Card>
+          <CardContent className="pt-6">
+            <div
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true) }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${isDragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"}`}
+            >
+              <Files className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
+              <p className="text-base font-medium text-foreground mb-1">
+                Drop one or more PDF files here, or click to browse
               </p>
+              <p className="text-sm text-muted-foreground">
+                Multi-select supported — each PDF is extracted via Claude Vision into its own CSV.
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">
+                Files process sequentially (one at a time) to avoid rate-limit issues. Large PDFs are auto-chunked into 100-page slices.
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = e.target.files
+                  if (files?.length) enqueueFiles(files)
+                  e.target.value = ""
+                }}
+              />
+            </div>
+            {error && <p className="text-sm text-red-600 mt-4 text-center">{error}</p>}
+          </CardContent>
+        </Card>
+
+        {/* ── Queue summary + bulk actions ── */}
+        {totalCount > 0 && (
+          <Card>
+            <CardContent className="pt-6 space-y-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="font-semibold text-foreground">{totalCount} file{totalCount !== 1 ? "s" : ""}</span>
+                  {pendingCount > 0 && <Badge variant="outline">{pendingCount} pending</Badge>}
+                  {processingCount > 0 && (
+                    <Badge variant="outline" className="border-blue-300 text-blue-700">
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />{processingCount} processing
+                    </Badge>
+                  )}
+                  {successCount > 0 && <Badge variant="outline" className="border-emerald-300 text-emerald-700">{successCount} ready</Badge>}
+                  {errorCount > 0 && <Badge variant="outline" className="border-red-300 text-red-700">{errorCount} failed</Badge>}
+                </div>
+                <div className="flex gap-2">
+                  {importableItems.length > 0 && (
+                    <Button size="sm" onClick={importAll} className="gap-2 bg-primary">
+                      <ArrowRight className="w-4 h-4" />
+                      Import all {importableItems.length} to converter
+                    </Button>
+                  )}
+                  {(successCount > 0 || errorCount > 0) && (
+                    <Button size="sm" variant="outline" onClick={removeFinished} className="gap-2">
+                      Clear finished
+                    </Button>
+                  )}
+                  {totalCount > 0 && (
+                    <Button size="sm" variant="ghost" onClick={clearAll} className="gap-2 text-muted-foreground">
+                      Clear all
+                    </Button>
+                  )}
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Results */}
-        {result && (
-          <>
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base font-semibold">Extracted CSV from: {result.filename}</CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1">{result.document_count} record{result.document_count !== 1 ? "s" : ""} extracted · {result.headers.length} columns</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={handleDownloadCsv} className="gap-2"><Download className="w-4 h-4" />Save as CSV</Button>
-                    <Button size="sm" onClick={handleImportToConverter} className="gap-2 bg-primary"><ArrowRight className="w-4 h-4" />Import to AIO Converter</Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded border border-border overflow-auto max-h-[500px]">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50 sticky top-0">
-                      <tr>
-                        <th className="text-left px-3 py-2 font-medium text-xs text-muted-foreground w-8">#</th>
-                        {result.headers.map((h, i) => (
-                          <th key={i} className="text-left px-3 py-2 font-medium text-xs whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {result.rows.map((row, ri) => (
-                        <tr key={ri} className="hover:bg-muted/30">
-                          <td className="px-3 py-2 text-xs text-muted-foreground">{ri + 1}</td>
-                          {row.map((cell, ci) => (
-                            <td key={ci} className="px-3 py-2 text-xs whitespace-nowrap max-w-[200px] truncate">{cell}</td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Raw CSV view */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium">Raw CSV Output</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <pre className="text-xs font-mono bg-muted/30 rounded-lg p-4 overflow-auto max-h-[300px] whitespace-pre-wrap">{result.csv_text}</pre>
-              </CardContent>
-            </Card>
-
-            {/* Upload another */}
-            <div className="text-center">
-              <Button variant="outline" onClick={() => { setResult(null); setError(null) }} className="gap-2"><Upload className="w-4 h-4" />Import Another PDF</Button>
-            </div>
-          </>
-        )}
+        {/* ── Per-file queue items ── */}
+        {queue.map((item) => (
+          <QueueItemCard
+            key={item.id}
+            item={item}
+            onRemove={() => removeItem(item.id)}
+            onRetry={() => retryItem(item.id)}
+            onImport={() => importItem(item)}
+            onDownload={() => downloadCsv(item)}
+          />
+        ))}
       </main>
     </div>
+  )
+}
+
+
+// ── Per-file card ────────────────────────────────────────────────────
+
+function QueueItemCard({
+  item,
+  onRemove,
+  onRetry,
+  onImport,
+  onDownload,
+}: {
+  item: QueueItem
+  onRemove: () => void
+  onRetry: () => void
+  onImport: () => void
+  onDownload: () => void
+}) {
+  const [showDetails, setShowDetails] = useState(false)
+  const [elapsedMs, setElapsedMs] = useState(0)
+
+  // Live elapsed timer for processing items.
+  useEffect(() => {
+    if (item.status !== "processing" || !item.startedAt) {
+      setElapsedMs(0)
+      return
+    }
+    const t0 = item.startedAt
+    setElapsedMs(Date.now() - t0)
+    const id = setInterval(() => setElapsedMs(Date.now() - t0), 500)
+    return () => clearInterval(id)
+  }, [item.status, item.startedAt])
+
+  const finalElapsedMs = item.finishedAt && item.startedAt
+    ? item.finishedAt - item.startedAt
+    : null
+
+  return (
+    <Card className="border-border">
+      <CardContent className="pt-5 pb-4">
+        <div className="flex items-start gap-3">
+          <FileText className="w-5 h-5 mt-0.5 text-muted-foreground shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-foreground truncate">{item.file.name}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {fmtSize(item.file.size)}
+                  {item.status === "success" && item.result && (
+                    <> · <span className="text-emerald-700">{item.result.document_count} record{item.result.document_count !== 1 ? "s" : ""}</span> · {item.result.headers.length} columns</>
+                  )}
+                  {item.status === "processing" && (
+                    <> · <span className="tabular-nums">{fmtElapsed(elapsedMs)}</span> elapsed</>
+                  )}
+                  {item.status === "success" && finalElapsedMs !== null && (
+                    <> · {fmtElapsed(finalElapsedMs)}</>
+                  )}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Status badge */}
+                {item.status === "pending" && <Badge variant="outline" className="text-xs">Pending</Badge>}
+                {item.status === "processing" && (
+                  <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />Processing
+                  </Badge>
+                )}
+                {item.status === "success" && (
+                  <Badge variant="outline" className="text-xs border-emerald-300 text-emerald-700">
+                    <CheckCircle2 className="w-3 h-3 mr-1" />Ready
+                  </Badge>
+                )}
+                {item.status === "error" && (
+                  <Badge variant="outline" className="text-xs border-red-300 text-red-700">
+                    <AlertCircle className="w-3 h-3 mr-1" />Failed
+                  </Badge>
+                )}
+                {item.imported && (
+                  <Badge variant="outline" className="text-xs border-primary/40 text-primary">
+                    Imported
+                  </Badge>
+                )}
+
+                {/* Action buttons */}
+                {item.status === "success" && (
+                  <>
+                    <Button size="sm" variant="outline" onClick={onDownload} className="h-8 gap-1.5">
+                      <Download className="w-3.5 h-3.5" />CSV
+                    </Button>
+                    {!item.imported && (
+                      <Button size="sm" onClick={onImport} className="h-8 gap-1.5 bg-primary">
+                        <ArrowRight className="w-3.5 h-3.5" />Import
+                      </Button>
+                    )}
+                  </>
+                )}
+                {item.status === "error" && (
+                  <Button size="sm" variant="outline" onClick={onRetry} className="h-8 gap-1.5">
+                    <RefreshCw className="w-3.5 h-3.5" />Retry
+                  </Button>
+                )}
+                {(item.status === "pending" || item.status === "error" || item.status === "success") && (
+                  <Button size="sm" variant="ghost" onClick={onRemove} className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600">
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Error detail */}
+            {item.status === "error" && item.error && (
+              <p className="text-xs text-red-600 mt-2 leading-relaxed">{item.error}</p>
+            )}
+
+            {/* Success — collapsible preview */}
+            {item.status === "success" && item.result && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowDetails(!showDetails)}
+                  className="text-xs text-primary hover:underline mt-2"
+                >
+                  {showDetails ? "Hide" : "Show"} preview ({item.result.rows.length} rows × {item.result.headers.length} cols)
+                </button>
+                {showDetails && (
+                  <div className="mt-3 rounded border border-border overflow-auto max-h-[300px]">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/50 sticky top-0">
+                        <tr>
+                          <th className="text-left px-2 py-1.5 font-medium text-[11px] text-muted-foreground w-8">#</th>
+                          {item.result.headers.map((h, i) => (
+                            <th key={i} className="text-left px-2 py-1.5 font-medium text-[11px] whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {item.result.rows.slice(0, 50).map((row, ri) => (
+                          <tr key={ri} className="hover:bg-muted/30">
+                            <td className="px-2 py-1 text-[11px] text-muted-foreground">{ri + 1}</td>
+                            {row.map((cell, ci) => (
+                              <td key={ci} className="px-2 py-1 text-[11px] whitespace-nowrap max-w-[180px] truncate">{cell}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {item.result.rows.length > 50 && (
+                      <p className="text-[11px] text-muted-foreground p-2 bg-muted/20 border-t border-border">
+                        Showing first 50 of {item.result.rows.length} rows · download CSV to see all
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
