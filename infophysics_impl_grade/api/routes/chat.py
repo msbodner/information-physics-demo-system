@@ -2014,13 +2014,71 @@ async def pdf_extract(
     if total_pages == 0:
         raise HTTPException(status_code=400, detail="PDF has no pages")
 
-    # ── V5.0+ Persistence: insert a 'pending' row before any LLM work
-    # so even a hung/cancelled extraction leaves a recoverable record
-    # the admin can still view, download, or delete.
+    # ── V5.0+ Persistence + V5.0.8+ duplicate detection.
+    # Compute sha256 first; if a previous upload of the same content
+    # already finished extraction, skip the Anthropic call entirely
+    # and return the cached CSV. Re-uploads become instant.
     import hashlib
     pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
     persisted_pdf_id: Optional[str] = None
     persist_tenant = x_tenant_id or "tenantA"
+
+    # Duplicate-content short-circuit. Looks for a prior row with the
+    # same sha256 that completed (status extracted or partial) AND
+    # actually has csv_text persisted. If found, return it. Otherwise
+    # fall through to a fresh insert + extraction.
+    try:
+        with db() as conn:
+            with conn.cursor() as cur:
+                set_tenant(conn, persist_tenant)
+                cur.execute(
+                    """
+                    SELECT pdf_id, status, csv_text, headers, row_count,
+                           page_count, chunk_count, chunks_failed, error
+                      FROM imported_pdfs
+                     WHERE tenant_id = %s
+                       AND sha256 = %s
+                       AND status IN ('extracted', 'partial')
+                       AND csv_text IS NOT NULL
+                     ORDER BY created_at DESC
+                     LIMIT 1
+                    """,
+                    (persist_tenant, pdf_sha256),
+                )
+                hit = cur.fetchone()
+        if hit:
+            existing_pdf_id, existing_status, existing_csv, existing_headers_json, existing_row_count, \
+                existing_page_count, existing_chunk_count, existing_chunks_failed, existing_error = hit
+            # Re-parse rows from the cached CSV so the response shape
+            # matches the fresh-extract path exactly.
+            try:
+                parsed = list(csv_mod.reader(io.StringIO(existing_csv or "")))
+            except Exception:
+                parsed = []
+            existing_headers = parsed[0] if parsed else []
+            existing_rows = parsed[1:] if len(parsed) > 1 else []
+            logger.info(
+                "PDF duplicate-content hit: pdf_id=%s sha256=%s — returning cached result without LLM call",
+                existing_pdf_id, pdf_sha256[:12],
+            )
+            return {
+                "csv_text": existing_csv or "",
+                "headers": existing_headers,
+                "rows": existing_rows,
+                "document_count": existing_row_count if existing_row_count is not None else len(existing_rows),
+                "filename": file.filename,
+                "page_count": existing_page_count,
+                "chunk_count": existing_chunk_count,
+                "chunks_failed": existing_chunks_failed,
+                "partial_warning": existing_error,
+                "elapsed_seconds": 0.0,
+                "pdf_id": str(existing_pdf_id),
+                "model": os.environ.get("PDF_EXTRACT_MODEL", "claude-haiku-4-5"),
+                "deduped": True,
+            }
+    except Exception as e:
+        logger.warning("PDF duplicate-content check failed (continuing): %s", e)
+
     try:
         with db() as conn:
             with conn.cursor() as cur:

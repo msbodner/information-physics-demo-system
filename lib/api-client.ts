@@ -1797,6 +1797,34 @@ export function importedPdfContentUrl(pdfId: string, opts: { download?: boolean 
   return `/api/imported-pdfs/${pdfId}/content${opts.download ? "?download=true" : ""}`
 }
 
+// V5.0.8+ — fetch the parsed CSV result for a persisted PDF.
+// Used by "Create AIOs from imported PDFs" to bulk-build AIOs from
+// the server-side cached extraction without re-uploading.
+export async function getImportedPdfCsvResult(
+  pdfId: string,
+): Promise<{
+  csv_text: string
+  headers: string[]
+  rows: string[][]
+  filename: string
+  document_count: number
+  page_count: number | null
+  chunk_count: number | null
+  chunks_failed: number | null
+  elapsed_seconds: number
+  pdf_id: string
+  status: string
+  error: string | null
+} | null> {
+  try {
+    const res = await fetch(`/api/imported-pdfs/${pdfId}/csv-result`, { cache: "no-store" })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
 // V5.0+ — extractPdfToCsv with hard timeout + cancel.
 //
 // Pre-V5.0 the call had no timeout: a slow Anthropic backend (or a

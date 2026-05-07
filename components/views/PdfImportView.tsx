@@ -25,13 +25,32 @@ import { useState, useCallback, useRef, useEffect } from "react"
 import {
   ArrowLeft, ArrowRight, Settings, Upload, Download, Loader2,
   FileText, X, RefreshCw, CheckCircle2, AlertCircle, Files,
+  Library, Atom, Eye, Trash2, Download as DownloadIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import { csvToAio, type ConvertedFile } from "@/lib/aio-utils"
-import { extractPdfToCsv, type PdfExtractResult } from "@/lib/api-client"
+import {
+  extractPdfToCsv,
+  type PdfExtractResult,
+  listImportedPdfs,
+  deleteImportedPdf,
+  importedPdfContentUrl,
+  getImportedPdfCsvResult,
+  listAioData,
+  createAioData,
+  type ImportedPdfMeta,
+} from "@/lib/api-client"
 
 type Status = "pending" | "processing" | "success" | "error"
 
@@ -81,6 +100,36 @@ export function PdfImportView({
   const [queue, setQueue] = useState<QueueItem[]>([])
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // V5.0.8+ — server-side imported PDFs viewer. The "View Imported
+  // PDFs" header button toggles a dialog that lists everything in
+  // the imported_pdfs table for this tenant, with View / Download /
+  // Delete actions per row. This makes the persisted catalog
+  // discoverable without leaving the import screen.
+  const [importedPdfsOpen, setImportedPdfsOpen] = useState(false)
+  const [importedPdfs, setImportedPdfs] = useState<ImportedPdfMeta[]>([])
+  const [importedPdfsLoading, setImportedPdfsLoading] = useState(false)
+  const [previewPdf, setPreviewPdf] = useState<ImportedPdfMeta | null>(null)
+  const [deletingPdfId, setDeletingPdfId] = useState<string | null>(null)
+  const refreshImportedPdfs = useCallback(async () => {
+    setImportedPdfsLoading(true)
+    try {
+      setImportedPdfs(await listImportedPdfs())
+    } finally {
+      setImportedPdfsLoading(false)
+    }
+  }, [])
+
+  // V5.0.8+ — bulk "Create AIOs from imported PDFs" workflow. Iterates
+  // every imported_pdfs row that has a CSV, dedupes against existing
+  // aio_data by OriginalCSV name, and inserts the AIO bracket strings.
+  const [creatingAios, setCreatingAios] = useState(false)
+  const [createAiosResult, setCreateAiosResult] = useState<{
+    pdfsProcessed: number
+    pdfsSkipped: number
+    aiosCreated: number
+    errors: string[]
+  } | null>(null)
 
   // V5.0.7+ — backend config diagnostic. Auto-fetched the first time
   // an extraction runs slow (>30s) so we can surface the actual
@@ -302,6 +351,133 @@ export function PdfImportView({
     setQueue((prev) => prev.filter((q) => q.status === "pending" || q.status === "processing"))
   }, [])
 
+  // V5.0.8+ — open the imported-PDFs dialog and lazy-load the list.
+  const openImportedPdfs = useCallback(async () => {
+    setImportedPdfsOpen(true)
+    if (importedPdfs.length === 0) {
+      await refreshImportedPdfs()
+    }
+  }, [importedPdfs.length, refreshImportedPdfs])
+
+  const handleDeleteImported = useCallback(async (item: ImportedPdfMeta) => {
+    if (!window.confirm(`Delete "${item.filename}" and its stored bytes?\n\nThis is irreversible.`)) return
+    setDeletingPdfId(item.pdf_id)
+    const ok = await deleteImportedPdf(item.pdf_id)
+    setDeletingPdfId(null)
+    if (!ok) {
+      toast.error(`Failed to delete ${item.filename}`)
+      return
+    }
+    toast.success(`Deleted ${item.filename}`)
+    setImportedPdfs((prev) => prev.filter((p) => p.pdf_id !== item.pdf_id))
+  }, [])
+
+  // V5.0.8+ — Create AIOs from every persisted imported PDF.
+  // Workflow:
+  //   1. Pull all imported_pdfs rows where extraction finished and
+  //      csv_text is populated.
+  //   2. Pull existing aio_data so we know which OriginalCSV names
+  //      are already represented (skip those — duplicate dedup).
+  //   3. For each fresh PDF, fetch its CSV result, build AIO bracket
+  //      strings via csvToAio, and POST each one to /v1/aio-data.
+  //   4. Toast a summary; expose the full breakdown via dialog.
+  const createAiosFromImportedPdfs = useCallback(async () => {
+    if (creatingAios) return
+    setCreatingAios(true)
+    setCreateAiosResult(null)
+    try {
+      const [pdfs, existingAios] = await Promise.all([
+        listImportedPdfs(),
+        listAioData(),
+      ])
+      const ready = pdfs.filter(
+        (p) =>
+          (p.status === "extracted" || p.status === "partial") &&
+          (p.row_count ?? 0) > 0,
+      )
+
+      if (ready.length === 0) {
+        toast.error("No extracted PDFs available to convert")
+        return
+      }
+
+      // Build set of OriginalCSV names already represented in aio_data.
+      // The aio_name bracket string contains [OriginalCSV.<name>] —
+      // extract that token to detect duplicates.
+      const existingOriginals = new Set<string>()
+      const ORIGINAL_RE = /\[OriginalCSV\.([^\]]+)\]/
+      for (const a of existingAios) {
+        const m = a.aio_name.match(ORIGINAL_RE)
+        if (m) existingOriginals.add(m[1])
+      }
+
+      let pdfsProcessed = 0
+      let pdfsSkipped = 0
+      let aiosCreated = 0
+      const errors: string[] = []
+
+      for (const pdf of ready) {
+        const targetCsvName = pdf.filename.replace(/\.pdf$/i, ".csv")
+        if (existingOriginals.has(targetCsvName)) {
+          pdfsSkipped++
+          continue
+        }
+        try {
+          const result = await getImportedPdfCsvResult(pdf.pdf_id)
+          if (!result || !result.headers?.length || !result.rows?.length) {
+            pdfsSkipped++
+            continue
+          }
+          // Build a stable date/time stamp from the original import.
+          const created = pdf.created_at ?? new Date().toISOString()
+          const fileDate = created.substring(0, 10)
+          const fileTime = created.substring(11, 19) || "00:00:00"
+          for (const row of result.rows) {
+            const aioName = csvToAio(result.headers, row, targetCsvName, fileDate, fileTime)
+            // elements parameter mirrors the converter flow: each
+            // element is the verbatim cell value, padded/aligned to
+            // the column count. Backend stores up to 50 elements; we
+            // truncate any tail beyond that.
+            const elements: (string | null)[] = []
+            for (let i = 0; i < Math.min(50, result.headers.length); i++) {
+              const v = row[i] ?? ""
+              elements.push(v === "" ? null : v)
+            }
+            const saved = await createAioData(aioName, elements)
+            if (saved) {
+              aiosCreated++
+            } else {
+              errors.push(`${pdf.filename} row failed to save`)
+            }
+          }
+          existingOriginals.add(targetCsvName)
+          pdfsProcessed++
+        } catch (e) {
+          errors.push(`${pdf.filename}: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+
+      const summary = { pdfsProcessed, pdfsSkipped, aiosCreated, errors }
+      setCreateAiosResult(summary)
+
+      if (aiosCreated > 0) {
+        toast.success(
+          `Created ${aiosCreated} AIO${aiosCreated !== 1 ? "s" : ""} from ${pdfsProcessed} PDF${pdfsProcessed !== 1 ? "s" : ""}` +
+            (pdfsSkipped > 0 ? ` · skipped ${pdfsSkipped} (already imported)` : "") +
+            (errors.length > 0 ? ` · ${errors.length} error${errors.length !== 1 ? "s" : ""}` : ""),
+        )
+      } else if (pdfsSkipped > 0) {
+        toast.info(`All ${pdfsSkipped} PDF${pdfsSkipped !== 1 ? "s" : ""} already imported as AIOs`)
+      } else {
+        toast.error("No AIOs were created — see error details")
+      }
+    } catch (e) {
+      toast.error(`Failed to create AIOs: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setCreatingAios(false)
+    }
+  }, [creatingAios])
+
   const totalCount = queue.length
   const successCount = successItems.length
   const errorCount = queue.filter((q) => q.status === "error").length
@@ -311,12 +487,29 @@ export function PdfImportView({
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-4 flex-wrap">
             <Button variant="ghost" size="sm" onClick={onBack} className="gap-2"><ArrowLeft className="w-4 h-4" />Back</Button>
             <h1 className="text-lg font-bold text-foreground">Import PDFs → CSVs</h1>
           </div>
-          <Button variant="outline" size="sm" onClick={onSysAdmin} className="gap-2"><Settings className="w-4 h-4" />System Admin</Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* V5.0.8+ — server-side imported PDFs viewer. */}
+            <Button variant="outline" size="sm" onClick={openImportedPdfs} className="gap-2">
+              <Library className="w-4 h-4" />View Imported PDFs
+            </Button>
+            {/* V5.0.8+ — bulk Create AIOs from every imported PDF. */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={createAiosFromImportedPdfs}
+              disabled={creatingAios}
+              className="gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+            >
+              {creatingAios ? <Loader2 className="w-4 h-4 animate-spin" /> : <Atom className="w-4 h-4" />}
+              {creatingAios ? "Creating AIOs…" : "Create AIOs from PDFs"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={onSysAdmin} className="gap-2"><Settings className="w-4 h-4" />System Admin</Button>
+          </div>
         </div>
       </header>
 
@@ -414,7 +607,218 @@ export function PdfImportView({
             fetchAnthropicPing={fetchAnthropicPing}
           />
         ))}
+
+        {/* V5.0.8+ — Create AIOs result summary card. */}
+        {createAiosResult && (
+          <Card className="border-emerald-200 bg-emerald-50/30">
+            <CardContent className="pt-5 pb-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Atom className="w-5 h-5 text-emerald-700" />
+                <p className="text-sm font-semibold text-emerald-900">
+                  Create AIOs result
+                </p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="ml-auto h-7 w-7 p-0 text-muted-foreground"
+                  onClick={() => setCreateAiosResult(null)}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                <strong className="text-emerald-700">{createAiosResult.aiosCreated}</strong> AIO
+                {createAiosResult.aiosCreated !== 1 ? "s" : ""} created from{" "}
+                <strong>{createAiosResult.pdfsProcessed}</strong> PDF
+                {createAiosResult.pdfsProcessed !== 1 ? "s" : ""}
+                {createAiosResult.pdfsSkipped > 0 && (
+                  <>
+                    {" "}· skipped <strong>{createAiosResult.pdfsSkipped}</strong> already-imported PDF
+                    {createAiosResult.pdfsSkipped !== 1 ? "s" : ""}
+                  </>
+                )}
+                {createAiosResult.errors.length > 0 && (
+                  <>
+                    {" "}· <strong className="text-red-600">{createAiosResult.errors.length}</strong> error
+                    {createAiosResult.errors.length !== 1 ? "s" : ""}
+                  </>
+                )}
+              </p>
+              {createAiosResult.errors.length > 0 && (
+                <details className="text-xs text-red-700">
+                  <summary className="cursor-pointer hover:underline">Show errors</summary>
+                  <ul className="mt-1 space-y-0.5 pl-4 list-disc">
+                    {createAiosResult.errors.slice(0, 20).map((err, i) => (
+                      <li key={i}>{err}</li>
+                    ))}
+                    {createAiosResult.errors.length > 20 && (
+                      <li className="text-muted-foreground">
+                        … and {createAiosResult.errors.length - 20} more
+                      </li>
+                    )}
+                  </ul>
+                </details>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </main>
+
+      {/* V5.0.8+ — View Imported PDFs dialog. Mirrors the System Admin
+          pane but accessible directly from the PDF Import screen. */}
+      <Dialog open={importedPdfsOpen} onOpenChange={setImportedPdfsOpen}>
+        <DialogContent className="max-w-5xl w-[90vw] max-h-[85vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Library className="w-4 h-4 text-muted-foreground" />
+              Imported PDFs
+              <span className="text-xs font-normal text-muted-foreground ml-2">
+                {importedPdfs.length} stored
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => void refreshImportedPdfs()} className="ml-auto gap-1.5">
+                <RefreshCw className="w-3.5 h-3.5" />Refresh
+              </Button>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-y-auto p-6">
+            {importedPdfsLoading ? (
+              <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />Loading imported PDFs…
+              </div>
+            ) : importedPdfs.length === 0 ? (
+              <div className="rounded border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+                No PDFs imported yet. Drop some files above to get started.
+              </div>
+            ) : (
+              <div className="rounded border border-border overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Filename</th>
+                      <th className="text-right px-3 py-2 font-medium">Size</th>
+                      <th className="text-right px-3 py-2 font-medium">Pages</th>
+                      <th className="text-right px-3 py-2 font-medium">Rows</th>
+                      <th className="text-left px-3 py-2 font-medium">Status</th>
+                      <th className="text-left px-3 py-2 font-medium">Imported</th>
+                      <th className="text-right px-3 py-2 font-medium">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {importedPdfs.map((item) => (
+                      <tr key={item.pdf_id} className="hover:bg-muted/30">
+                        <td className="px-3 py-2 max-w-[260px] truncate" title={item.filename}>
+                          <FileText className="inline w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
+                          {item.filename}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtSize(item.size_bytes)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{item.page_count ?? "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{item.row_count ?? "—"}</td>
+                        <td className="px-3 py-2">
+                          {item.status === "extracted" && (
+                            <Badge variant="outline" className="border-emerald-300 text-emerald-700">Extracted</Badge>
+                          )}
+                          {item.status === "partial" && (
+                            <Badge variant="outline" className="border-amber-300 text-amber-700" title={item.error ?? undefined}>Partial</Badge>
+                          )}
+                          {(item.status === "pending" || item.status === "extracting" || item.status === "finalizing") && (
+                            <Badge variant="outline" className="border-blue-300 text-blue-700">{item.status}</Badge>
+                          )}
+                          {item.status === "failed" && (
+                            <Badge variant="outline" className="border-red-300 text-red-700" title={item.error ?? undefined}>Failed</Badge>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                          {(() => {
+                            try { return new Date(item.created_at).toLocaleString() } catch { return item.created_at }
+                          })()}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex justify-end gap-1.5">
+                            <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={() => setPreviewPdf(item)}>
+                              <Eye className="w-3.5 h-3.5" />View
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 gap-1.5" asChild>
+                              <a
+                                href={importedPdfContentUrl(item.pdf_id, { download: true })}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                download={item.filename}
+                              >
+                                <DownloadIcon className="w-3.5 h-3.5" />Download
+                              </a>
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                              disabled={deletingPdfId === item.pdf_id}
+                              onClick={() => void handleDeleteImported(item)}
+                            >
+                              {deletingPdfId === item.pdf_id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="px-6 py-3 border-t border-border shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => setImportedPdfsOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* PDF preview dialog (iframe) — shared between header View action and queue rows. */}
+      <Dialog open={!!previewPdf} onOpenChange={(open) => !open && setPreviewPdf(null)}>
+        <DialogContent className="max-w-5xl w-[90vw] h-[85vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-6 py-4 border-b border-border shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <FileText className="w-4 h-4 text-muted-foreground" />
+              {previewPdf?.filename}
+              {previewPdf && (
+                <span className="text-xs font-normal text-muted-foreground ml-2">
+                  {fmtSize(previewPdf.size_bytes)}
+                  {previewPdf.page_count != null && (
+                    <> · {previewPdf.page_count} page{previewPdf.page_count !== 1 ? "s" : ""}</>
+                  )}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 bg-muted/20">
+            {previewPdf && (
+              <iframe
+                key={previewPdf.pdf_id}
+                src={importedPdfContentUrl(previewPdf.pdf_id)}
+                className="w-full h-full border-0"
+                title={previewPdf.filename}
+              />
+            )}
+          </div>
+          <DialogFooter className="px-6 py-3 border-t border-border shrink-0">
+            {previewPdf && (
+              <Button variant="outline" size="sm" asChild>
+                <a
+                  href={importedPdfContentUrl(previewPdf.pdf_id, { download: true })}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download={previewPdf.filename}
+                >
+                  <DownloadIcon className="w-3.5 h-3.5 mr-1.5" />Download original
+                </a>
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => setPreviewPdf(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
