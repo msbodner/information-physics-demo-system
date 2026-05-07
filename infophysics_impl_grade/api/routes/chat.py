@@ -1909,6 +1909,20 @@ def aio_search_parse(
         raise HTTPException(status_code=502, detail=f"Parse failed: {exc}")
 
 
+@router.get("/v1/diag/pdf-config")
+def diag_pdf_config():
+    """Diagnostic: surface what model + timeout the PDF extractor is
+    actually using on the running backend. Lets operators verify the
+    Haiku default took effect after a code update without grepping
+    backend logs."""
+    return {
+        "model": os.environ.get("PDF_EXTRACT_MODEL", "claude-haiku-4-5"),
+        "chunk_timeout_seconds": float(os.environ.get("PDF_EXTRACT_CHUNK_TIMEOUT", "180")),
+        "anthropic_api_key_configured": bool(get_effective_api_key()),
+        "max_pages_per_call": 100,
+    }
+
+
 @router.post("/v1/op/pdf-extract")
 async def pdf_extract(
     file: UploadFile = File(...),
@@ -2214,6 +2228,7 @@ async def pdf_extract(
         "partial_warning": partial_warning,
         "elapsed_seconds": round(overall_elapsed, 1),
         "pdf_id": persisted_pdf_id,
+        "model": pdf_model,  # V5.0.7+ surface model so UI can show it
     }
 
 

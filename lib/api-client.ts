@@ -1373,6 +1373,7 @@ export interface PdfExtractResult {
   partial_warning?: string | null
   elapsed_seconds?: number
   pdf_id?: string | null  // present when backend persisted the original
+  model?: string          // V5.0.7+ — Anthropic model used for extraction
 }
 
 // V5.0.5+ — Polling-based PDF extraction.

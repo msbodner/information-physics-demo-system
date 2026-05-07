@@ -430,6 +430,9 @@ function QueueItemCard({
                   {item.status === "success" && finalElapsedMs !== null && (
                     <> · {fmtElapsed(finalElapsedMs)}</>
                   )}
+                  {item.status === "success" && item.result?.model && (
+                    <> · <span className="font-mono">{item.result.model.replace(/^claude-/, "")}</span></>
+                  )}
                 </p>
               </div>
 
@@ -501,21 +504,22 @@ function QueueItemCard({
                       <Loader2 className="w-3 h-3 mr-1 animate-spin" />Working…
                     </Badge>
                   </div>
-                  {elapsedMs > 60_000 && (
+                  {elapsedMs > 90_000 && (
                     <span className="text-xs text-amber-700">
                       {elapsedMs > 360_000
                         ? "approaching 8-min cap, will auto-fail soon"
                         : elapsedMs > 180_000
-                        ? "taking longer than usual — click Cancel to abort"
+                        ? "slow — backend may be using Sonnet/Opus instead of Haiku. Restart backend after code update?"
                         : "still working…"}
                     </span>
                   )}
                 </div>
-                {/* Indeterminate-ish bar: fills based on elapsed time vs
-                    a 60s expected baseline, capped at 95% so it never
-                    looks "done" prematurely. */}
+                {/* Indeterminate-ish bar: 180s baseline so the user sees
+                    smooth fill for typical Haiku extractions and the bar
+                    stays meaningful even on slow runs. Capped at 95% so
+                    it never looks "done" prematurely. */}
                 <Progress
-                  value={Math.min(95, Math.round((elapsedMs / 60_000) * 90))}
+                  value={Math.min(95, Math.round((elapsedMs / 180_000) * 90))}
                   className="h-2"
                 />
               </div>
