@@ -82,6 +82,24 @@ export function PdfImportView({
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // V5.0.7+ — backend config diagnostic. Auto-fetched the first time
+  // an extraction runs slow (>30s) so we can surface the actual
+  // configured model inline.
+  const [backendConfig, setBackendConfig] = useState<{
+    model: string
+    chunk_timeout_seconds: number
+    anthropic_api_key_configured: boolean
+  } | null>(null)
+  const configFetchedRef = useRef(false)
+  const fetchBackendConfig = useCallback(async () => {
+    if (configFetchedRef.current) return
+    configFetchedRef.current = true
+    try {
+      const res = await fetch("/api/diag/pdf-config", { cache: "no-store" })
+      if (res.ok) setBackendConfig(await res.json())
+    } catch { /* ignore */ }
+  }, [])
+
   // V5.0+ — Per-item AbortController registry. Lets the user click
   // Cancel on a stuck file without nuking the whole pump. Keyed by
   // QueueItem.id; the entry is wired up the moment we kick off the
@@ -366,6 +384,8 @@ export function PdfImportView({
             onImport={() => importItem(item)}
             onDownload={() => downloadCsv(item)}
             onCancel={() => cancelItem(item.id)}
+            backendConfig={backendConfig}
+            fetchBackendConfig={fetchBackendConfig}
           />
         ))}
       </main>
@@ -383,6 +403,8 @@ function QueueItemCard({
   onImport,
   onDownload,
   onCancel,
+  backendConfig,
+  fetchBackendConfig,
 }: {
   item: QueueItem
   onRemove: () => void
@@ -390,6 +412,8 @@ function QueueItemCard({
   onImport: () => void
   onDownload: () => void
   onCancel: () => void
+  backendConfig: { model: string; chunk_timeout_seconds: number; anthropic_api_key_configured: boolean } | null
+  fetchBackendConfig: () => Promise<void>
 }) {
   const [showDetails, setShowDetails] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
@@ -405,6 +429,14 @@ function QueueItemCard({
     const id = setInterval(() => setElapsedMs(Date.now() - t0), 500)
     return () => clearInterval(id)
   }, [item.status, item.startedAt])
+
+  // V5.0.7+ — auto-fetch backend config when extraction is slow so we
+  // can surface "you're on Opus, restart for Haiku" inline.
+  useEffect(() => {
+    if (item.status === "processing" && elapsedMs > 30_000 && !backendConfig) {
+      void fetchBackendConfig()
+    }
+  }, [item.status, elapsedMs, backendConfig, fetchBackendConfig])
 
   const finalElapsedMs = item.finishedAt && item.startedAt
     ? item.finishedAt - item.startedAt
@@ -522,6 +554,35 @@ function QueueItemCard({
                   value={Math.min(95, Math.round((elapsedMs / 180_000) * 90))}
                   className="h-2"
                 />
+                {/* V5.0.7+ — Live backend diagnostic. Auto-fetched after
+                    30s of processing. Shows actual configured model so
+                    the operator can immediately see if the backend is
+                    on Sonnet/Opus instead of Haiku. */}
+                {elapsedMs > 30_000 && backendConfig && (
+                  <div className={`mt-2 rounded border p-2 text-xs ${
+                    backendConfig.model === "claude-haiku-4-5"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                      : "border-red-300 bg-red-50 text-red-900"
+                  }`}>
+                    <p className="font-medium">
+                      Backend is using <span className="font-mono">{backendConfig.model}</span>
+                    </p>
+                    {backendConfig.model !== "claude-haiku-4-5" && (
+                      <p className="mt-1 leading-relaxed">
+                        This is why extraction is slow.{" "}
+                        <span className="font-mono">claude-haiku-4-5</span> is the recommended default
+                        (3-5× faster). Either restart the backend to pick up the latest code, or set the{" "}
+                        <span className="font-mono">PDF_EXTRACT_MODEL</span> env var to{" "}
+                        <span className="font-mono">claude-haiku-4-5</span>.
+                      </p>
+                    )}
+                    {!backendConfig.anthropic_api_key_configured && (
+                      <p className="mt-1 leading-relaxed text-red-900">
+                        ANTHROPIC_API_KEY is not configured on the backend. Open System Admin → API Key.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
