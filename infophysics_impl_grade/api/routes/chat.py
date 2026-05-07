@@ -126,10 +126,39 @@ class SummarizeRequest(BaseModel):
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
+class FileInventoryEntry(BaseModel):
+    """Per-source-file breakdown surfaced in the comprehensive summary."""
+    filename: str
+    record_count: int
+    sample_keys: List[str] = Field(default_factory=list)
+
+
+class FieldStat(BaseModel):
+    """Per-field cardinality + sample for the structural section."""
+    key: str
+    occurrences: int
+    distinct_values: int
+    sample_values: List[str] = Field(default_factory=list)
+
+
 class SummarizeResponse(BaseModel):
-    summary: str
+    summary: str                        # backward-compat: executive narrative
     model_ref: str
     aio_count: int
+
+    # V5.0.10+ — structured analysis fields. The frontend renders these
+    # as sections; older clients that only read `summary` continue to
+    # work unchanged.
+    industry: Optional[str] = None
+    categories: List[str] = Field(default_factory=list)
+    primary_entities: List[Dict[str, Any]] = Field(default_factory=list)
+    notable_patterns: List[str] = Field(default_factory=list)
+    data_quality_notes: List[str] = Field(default_factory=list)
+    suggested_analyses: List[str] = Field(default_factory=list)
+    file_inventory: List[FileInventoryEntry] = Field(default_factory=list)
+    field_inventory: List[FieldStat] = Field(default_factory=list)
+    date_range: Optional[Dict[str, str]] = None  # {min: ..., max: ...} from FileDate
+    sampled_records: int = 0
 
 
 class ResolveEntitiesRequest(BaseModel):
@@ -237,6 +266,146 @@ class CompareModesResponse(BaseModel):
 # Routes
 # ---------------------------------------------------------------------------
 
+# V5.0.10+ — Comprehensive summarize. The previous implementation
+# took the first 200 AIOs verbatim and asked Claude for "themes". The
+# user-visible problems with that approach:
+#   - First-200 sampling missed everything past row 200, especially
+#     bad on multi-CSV corpora where one file dominates the head.
+#   - The prompt didn't ask the LLM to identify the INDUSTRY,
+#     CATEGORIES, or DATA TYPES — just "themes" — so the output was
+#     a generic recitation of fields rather than a domain analysis.
+#   - max_tokens=1024 truncated meaningful structured output.
+#   - The structural facts (file count, field cardinalities, date
+#     range) were never computed, so operators couldn't ground the
+#     LLM narrative against deterministic stats.
+#
+# The new flow:
+#   1. Parse all AIOs server-side (cheap — just regex).
+#   2. Compute file inventory (per-OriginalCSV record counts +
+#      schema), field inventory (cardinality + sample values per
+#      key), date range (FileDate min/max if present).
+#   3. Build a stratified sample (up to N records per file) so the
+#      LLM context spans the corpus instead of just its head.
+#   4. Ask Claude for a STRUCTURED JSON response with industry,
+#      categories, primary_entities, notable_patterns,
+#      data_quality_notes, suggested_analyses, AND an executive
+#      narrative.
+#   5. Return both the structural facts + the LLM's structured
+#      analysis. Frontend renders sections.
+#
+# Backward compat: SummarizeResponse.summary still contains the
+# executive narrative so old clients work unchanged.
+
+import re as _re_summarize
+
+
+def _parse_aio_elements(aio_text: str) -> List[tuple[str, str]]:
+    """Extract [Key.Value] tokens from a single AIO bracket string."""
+    elements: List[tuple[str, str]] = []
+    for match in _re_summarize.finditer(r"\[([^\]]+)\]", aio_text):
+        raw = match.group(1)
+        dot = raw.find(".")
+        if dot > 0:
+            elements.append((raw[:dot], raw[dot + 1:]))
+    return elements
+
+
+def _compute_corpus_stats(texts: List[str]) -> Dict[str, Any]:
+    """Deterministic structural analysis — runs in milliseconds."""
+    from collections import defaultdict, Counter
+
+    file_records: Dict[str, int] = defaultdict(int)
+    file_keys: Dict[str, set] = defaultdict(set)
+    field_occurrences: Counter = Counter()
+    field_values: Dict[str, set] = defaultdict(set)
+    field_samples: Dict[str, List[str]] = defaultdict(list)
+    file_dates: List[str] = []
+
+    META_KEYS = {"OriginalCSV", "FileDate", "FileTime"}
+
+    for text in texts:
+        elements = _parse_aio_elements(text)
+        # First pass: find OriginalCSV for grouping
+        original_csv = None
+        for k, v in elements:
+            if k == "OriginalCSV":
+                original_csv = v
+            elif k == "FileDate":
+                file_dates.append(v)
+        bucket = original_csv or "(unknown source)"
+        file_records[bucket] += 1
+        # Second pass: tally fields, but skip meta keys for the
+        # field inventory (those are housekeeping, not data).
+        for k, v in elements:
+            if k in META_KEYS:
+                continue
+            file_keys[bucket].add(k)
+            field_occurrences[k] += 1
+            field_values[k].add(v)
+            if len(field_samples[k]) < 5 and v and v not in field_samples[k]:
+                field_samples[k].append(v)
+
+    # Build inventory entries.
+    file_inventory = sorted(
+        [
+            {
+                "filename": fn,
+                "record_count": cnt,
+                "sample_keys": sorted(file_keys[fn])[:12],
+            }
+            for fn, cnt in file_records.items()
+        ],
+        key=lambda r: -r["record_count"],
+    )
+
+    # Top fields by occurrence — the most "load-bearing" keys.
+    top_fields = field_occurrences.most_common(40)
+    field_inventory = [
+        {
+            "key": k,
+            "occurrences": occ,
+            "distinct_values": len(field_values[k]),
+            "sample_values": field_samples[k],
+        }
+        for k, occ in top_fields
+    ]
+
+    date_range = None
+    if file_dates:
+        try:
+            valid_dates = sorted(d for d in file_dates if d and len(d) >= 10)
+            if valid_dates:
+                date_range = {"min": valid_dates[0][:10], "max": valid_dates[-1][:10]}
+        except Exception:
+            pass
+
+    return {
+        "file_inventory": file_inventory,
+        "field_inventory": field_inventory,
+        "date_range": date_range,
+    }
+
+
+def _stratified_sample(texts: List[str], per_file_cap: int = 30, total_cap: int = 400) -> List[str]:
+    """Take up to `per_file_cap` records from each OriginalCSV bucket so
+    the LLM sees representative coverage, not just the head."""
+    from collections import defaultdict
+
+    buckets: Dict[str, List[str]] = defaultdict(list)
+    for text in texts:
+        match = _re_summarize.search(r"\[OriginalCSV\.([^\]]+)\]", text)
+        bucket = match.group(1) if match else "(unknown)"
+        if len(buckets[bucket]) < per_file_cap:
+            buckets[bucket].append(text)
+
+    out: List[str] = []
+    for items in buckets.values():
+        out.extend(items)
+        if len(out) >= total_cap:
+            break
+    return out[:total_cap]
+
+
 @router.post("/v1/op/summarize", response_model=SummarizeResponse)
 def summarize(payload: SummarizeRequest, x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-Id")):
     logger.info("summarize tenant=%s aio_count=%d", x_tenant_id, len(payload.aio_texts or []))
@@ -249,32 +418,103 @@ def summarize(payload: SummarizeRequest, x_tenant_id: Optional[str] = Header(Non
     if not texts:
         raise HTTPException(status_code=400, detail="aio_texts must not be empty")
 
-    sample = texts[:200]
-    joined = "\n".join(sample)
+    # 1. Deterministic structural analysis (fast, no LLM).
+    stats = _compute_corpus_stats(texts)
+
+    # 2. Stratified sample so the LLM sees the whole corpus, not just
+    #    the first 200 rows of one file.
+    sample = _stratified_sample(texts, per_file_cap=30, total_cap=400)
+    joined_sample = "\n".join(sample)
+
+    # 3. Build a structural-facts block to ground the LLM.
+    facts_lines = [f"Total AIO records: {len(texts)}"]
+    if stats["date_range"]:
+        facts_lines.append(f"Date range: {stats['date_range']['min']} to {stats['date_range']['max']}")
+    facts_lines.append(f"Source files: {len(stats['file_inventory'])}")
+    for f in stats["file_inventory"][:15]:
+        facts_lines.append(f"  - {f['filename']}: {f['record_count']} records, keys: {', '.join(f['sample_keys'][:8])}")
+    facts_lines.append("\nTop data fields (key · occurrences · distinct values · sample):")
+    for f in stats["field_inventory"][:25]:
+        sv = ", ".join(f["sample_values"][:3])
+        facts_lines.append(f"  - {f['key']}: {f['occurrences']}× / {f['distinct_values']} distinct · e.g. {sv}")
+    facts_block = "\n".join(facts_lines)
+
+    # 4. LLM call — ask for STRUCTURED JSON output.
+    system_prompt = (
+        "You are a senior data analyst examining a corpus of Associated Information Objects (AIOs). "
+        "Each AIO is a bracketed key-value record like [Key.Value]. "
+        "You receive (a) a structural-facts block computed deterministically over the full corpus, "
+        "and (b) a stratified sample of actual AIO records spanning every source file.\n\n"
+        "Your job is to produce a comprehensive overview of the dataset. Identify what INDUSTRY or "
+        "DOMAIN this data belongs to, what CATEGORIES of data are represented (transactions, projects, "
+        "people, inventory, etc.), what TYPES of records are present, and the most important entities "
+        "and patterns. Be specific — name actual entities, vendors, project codes, statuses, etc. that "
+        "appear in the data.\n\n"
+        "Return ONLY a single JSON object with these keys:\n"
+        '  "industry"             — string. The industry/domain (e.g., "Construction project management", "Healthcare claims", "Retail inventory"). Be precise; one line.\n'
+        '  "categories"           — array of strings. Categories of data represented (e.g., ["Invoices", "Purchase orders", "Project assignments"]).\n'
+        '  "primary_entities"     — array of {"name": str, "type": str, "frequency": str}. The 5-10 most prominent entities (companies, projects, people, locations) with their type and how often they recur.\n'
+        '  "notable_patterns"     — array of strings. Operational patterns, status distributions, monetary or temporal clusters worth flagging.\n'
+        '  "data_quality_notes"   — array of strings. Missing values, format inconsistencies, outliers, suspected duplicates.\n'
+        '  "suggested_analyses"   — array of strings. Concrete questions or queries this dataset is well-positioned to answer.\n'
+        '  "executive_narrative"  — string. A 4-6 sentence prose overview suitable for a stakeholder briefing. Cite specific numbers and entity names.\n\n'
+        "Return only the JSON object — no markdown, no preamble, no code fences."
+    )
+
+    user_message = (
+        f"Structural facts about the corpus (computed deterministically):\n\n{facts_block}\n\n"
+        f"---\n\nStratified sample of AIO records ({len(sample)} of {len(texts)} total):\n\n{joined_sample}"
+    )
 
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model=get_default_model(),
-            max_tokens=1024,
-            system=(
-                "You are an Information Physics analyst specializing in Associated Information Objects (AIOs). "
-                "Each AIO is a bracketed key-value record: [Key.Value]. Summarize the provided AIO dataset concisely. "
-                "Identify dominant themes, key entities, value distributions, and semantic patterns. "
-                "Structure your summary with: Overview (2-3 sentences), Key Entities, Main Themes, Notable Patterns."
-            ),
-            messages=[{"role": "user", "content": f"Summarize this AIO dataset ({len(sample)} records):\n\n{joined}"}],
+            max_tokens=4096,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
         )
-        summary_text = response.content[0].text
+        raw_text = response.content[0].text.strip()
     except Exception as exc:
         logger.exception("Anthropic API error during summarize")
         raise HTTPException(status_code=502, detail=f"LLM error: {str(exc)}")
 
+    # 5. Parse the JSON. Be forgiving — strip markdown fences if the
+    #    model wraps its output despite our instructions.
+    parsed: Dict[str, Any] = {}
+    cleaned = raw_text
+    if cleaned.startswith("```"):
+        # Drop the first and last fence lines.
+        lines = cleaned.split("\n")
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+    try:
+        parsed = json.loads(cleaned)
+    except Exception:
+        logger.warning("summarize: structured JSON parse failed; falling back to narrative-only response")
+        parsed = {"executive_narrative": raw_text}
+
+    # 6. Build the response. Always populate `summary` for backward
+    #    compat (older callers expect it).
+    narrative = parsed.get("executive_narrative") or raw_text
     return SummarizeResponse(
-        summary=summary_text,
+        summary=narrative,
         model_ref=get_default_model(),
         aio_count=len(texts),
+        industry=parsed.get("industry"),
+        categories=parsed.get("categories") or [],
+        primary_entities=parsed.get("primary_entities") or [],
+        notable_patterns=parsed.get("notable_patterns") or [],
+        data_quality_notes=parsed.get("data_quality_notes") or [],
+        suggested_analyses=parsed.get("suggested_analyses") or [],
+        file_inventory=[FileInventoryEntry(**f) for f in stats["file_inventory"]],
+        field_inventory=[FieldStat(**f) for f in stats["field_inventory"]],
+        date_range=stats["date_range"],
+        sampled_records=len(sample),
     )
 
 

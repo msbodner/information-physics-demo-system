@@ -92,7 +92,47 @@ export async function listIOs(params?: ListIOParams): Promise<IORecord[]> {
   return result?.items ?? []
 }
 
-export async function summarizeAIOs(aioTexts: string[]): Promise<{ summary: string; aio_count: number } | null> {
+// V5.0.10+ — Comprehensive corpus summary. Backend now returns
+// structural facts (file/field inventory, date range) PLUS a
+// structured LLM analysis (industry, categories, entities, patterns,
+// recommendations). The narrative `summary` field is preserved for
+// backward compatibility.
+export interface SummarizeFileEntry {
+  filename: string
+  record_count: number
+  sample_keys: string[]
+}
+
+export interface SummarizeFieldStat {
+  key: string
+  occurrences: number
+  distinct_values: number
+  sample_values: string[]
+}
+
+export interface SummarizeEntity {
+  name: string
+  type: string
+  frequency: string
+}
+
+export interface SummarizeResult {
+  summary: string
+  aio_count: number
+  model_ref?: string
+  industry?: string | null
+  categories?: string[]
+  primary_entities?: SummarizeEntity[]
+  notable_patterns?: string[]
+  data_quality_notes?: string[]
+  suggested_analyses?: string[]
+  file_inventory?: SummarizeFileEntry[]
+  field_inventory?: SummarizeFieldStat[]
+  date_range?: { min: string; max: string } | null
+  sampled_records?: number
+}
+
+export async function summarizeAIOs(aioTexts: string[]): Promise<SummarizeResult | null> {
   return safeFetch("/api/op/summarize", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
 import { parseAioLine, type ConvertedFile, type ParsedAio, type ParsedElement } from "@/lib/aio-utils"
-import { summarizeAIOs, resolveEntities, listHslData, createIO, createHslData, listAioData, listInformationElements, type IORecord, type EntityItem, type HslDataRecord, type AioDataRecord, type InformationElement } from "@/lib/api-client"
+import { summarizeAIOs, resolveEntities, listHslData, createIO, createHslData, listAioData, listInformationElements, type IORecord, type EntityItem, type HslDataRecord, type AioDataRecord, type InformationElement, type SummarizeResult } from "@/lib/api-client"
 import { ChatAioDialog } from "@/components/chat-aio-dialog"
 
 export function SemanticProcessor({ files, downloadedFiles, onBack, backendIsOnline, onSysAdmin }: { files: ConvertedFile[]; downloadedFiles: string[]; onBack: () => void; backendIsOnline: boolean; onSysAdmin: () => void }) {
@@ -18,6 +18,7 @@ export function SemanticProcessor({ files, downloadedFiles, onBack, backendIsOnl
   const [hslData, setHslData] = useState<{ label: string; fileName: string; rows: { aioName: string; csvRoot: string; lineNumber: number; createdAt: string }[]; content: string } | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [summaryText, setSummaryText] = useState<string | null>(null)
+  const [summaryDetail, setSummaryDetail] = useState<SummarizeResult | null>(null)  // V5.0.10+
   const [isSummarizing, setIsSummarizing] = useState(false)
   const [entityData, setEntityData] = useState<EntityItem[] | null>(null)
   const [isExtractingEntities, setIsExtractingEntities] = useState(false)
@@ -88,8 +89,14 @@ export function SemanticProcessor({ files, downloadedFiles, onBack, backendIsOnl
   const handleSummarize = useCallback(async () => {
     if (!backendIsOnline) { toast.error("Backend offline — connect the backend to use AI summarization"); return }
     setIsSummarizing(true)
+    setSummaryDetail(null)
     const result = await summarizeAIOs(parsedAios.map((a) => a.raw))
-    setSummaryText(result?.summary ?? "Summary unavailable. Check backend connection.")
+    if (result) {
+      setSummaryDetail(result)
+      setSummaryText(result.summary || "Summary unavailable.")
+    } else {
+      setSummaryText("Summary unavailable. Check backend connection.")
+    }
     setIsSummarizing(false)
   }, [parsedAios, backendIsOnline])
 
@@ -258,16 +265,167 @@ export function SemanticProcessor({ files, downloadedFiles, onBack, backendIsOnl
           )}
         </div>
 
-        {/* Summary card */}
+        {/* V5.0.10+ — Comprehensive corpus summary card. The backend
+            now returns structural facts (file/field inventory, date
+            range) PLUS a structured LLM analysis (industry,
+            categories, entities, patterns, recommendations). Each
+            section renders only if the backend populated it. */}
         {summaryText && (
           <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
             <CardHeader className="py-3 shrink-0">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm flex items-center gap-2"><Cpu className="w-4 h-4 text-amber-600" />AI Summary</CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => setSummaryText(null)}><X className="w-3 h-3" /></Button>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <CardTitle className="text-sm flex items-center gap-2 flex-wrap">
+                  <Cpu className="w-4 h-4 text-amber-600" />
+                  Comprehensive AI Summary
+                  {summaryDetail?.industry && (
+                    <Badge variant="outline" className="border-amber-300 text-amber-900 bg-amber-100/50">
+                      {summaryDetail.industry}
+                    </Badge>
+                  )}
+                  {summaryDetail?.aio_count != null && summaryDetail.sampled_records != null && (
+                    <span className="text-[11px] font-normal text-muted-foreground">
+                      {summaryDetail.aio_count.toLocaleString()} records · LLM saw {summaryDetail.sampled_records} stratified sample
+                    </span>
+                  )}
+                </CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => { setSummaryText(null); setSummaryDetail(null) }}>
+                  <X className="w-3 h-3" />
+                </Button>
               </div>
             </CardHeader>
-            <CardContent className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{summaryText}</CardContent>
+            <CardContent className="space-y-4 text-sm text-foreground leading-relaxed">
+              {/* Executive narrative */}
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1">Executive Summary</p>
+                <p className="whitespace-pre-wrap">{summaryText}</p>
+              </div>
+
+              {/* Categories */}
+              {summaryDetail?.categories && summaryDetail.categories.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1">Categories of Data</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {summaryDetail.categories.map((c, i) => (
+                      <Badge key={i} variant="outline" className="border-amber-300 text-amber-900 bg-amber-100/50">{c}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Source files inventory */}
+              {summaryDetail?.file_inventory && summaryDetail.file_inventory.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1">
+                    Source Files ({summaryDetail.file_inventory.length})
+                    {summaryDetail.date_range && (
+                      <span className="ml-2 font-normal normal-case tracking-normal">
+                        · range {summaryDetail.date_range.min} → {summaryDetail.date_range.max}
+                      </span>
+                    )}
+                  </p>
+                  <ul className="space-y-0.5 text-xs">
+                    {summaryDetail.file_inventory.slice(0, 12).map((f, i) => (
+                      <li key={i} className="flex justify-between gap-3">
+                        <span className="font-mono truncate">{f.filename}</span>
+                        <span className="text-muted-foreground tabular-nums shrink-0">
+                          {f.record_count} record{f.record_count !== 1 ? "s" : ""}
+                        </span>
+                      </li>
+                    ))}
+                    {summaryDetail.file_inventory.length > 12 && (
+                      <li className="text-muted-foreground italic">
+                        … and {summaryDetail.file_inventory.length - 12} more
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
+
+              {/* Primary entities */}
+              {summaryDetail?.primary_entities && summaryDetail.primary_entities.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1">Primary Entities</p>
+                  <ul className="space-y-1 text-xs">
+                    {summaryDetail.primary_entities.map((e, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <span className="font-medium">{e.name}</span>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-muted-foreground italic">{e.type}</span>
+                        {e.frequency && (
+                          <>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="text-muted-foreground">{e.frequency}</span>
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Notable patterns */}
+              {summaryDetail?.notable_patterns && summaryDetail.notable_patterns.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1">Notable Patterns</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-xs">
+                    {summaryDetail.notable_patterns.map((p, i) => <li key={i}>{p}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {/* Data quality */}
+              {summaryDetail?.data_quality_notes && summaryDetail.data_quality_notes.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1">Data Quality Notes</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-xs">
+                    {summaryDetail.data_quality_notes.map((n, i) => <li key={i}>{n}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {/* Suggested analyses */}
+              {summaryDetail?.suggested_analyses && summaryDetail.suggested_analyses.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1">Suggested Analyses</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-xs">
+                    {summaryDetail.suggested_analyses.map((a, i) => <li key={i}>{a}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {/* Top fields (collapsible) */}
+              {summaryDetail?.field_inventory && summaryDetail.field_inventory.length > 0 && (
+                <details className="text-xs">
+                  <summary className="cursor-pointer font-semibold uppercase tracking-wide text-amber-800 text-[11px]">
+                    Top {Math.min(25, summaryDetail.field_inventory.length)} fields by occurrence (deterministic)
+                  </summary>
+                  <div className="mt-2 max-h-60 overflow-y-auto rounded border border-amber-200 bg-white/50">
+                    <table className="w-full text-[11px]">
+                      <thead className="bg-amber-100/50 text-amber-900">
+                        <tr>
+                          <th className="text-left px-2 py-1 font-medium">Key</th>
+                          <th className="text-right px-2 py-1 font-medium">Records</th>
+                          <th className="text-right px-2 py-1 font-medium">Distinct</th>
+                          <th className="text-left px-2 py-1 font-medium">Sample</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-amber-100">
+                        {summaryDetail.field_inventory.slice(0, 25).map((f, i) => (
+                          <tr key={i}>
+                            <td className="px-2 py-0.5 font-mono">{f.key}</td>
+                            <td className="px-2 py-0.5 text-right tabular-nums">{f.occurrences}</td>
+                            <td className="px-2 py-0.5 text-right tabular-nums">{f.distinct_values}</td>
+                            <td className="px-2 py-0.5 text-muted-foreground truncate max-w-[280px]" title={f.sample_values.join(", ")}>
+                              {f.sample_values.slice(0, 3).join(", ")}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              )}
+            </CardContent>
           </Card>
         )}
 
