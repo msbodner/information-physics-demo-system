@@ -100,6 +100,29 @@ export function PdfImportView({
     } catch { /* ignore */ }
   }, [])
 
+  // V5.0.8+ — Anthropic latency probe. Fired alongside the config
+  // diagnostic so the UI can tell the operator whether the slowness
+  // is in Anthropic itself (ping slow) or in our PDF pipeline (ping
+  // fast but extraction still hung).
+  const [anthropicPing, setAnthropicPing] = useState<{
+    ok: boolean
+    elapsed_seconds: number
+    model?: string
+    error?: string
+  } | null>(null)
+  const [pingInFlight, setPingInFlight] = useState(false)
+  const pingFetchedRef = useRef(false)
+  const fetchAnthropicPing = useCallback(async () => {
+    if (pingFetchedRef.current) return
+    pingFetchedRef.current = true
+    setPingInFlight(true)
+    try {
+      const res = await fetch("/api/diag/anthropic-ping", { cache: "no-store" })
+      if (res.ok) setAnthropicPing(await res.json())
+    } catch { /* ignore */ }
+    finally { setPingInFlight(false) }
+  }, [])
+
   // V5.0+ — Per-item AbortController registry. Lets the user click
   // Cancel on a stuck file without nuking the whole pump. Keyed by
   // QueueItem.id; the entry is wired up the moment we kick off the
@@ -386,6 +409,9 @@ export function PdfImportView({
             onCancel={() => cancelItem(item.id)}
             backendConfig={backendConfig}
             fetchBackendConfig={fetchBackendConfig}
+            anthropicPing={anthropicPing}
+            pingInFlight={pingInFlight}
+            fetchAnthropicPing={fetchAnthropicPing}
           />
         ))}
       </main>
@@ -405,6 +431,9 @@ function QueueItemCard({
   onCancel,
   backendConfig,
   fetchBackendConfig,
+  anthropicPing,
+  pingInFlight,
+  fetchAnthropicPing,
 }: {
   item: QueueItem
   onRemove: () => void
@@ -414,6 +443,9 @@ function QueueItemCard({
   onCancel: () => void
   backendConfig: { model: string; chunk_timeout_seconds: number; anthropic_api_key_configured: boolean } | null
   fetchBackendConfig: () => Promise<void>
+  anthropicPing: { ok: boolean; elapsed_seconds: number; model?: string; error?: string } | null
+  pingInFlight: boolean
+  fetchAnthropicPing: () => Promise<void>
 }) {
   const [showDetails, setShowDetails] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
@@ -437,6 +469,15 @@ function QueueItemCard({
       void fetchBackendConfig()
     }
   }, [item.status, elapsedMs, backendConfig, fetchBackendConfig])
+
+  // V5.0.8+ — auto-fire an Anthropic ping in parallel so we can tell
+  // the operator whether the slowness is upstream (Anthropic) or in
+  // our pipeline.
+  useEffect(() => {
+    if (item.status === "processing" && elapsedMs > 30_000 && !anthropicPing && !pingInFlight) {
+      void fetchAnthropicPing()
+    }
+  }, [item.status, elapsedMs, anthropicPing, pingInFlight, fetchAnthropicPing])
 
   const finalElapsedMs = item.finishedAt && item.startedAt
     ? item.finishedAt - item.startedAt
@@ -557,7 +598,9 @@ function QueueItemCard({
                 {/* V5.0.7+ — Live backend diagnostic. Auto-fetched after
                     30s of processing. Shows actual configured model so
                     the operator can immediately see if the backend is
-                    on Sonnet/Opus instead of Haiku. */}
+                    on Sonnet/Opus instead of Haiku. V5.0.8+ also runs
+                    an Anthropic ping in parallel to isolate whether
+                    slowness is upstream or in our pipeline. */}
                 {elapsedMs > 30_000 && backendConfig && (
                   <div className={`mt-2 rounded border p-2 text-xs ${
                     backendConfig.model === "claude-haiku-4-5"
@@ -580,6 +623,61 @@ function QueueItemCard({
                       <p className="mt-1 leading-relaxed text-red-900">
                         ANTHROPIC_API_KEY is not configured on the backend. Open System Admin → API Key.
                       </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Anthropic latency probe. */}
+                {elapsedMs > 30_000 && (
+                  <div className={`mt-2 rounded border p-2 text-xs ${
+                    !anthropicPing
+                      ? "border-blue-200 bg-blue-50 text-blue-900"
+                      : !anthropicPing.ok
+                      ? "border-red-300 bg-red-50 text-red-900"
+                      : anthropicPing.elapsed_seconds < 3
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                      : anthropicPing.elapsed_seconds < 10
+                      ? "border-amber-200 bg-amber-50 text-amber-900"
+                      : "border-red-300 bg-red-50 text-red-900"
+                  }`}>
+                    {!anthropicPing && pingInFlight && (
+                      <p className="flex items-center gap-1.5">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Probing Anthropic latency…
+                      </p>
+                    )}
+                    {anthropicPing && !anthropicPing.ok && (
+                      <>
+                        <p className="font-medium">Anthropic ping failed after {anthropicPing.elapsed_seconds}s</p>
+                        <p className="mt-1 leading-relaxed">
+                          {anthropicPing.error ?? "Unknown error"}. The PDF extraction is hitting the same
+                          backend; that's why it's hung. Check API key, network, and Anthropic status.
+                        </p>
+                      </>
+                    )}
+                    {anthropicPing && anthropicPing.ok && (
+                      <>
+                        <p className="font-medium">
+                          Anthropic ping: <span className="font-mono">{anthropicPing.elapsed_seconds}s</span> on{" "}
+                          <span className="font-mono">{anthropicPing.model}</span>
+                          {anthropicPing.elapsed_seconds < 3 && " — Anthropic is responding normally"}
+                          {anthropicPing.elapsed_seconds >= 3 && anthropicPing.elapsed_seconds < 10 && " — Anthropic is moderately slow today"}
+                          {anthropicPing.elapsed_seconds >= 10 && " — Anthropic is very slow / queueing"}
+                        </p>
+                        {anthropicPing.elapsed_seconds < 3 && (
+                          <p className="mt-1 leading-relaxed">
+                            Anthropic itself is fast. The slowness is in the PDF pipeline (large file,
+                            many chunks, image-heavy pages, or DB writes). Consider breaking the PDF
+                            into smaller files.
+                          </p>
+                        )}
+                        {anthropicPing.elapsed_seconds >= 10 && (
+                          <p className="mt-1 leading-relaxed">
+                            Anthropic is slow today — this affects your PDF extraction. Try again in a
+                            few minutes, or check status.anthropic.com.
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 )}

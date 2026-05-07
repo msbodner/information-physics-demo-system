@@ -1923,6 +1923,56 @@ def diag_pdf_config():
     }
 
 
+@router.get("/v1/diag/anthropic-ping")
+def diag_anthropic_ping():
+    """Diagnostic: time a minimal Anthropic Haiku request end-to-end.
+
+    Lets operators isolate where slowness lives: if the ping is fast
+    (<2s) but PDF extraction is slow, the bottleneck is in our PDF
+    pipeline (chunking, DB writes, document encoding). If the ping
+    itself is slow, Anthropic / network is the bottleneck.
+
+    Sends a 'hi' message; returns elapsed time + model used + the
+    SDK's input/output token counts so we can sanity-check the
+    response actually came back.
+    """
+    api_key = get_effective_api_key()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
+    try:
+        import anthropic
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"anthropic SDK missing: {str(e)}")
+
+    pdf_model = os.environ.get("PDF_EXTRACT_MODEL", "claude-haiku-4-5")
+    client = anthropic.Anthropic(api_key=api_key, timeout=30.0, max_retries=0)
+    t0 = time.time()
+    try:
+        response = client.messages.create(
+            model=pdf_model,
+            max_tokens=10,
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        elapsed = time.time() - t0
+        return {
+            "ok": True,
+            "model": pdf_model,
+            "elapsed_seconds": round(elapsed, 2),
+            "input_tokens": getattr(response.usage, "input_tokens", 0) or 0,
+            "output_tokens": getattr(response.usage, "output_tokens", 0) or 0,
+            "response_text": response.content[0].text if response.content else "",
+        }
+    except Exception as e:
+        elapsed = time.time() - t0
+        logger.warning("anthropic-ping failed after %.1fs: %s", elapsed, e)
+        return {
+            "ok": False,
+            "model": pdf_model,
+            "elapsed_seconds": round(elapsed, 2),
+            "error": str(e)[:300],
+        }
+
+
 @router.post("/v1/op/pdf-extract")
 async def pdf_extract(
     file: UploadFile = File(...),
