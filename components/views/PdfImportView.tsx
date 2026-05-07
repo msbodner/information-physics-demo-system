@@ -183,13 +183,31 @@ export function PdfImportView({
   // looks at the first PENDING item and processes it; on completion it
   // updates state, which retriggers the effect to pick up the next.
   // Empty/error/done queue → effect short-circuits.
+  // V5.0.9+ — pump kicks off via a "tick" counter, not the queue itself.
+  //
+  // The previous design depended on `[queue, isProcessingAny]`. Each
+  // setQueue inside the effect (to flip pending → processing) caused
+  // the effect to tear down + rerun, which fired its cleanup. The
+  // cleanup set a `cancelled` flag in the in-flight fetch's closure,
+  // so when the fetch resolved 9s later the .then handler hit
+  // `if (cancelled) return` and never updated the UI to success. The
+  // backend extracted and persisted the PDF correctly; the UI was
+  // permanently stuck on "Working…".
+  //
+  // Fix: drop the cleanup-based cancel-on-rerender entirely. Use a
+  // monotonic `pumpTick` ref to retrigger the effect ONLY when we
+  // explicitly want to (after a completion/error). The effect picks
+  // the next pending item and kicks off a fetch whose `.then` always
+  // runs to completion. The setQueue updater inside .then is
+  // idempotent — it only mutates the row if it's still in `processing`,
+  // so legitimately-cancelled / removed items don't get clobbered.
   const isProcessingAny = queue.some((q) => q.status === "processing")
+  const [pumpTick, setPumpTick] = useState(0)
   useEffect(() => {
     if (isProcessingAny) return
     const next = queue.find((q) => q.status === "pending")
     if (!next) return
 
-    let cancelled = false
     const controller = new AbortController()
     activeControllersRef.current.set(next.id, controller)
     setQueue((prev) => prev.map((q) =>
@@ -208,11 +226,14 @@ export function PdfImportView({
       signal: controller.signal,
       timeoutMs: 480_000,
     }).then((data) => {
-      if (cancelled) return
       activeControllersRef.current.delete(next.id)
       const finishedAt = Date.now()
       setQueue((prev) => prev.map((q) => {
         if (q.id !== next.id) return q
+        // Idempotency guard: only update if still processing. If the
+        // item was removed or already transitioned (e.g. retried),
+        // leave it alone.
+        if (q.status !== "processing") return q
         if (!data) {
           return { ...q, status: "error", error: "Backend unreachable. Is the API running?", finishedAt }
         }
@@ -240,13 +261,16 @@ export function PdfImportView({
         }
         return { ...q, status: "success", result: data, finishedAt }
       }))
+      // Bump the pump so the next pending item gets picked up.
+      setPumpTick((t) => t + 1)
     })
 
-    return () => {
-      cancelled = true
-      activeControllersRef.current.delete(next.id)
-    }
-  }, [queue, isProcessingAny])
+    // No cleanup-based cancellation. Cancel button uses the
+    // AbortController directly, which causes extractPdfToCsv to
+    // reject with AbortError → handled in the .then's error branch
+    // above. Component unmount is handled by React silently
+    // ignoring the resulting setQueue.
+  }, [pumpTick, isProcessingAny])
 
   // V5.0+ — Cancel a processing item. Aborts the fetch; the pump's
   // .then handler will land in the "error" branch with cancelled=true.
@@ -275,6 +299,8 @@ export function PdfImportView({
         status: "pending" as Status,
       })),
     ])
+    // Bump the pump so the effect re-evaluates and starts processing.
+    setPumpTick((t) => t + 1)
   }, [])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -293,6 +319,7 @@ export function PdfImportView({
     setQueue((prev) => prev.map((q) =>
       q.id === id ? { ...q, status: "pending", error: undefined, startedAt: undefined, finishedAt: undefined } : q,
     ))
+    setPumpTick((t) => t + 1)
   }, [])
 
   const importItem = useCallback((item: QueueItem) => {
