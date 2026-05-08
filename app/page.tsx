@@ -19,6 +19,7 @@ import { AIOReferencePaper } from "@/components/views/AIOReferencePaper"
 import { MROReferencePaper } from "@/components/views/MROReferencePaper"
 import { PaperIII } from "@/components/views/PaperIII"
 import { BulkHslTechnote } from "@/components/views/BulkHslTechnote"
+import { BulkHslProcessTechnoteV51 } from "@/components/views/BulkHslProcessTechnoteV51"
 import { SearchModesTechnote } from "@/components/views/SearchModesTechnote"
 import { createIO, listIOs, createAioData, loginUser, rebuildHslsFromAios, pruneHsls, type IORecord, type LoginResult } from "@/lib/api-client"
 import {
@@ -37,7 +38,7 @@ import { parseCSV, csvToAio, reconstructCsvFromAios, parseAioLine, type Converte
 
 type View =
   | "home" | "converter" | "guide" | "workflow" | "reference"
-  | "processor" | "paper" | "mro-paper" | "paper-iii" | "bulk-hsl-technote" | "search-modes-technote" | "sysadmin" | "rnd" | "pdf-import" | "image-import" | "search-stats"
+  | "processor" | "paper" | "mro-paper" | "paper-iii" | "bulk-hsl-technote" | "bulk-hsl-process-v51" | "search-modes-technote" | "sysadmin" | "rnd" | "pdf-import" | "image-import" | "search-stats"
 
 // ── Main Page ────────────────────────────────────────────────────────
 
@@ -330,6 +331,7 @@ export default function HomePage() {
   if (currentView === "mro-paper") return <MROReferencePaper onBack={() => setCurrentView("sysadmin")} onSysAdmin={handleSystemClick} />
   if (currentView === "paper-iii") return <PaperIII onBack={() => setCurrentView("sysadmin")} onSysAdmin={handleSystemClick} />
   if (currentView === "bulk-hsl-technote") return <BulkHslTechnote onBack={() => setCurrentView("sysadmin")} onSysAdmin={handleSystemClick} />
+  if (currentView === "bulk-hsl-process-v51") return <BulkHslProcessTechnoteV51 onBack={() => setCurrentView("sysadmin")} onSysAdmin={handleSystemClick} />
   if (currentView === "search-modes-technote") return <SearchModesTechnote onBack={() => setCurrentView("sysadmin")} onSysAdmin={handleSystemClick} />
   if (currentView === "processor") return <SemanticProcessor files={convertedFiles} downloadedFiles={downloadedFileNames} onBack={() => setCurrentView("converter")} backendIsOnline={backendIsOnline} onSysAdmin={handleSystemClick} />
   if (currentView === "sysadmin") return <SystemManagement onBack={() => setCurrentView("home")} onNavigate={(v) => { setSysAdminTab("references"); setCurrentView(v) }} activeTab={sysAdminTab} onTabChange={setSysAdminTab} />
@@ -366,7 +368,7 @@ export default function HomePage() {
                 <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
                   <Database className="w-5 h-5 text-primary-foreground" />
                 </div>
-                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V5.0</h1>
+                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V5.1</h1>
               </div>
               <div className="flex items-center gap-3">
                 <BackendStatusBadge />
@@ -399,7 +401,7 @@ export default function HomePage() {
         {/* Hero */}
         <section className="max-w-6xl mx-auto px-6 py-12 text-center">
           <div className="max-w-3xl mx-auto">
-            <h2 className="text-4xl font-bold text-foreground mb-2">AIO/HSL/MRO Demo System V5.0</h2>
+            <h2 className="text-4xl font-bold text-foreground mb-2">AIO/HSL/MRO Demo System V5.1</h2>
             <p className="text-lg text-muted-foreground mb-2">by InformationPhysics.ai</p>
             <p className="text-lg text-muted-foreground mb-10 text-center">
               A fully operational prototype for the new Quantum Cognition Architecture — the next generation of Artificial Intelligence.
@@ -573,7 +575,7 @@ export default function HomePage() {
             <button onClick={() => { setCurrentView("home"); handleClear() }} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
               <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center"><Database className="w-5 h-5 text-primary-foreground" /></div>
               <div className="text-left">
-                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V5.0</h1>
+                <h1 className="text-xl font-bold text-foreground">AIO/HSL/MRO Demo System V5.1</h1>
                 <p className="text-xs text-muted-foreground">by InformationPhysics.ai</p>
               </div>
             </button>

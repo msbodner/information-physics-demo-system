@@ -25,7 +25,7 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
                 <p className="text-xs text-muted-foreground">by InformationPhysics.ai</p>
               </div>
             </div>
-            <div className="text-xs font-mono text-muted-foreground">V5.0</div>
+            <div className="text-xs font-mono text-muted-foreground">V5.1</div>
           </div>
         </div>
       </header>
@@ -37,7 +37,7 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
             <Globe className="w-4 h-4" />
             Information Physics Standard Model
           </div>
-          <h2 className="text-5xl font-bold text-foreground mb-3">AIO/HSL/MRO Demo System V5.0</h2>
+          <h2 className="text-5xl font-bold text-foreground mb-3">AIO/HSL/MRO Demo System V5.1</h2>
           <p className="text-lg text-muted-foreground mb-2">by InformationPhysics.ai</p>
           <p className="text-lg text-muted-foreground mb-10 leading-relaxed text-center">
             A fully operational prototype for the new Quantum Cognition Architecture — the next
@@ -122,7 +122,7 @@ export function SplashScreen({ onEnter }: SplashScreenProps) {
           </Button>
           <p className="text-xs text-muted-foreground">
             <Database className="w-3 h-3 inline mr-1" />
-            V5.0 — Exhaustive Live mode (chunked map-reduce synthesis with structured JSON output), guaranteed completeness on enumeration queries, operator-picked chunk model (Haiku/Sonnet/Opus), partial-results return with coverage warning
+            V5.1 — PDF Import freeze fix (React useEffect race), comprehensive Summarize All (industry/categories/entities/patterns), imported_pdfs persistence + System Admin pane, duplicate detection on PDF upload, Bulk HSL Process technote (As-Built reference). Builds on V5.0&apos;s Exhaustive Live mode.
           </p>
         </div>
       </section>

@@ -22,6 +22,7 @@ export type ViewKey =
   | "mro-paper"
   | "paper-iii"
   | "bulk-hsl-technote"
+  | "bulk-hsl-process-v51"
   | "search-modes-technote"
   | "sysadmin"
 
@@ -71,7 +72,7 @@ interface AppSidebarProps {
   username?: string | null
 }
 
-export function AppSidebar({ currentView, onNavigate, backendIsOnline, version = "V5.0", username }: AppSidebarProps) {
+export function AppSidebar({ currentView, onNavigate, backendIsOnline, version = "V5.1", username }: AppSidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
 

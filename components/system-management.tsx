@@ -4360,7 +4360,7 @@ function ArchitecturePane() {
           <rect x="920" y="693" width="14" height="14" rx="2" fill="#FEF9C3" stroke="#CA8A04" strokeWidth="1.5" strokeDasharray="3,2"/><text x="940" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#854D0E" fontWeight="bold">SKOs</text><text x="970" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">Future abstractions</text>
           <line x1="1100" y1="700" x2="1130" y2="700" stroke="#DC2626" strokeWidth="2.5" strokeDasharray="5,3"/><text x="1140" y="704" fontFamily="Arial,sans-serif" fontSize="10" fill="#DC2626" fontWeight="bold">Recursive Loop</text><text x="1240" y="704" fontFamily="Arial,sans-serif" fontSize="9" fill="#475569">MROs feed back</text>
 
-          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO/HSL/MRO Demo System V5.0</text>
+          <text x="700" y="740" textAnchor="middle" fontFamily="Arial,sans-serif" fontSize="9" fill="#94A3B8">© 2026 InformationPhysics.ai, LLC — Michael Simon Bodner, Ph.D. — AIO/HSL/MRO Demo System V5.1</text>
         </svg>
       </div>
     </div>
@@ -4647,6 +4647,13 @@ export function SystemManagement({ onBack, onNavigate, activeTab, onTabChange }:
                         icon: <Layers className="w-6 h-6 text-rose-700" />,
                         title: "Technical Notes — Bulk HSL Build",
                         desc: "Confidential / Trade-Secret engineering reference for the tenant-wide HSL reconstruction function (POST /v1/hsl-data/rebuild-from-aios). Subject to NDA on file.",
+                        color: "border-rose-300/50 hover:border-rose-400",
+                      },
+                      {
+                        view: "bulk-hsl-process-v51",
+                        icon: <Layers className="w-6 h-6 text-rose-700" />,
+                        title: "Bulk HSL Process — V5.1 As-Built",
+                        desc: "Plain-English engineering note describing how HSLs come into existence in V5.1 — covering both the inline synth_hsls_for_aio path that fires on every AIO write and the one-shot Bulk HSL Build button. Documents the ≥2-AIO seed gate, the skip-value noise list, the 2-character length floor, the additive-only invariant, the 1M-write safety cap on bulk runs, and exact counter semantics. Companion to the V4.4 deeper engineering reference. Subject to NDA on file.",
                         color: "border-rose-300/50 hover:border-rose-400",
                       },
                       {
