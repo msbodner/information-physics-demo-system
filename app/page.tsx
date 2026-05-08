@@ -13,6 +13,7 @@ import { WorkflowDescription } from "@/components/views/WorkflowDescription"
 import { ReferencePage } from "@/components/views/ReferencePage"
 import { SemanticProcessor } from "@/components/views/SemanticProcessor"
 import { PdfImportView } from "@/components/views/PdfImportView"
+import { ImageImportView } from "@/components/views/ImageImportView"
 import { ResearchAndDevelopment } from "@/components/views/ResearchAndDevelopment"
 import { AIOReferencePaper } from "@/components/views/AIOReferencePaper"
 import { MROReferencePaper } from "@/components/views/MROReferencePaper"
@@ -23,7 +24,7 @@ import { createIO, listIOs, createAioData, loginUser, rebuildHslsFromAios, prune
 import {
   Database, ArrowRight, Layers, Cpu, Globe, BookOpen, FileText, Zap,
   Settings, FileSpreadsheet, LogOut, Lock, Eye, EyeOff, MessageSquare,
-  Upload, Brain, Loader2, BarChart2, ArrowLeft, Scissors,
+  Upload, Brain, Loader2, BarChart2, ArrowLeft, Scissors, Image as ImageIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -36,7 +37,7 @@ import { parseCSV, csvToAio, reconstructCsvFromAios, parseAioLine, type Converte
 
 type View =
   | "home" | "converter" | "guide" | "workflow" | "reference"
-  | "processor" | "paper" | "mro-paper" | "paper-iii" | "bulk-hsl-technote" | "search-modes-technote" | "sysadmin" | "rnd" | "pdf-import" | "search-stats"
+  | "processor" | "paper" | "mro-paper" | "paper-iii" | "bulk-hsl-technote" | "search-modes-technote" | "sysadmin" | "rnd" | "pdf-import" | "image-import" | "search-stats"
 
 // ── Main Page ────────────────────────────────────────────────────────
 
@@ -334,6 +335,7 @@ export default function HomePage() {
   if (currentView === "sysadmin") return <SystemManagement onBack={() => setCurrentView("home")} onNavigate={(v) => { setSysAdminTab("references"); setCurrentView(v) }} activeTab={sysAdminTab} onTabChange={setSysAdminTab} />
   if (currentView === "rnd") return <ResearchAndDevelopment onBack={() => setCurrentView("home")} backendIsOnline={backendIsOnline} onSysAdmin={handleSystemClick} />
   if (currentView === "pdf-import") return <PdfImportView onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} onImportCsv={(csvData) => { setConvertedFiles((prev) => [...prev, csvData]); setCurrentView("converter") }} />
+  if (currentView === "image-import") return <ImageImportView onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} onImportCsv={(csvData) => { setConvertedFiles((prev) => [...prev, csvData]); setCurrentView("converter") }} />
   if (currentView === "search-stats") return (
     <div className="min-h-screen bg-background">
       <header className="bg-[#1e3a5f] text-white px-6 py-4 flex items-center justify-between">
@@ -412,6 +414,11 @@ export default function HomePage() {
             {backendIsOnline && (
               <Button size="lg" variant="outline" onClick={() => setCurrentView("pdf-import")} className="gap-2 px-8">
                 <Upload className="w-4 h-4" />Import PDFs→CSVs
+              </Button>
+            )}
+            {backendIsOnline && (
+              <Button size="lg" variant="outline" onClick={() => setCurrentView("image-import")} className="gap-2 px-8">
+                <ImageIcon className="w-4 h-4" />Import Images→CSVs
               </Button>
             )}
             <Button size="lg" variant="outline" onClick={async () => { await handleLoadFromBackend(); setCurrentView("processor") }} className="gap-2 px-8">

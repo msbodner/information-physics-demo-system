@@ -2581,6 +2581,219 @@ async def pdf_extract(
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Image → CSV extraction.
+#
+# Sibling to /v1/op/pdf-extract. Takes a single image (PNG/JPEG/WEBP/
+# GIF) and asks Claude Vision to enumerate visible products / objects
+# into a fixed-shape CSV (Item, Category, Description, sizing, colors,
+# material, condition, cost range, brand match, match URL, confidence,
+# notes, tags). One row per identified item.
+#
+# Optional `match_products=true` enables Anthropic's server-side
+# web_search_20260209 tool so the model can look up likely product
+# matches and cite a URL. When enabled, the SDK loop may pause-turn
+# while the search runs; we walk up to 3 pause-turn iterations before
+# giving up.
+#
+# Direct-CSV output (no structured-outputs / json_schema). Consistent
+# with how pdf_extract speaks to the model — keeps the contract simple
+# and avoids the structured-outputs ↔ web-search incompatibility
+# (citations).
+IMAGE_EXTRACT_HEADERS: list[str] = [
+    "Item", "Category", "Description", "Text / Brand", "Qty",
+    "Size", "Colors", "Material", "Condition", "Low $", "High $",
+    "Product Match", "Match URL", "Confidence", "Notes", "Tags",
+]
+
+_IMAGE_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+@router.post("/v1/op/image-extract")
+async def image_extract(
+    file: UploadFile = File(...),
+    match_products: Optional[str] = None,
+    location: Optional[str] = None,
+    extra_context: Optional[str] = None,
+):
+    """Extract product / inventory rows from an image using Claude Vision.
+
+    Form fields:
+        file              required — PNG/JPEG/WEBP/GIF, ≤30MB
+        match_products    "true"|"false" (default false) — opt into web search
+        location          market context, defaults to "United States"
+        extra_context     free-form additional instructions
+
+    Returns the same {csv_text, headers, rows, document_count, filename,
+    elapsed_seconds, model} shape as /v1/op/pdf-extract so the frontend
+    queue card / converter import path is identical.
+    """
+    api_key = get_effective_api_key()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename")
+
+    name_lower = file.filename.lower()
+    media_type = next(
+        (mt for ext, mt in _IMAGE_MEDIA_TYPES.items() if name_lower.endswith(ext)),
+        None,
+    )
+    if media_type is None:
+        raise HTTPException(status_code=400, detail="File must be PNG, JPEG, WEBP, or GIF")
+
+    img_bytes = await file.read()
+    if len(img_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(img_bytes) > 30 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large (max 30MB)")
+
+    img_b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
+
+    do_match = (match_products or "").strip().lower() in ("true", "1", "yes", "on")
+    market = (location or "").strip() or "United States"
+    extras = (extra_context or "").strip()
+
+    image_model = os.environ.get("IMAGE_EXTRACT_MODEL", "claude-opus-4-7")
+
+    headers_csv = ",".join(IMAGE_EXTRACT_HEADERS)
+    base_rules = [
+        "Analyze this image for visible purchasable objects, labels, fixtures, packaging, furniture, apparel, tools, electronics, decor, parts, and other inventory-worthy elements.",
+        "Output ONLY a CSV — no markdown fences, no commentary, no preamble.",
+        f"Use these EXACT column headers as the first row, in this order:\n{headers_csv}",
+        "One row per identified item. Use an empty string when a value is unknown rather than guessing strongly.",
+        "For Low $ and High $, give a broad retail/resale USD range (numbers only, no currency symbol).",
+        "Confidence ∈ {high, medium, low, unknown}.",
+        "Quote any field containing a comma, double-quote, or newline; double-up internal quotes.",
+        "If no extractable items are visible, output only the header row.",
+        f"Market/location context: {market}.",
+    ]
+    if do_match:
+        base_rules.append(
+            "Use the web_search tool to find likely product matches or close equivalents; "
+            "include a URL in Match URL only when you have a real source."
+        )
+    else:
+        base_rules.append(
+            "Do not browse the web. Leave Match URL empty and identify matches only from "
+            "visible text or general knowledge."
+        )
+    if extras:
+        base_rules.append(f"Additional instructions: {extras}")
+
+    prompt = "\n".join(base_rules)
+
+    try:
+        import anthropic
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"anthropic SDK missing: {str(e)}")
+
+    client = anthropic.Anthropic(api_key=api_key, timeout=240, max_retries=1)
+
+    request_kwargs: Dict[str, Any] = {
+        "model": image_model,
+        "max_tokens": 8000,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": img_b64,
+                    },
+                },
+                {"type": "text", "text": prompt},
+            ],
+        }],
+    }
+    if do_match:
+        request_kwargs["tools"] = [{
+            "type": "web_search_20260209",
+            "name": "web_search",
+            "user_location": {"type": "approximate", "country": "US"},
+        }]
+
+    overall_start = time.time()
+    logger.info(
+        "image_extract starting: file=%s size=%dKB model=%s match_products=%s",
+        file.filename, len(img_bytes) // 1024, image_model, do_match,
+    )
+
+    # pause_turn loop — server-side web_search may iterate; cap at 3.
+    messages = list(request_kwargs["messages"])
+    response = None
+    for attempt in range(3):
+        try:
+            response = client.messages.create(**{**request_kwargs, "messages": messages})
+        except Exception as e:
+            err = str(e)
+            logger.error("image_extract Anthropic call failed: %s", err)
+            raise HTTPException(status_code=502, detail=f"Claude API error: {err}")
+        if getattr(response, "stop_reason", None) == "pause_turn":
+            messages = [
+                *messages,
+                {"role": "assistant", "content": [b.model_dump() for b in response.content]},
+            ]
+            continue
+        break
+
+    if response is None or getattr(response, "stop_reason", None) == "pause_turn":
+        raise HTTPException(status_code=504, detail="Web search exceeded max iterations")
+
+    text_chunks: list[str] = []
+    for block in response.content:
+        if getattr(block, "type", None) == "text" and getattr(block, "text", None):
+            text_chunks.append(block.text)
+    output_text = "".join(text_chunks).strip()
+
+    if not output_text:
+        raise HTTPException(status_code=502, detail="Model returned no text output")
+
+    # Strip stray markdown fences if the model added them despite instructions.
+    if output_text.startswith("```"):
+        lines = [l for l in output_text.split("\n") if not l.startswith("```")]
+        output_text = "\n".join(lines).strip()
+
+    parsed = list(csv_mod.reader(io.StringIO(output_text)))
+    if not parsed:
+        raise HTTPException(status_code=502, detail="Model output did not parse as CSV")
+
+    out_headers = parsed[0]
+    out_rows = parsed[1:]
+
+    # Re-serialize so the response csv_text is canonically formatted.
+    out_buf = io.StringIO()
+    writer = csv_mod.writer(out_buf)
+    writer.writerow(out_headers)
+    writer.writerows(out_rows)
+    csv_text = out_buf.getvalue().strip()
+
+    elapsed = time.time() - overall_start
+    logger.info(
+        "image_extract COMPLETE: file=%s rows=%d elapsed=%.1fs",
+        file.filename, len(out_rows), elapsed,
+    )
+
+    return {
+        "csv_text": csv_text,
+        "headers": out_headers,
+        "rows": out_rows,
+        "document_count": len(out_rows),
+        "filename": file.filename,
+        "elapsed_seconds": round(elapsed, 1),
+        "model": image_model,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
 # V5.0.2+ — Streaming PDF extraction.
 #
 # The non-streaming /v1/op/pdf-extract handler kept the HTTP request

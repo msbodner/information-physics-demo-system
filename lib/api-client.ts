@@ -1924,6 +1924,74 @@ export async function extractPdfToCsv(
 }
 
 // ---------------------------------------------------------------------------
+// Image extraction (sibling of extractPdfToCsv)
+// ---------------------------------------------------------------------------
+
+export interface ImageExtractResult {
+  csv_text: string
+  headers: string[]
+  rows: string[][]
+  document_count: number
+  filename: string
+  elapsed_seconds?: number
+  model?: string
+}
+
+// Same hard-timeout + AbortSignal contract as extractPdfToCsv. Default
+// 240s ceiling is generous for vision + adaptive thinking; can override
+// when web-search is enabled (it iterates and takes longer).
+export async function extractImageToCsv(
+  file: File,
+  opts: {
+    signal?: AbortSignal
+    timeoutMs?: number
+    matchProducts?: boolean
+    location?: string
+    extraContext?: string
+  } = {},
+): Promise<ImageExtractResult | { error: string } | null> {
+  const timeoutMs = opts.timeoutMs ?? 240_000
+  const ac = new AbortController()
+  const timeoutId = setTimeout(() => {
+    ac.abort(new DOMException("ImageExtractTimeout", "TimeoutError"))
+  }, timeoutMs)
+  if (opts.signal) {
+    if (opts.signal.aborted) ac.abort(opts.signal.reason)
+    else opts.signal.addEventListener("abort", () => ac.abort(opts.signal!.reason), { once: true })
+  }
+  try {
+    const formData = new FormData()
+    formData.append("file", file)
+    if (opts.matchProducts) formData.append("match_products", "true")
+    if (opts.location) formData.append("location", opts.location)
+    if (opts.extraContext) formData.append("extra_context", opts.extraContext)
+    const res = await fetch("/api/op/image-extract", {
+      method: "POST",
+      body: formData,
+      signal: ac.signal,
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      const detail: string = body?.detail ?? body?.error ?? `HTTP ${res.status}`
+      return { error: detail }
+    }
+    return res.json()
+  } catch (err) {
+    if (err instanceof DOMException) {
+      if (err.name === "TimeoutError") {
+        return { error: `Extraction exceeded ${Math.round(timeoutMs / 1000)}s — try a smaller image or disable product matching.` }
+      }
+      if (err.name === "AbortError") {
+        return { error: "Cancelled by operator" }
+      }
+    }
+    return null
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Demo Reset / Backup / Restore
 // ---------------------------------------------------------------------------
 
