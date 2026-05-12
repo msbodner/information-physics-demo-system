@@ -32,6 +32,10 @@ class ChatStatRequest(BaseModel):
     neighborhood_size: int = 0
     prior_count: int = 0
     mro_saved: bool = False
+    # Audit fields for Model + Smart Search columns in Search Stats. Both optional so legacy
+    # clients (and the historical demo system) keep working.
+    model_used: Optional[str] = None
+    smart_search_used: bool = False
 
 
 class ChatStatOut(BaseModel):
@@ -51,6 +55,8 @@ class ChatStatOut(BaseModel):
     neighborhood_size: int
     prior_count: int
     mro_saved: bool
+    model_used: Optional[str] = None
+    smart_search_used: bool = False
     created_at: str
 
 
@@ -69,7 +75,8 @@ def list_chat_stats(
                     SELECT stat_id, tenant_id, search_mode, query_text, result_preview,
                            elapsed_ms, input_tokens, output_tokens, total_tokens,
                            context_records, matched_hsls, matched_aios,
-                           cue_count, neighborhood_size, prior_count, mro_saved, created_at
+                           cue_count, neighborhood_size, prior_count, mro_saved,
+                           model_used, smart_search_used, created_at
                     FROM chat_search_stats
                     WHERE tenant_id = %s
                     ORDER BY created_at DESC
@@ -90,7 +97,10 @@ def list_chat_stats(
             context_records=r[9] or 0, matched_hsls=r[10] or 0,
             matched_aios=r[11] or 0, cue_count=r[12] or 0,
             neighborhood_size=r[13] or 0, prior_count=r[14] or 0,
-            mro_saved=bool(r[15]), created_at=str(r[16]),
+            mro_saved=bool(r[15]),
+            model_used=r[16],
+            smart_search_used=bool(r[17]) if r[17] is not None else False,
+            created_at=str(r[18]),
         )
         for r in rows
     ]
@@ -114,8 +124,9 @@ def create_chat_stat(
                         stat_id, tenant_id, search_mode, query_text, result_preview,
                         elapsed_ms, input_tokens, output_tokens, total_tokens,
                         context_records, matched_hsls, matched_aios,
-                        cue_count, neighborhood_size, prior_count, mro_saved, created_at
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        cue_count, neighborhood_size, prior_count, mro_saved,
+                        model_used, smart_search_used, created_at
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     """,
                     (
                         stat_id, tenant, payload.search_mode, payload.query_text,
@@ -123,7 +134,9 @@ def create_chat_stat(
                         payload.input_tokens, payload.output_tokens, payload.total_tokens,
                         payload.context_records, payload.matched_hsls, payload.matched_aios,
                         payload.cue_count, payload.neighborhood_size, payload.prior_count,
-                        payload.mro_saved, now,
+                        payload.mro_saved,
+                        payload.model_used, payload.smart_search_used,
+                        now,
                     ),
                 )
     except Exception as exc:
@@ -137,7 +150,9 @@ def create_chat_stat(
         context_records=payload.context_records, matched_hsls=payload.matched_hsls,
         matched_aios=payload.matched_aios, cue_count=payload.cue_count,
         neighborhood_size=payload.neighborhood_size, prior_count=payload.prior_count,
-        mro_saved=payload.mro_saved, created_at=str(now),
+        mro_saved=payload.mro_saved,
+        model_used=payload.model_used, smart_search_used=payload.smart_search_used,
+        created_at=str(now),
     )
 
 

@@ -3639,6 +3639,8 @@ export function SearchStatsPane() {
                 <tr className="bg-[#0f3460] text-white">
                   <th className="px-3 py-2 text-left font-semibold">Time</th>
                   <th className="px-3 py-2 text-left font-semibold">Mode</th>
+                  <th className="px-3 py-2 text-left font-semibold" title="The LLM that handled this call.">Model</th>
+                  <th className="px-3 py-2 text-center font-semibold" title="True if Smart Search auto-classified the query into a mode.">Smart</th>
                   <th className="px-3 py-2 text-left font-semibold">Query</th>
                   <th className="px-3 py-2 text-right font-semibold">⏱ ms</th>
                   <th className="px-3 py-2 text-right font-semibold">📥 In</th>
@@ -3661,6 +3663,16 @@ export function SearchStatsPane() {
                         {new Date(s.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                       </td>
                       <td className="px-3 py-2">{modeBadge(s.search_mode)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap font-mono text-xs text-muted-foreground" title={s.model_used ?? "model not recorded (pre-audit-column stat row)"}>
+                        {s.model_used ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 text-center" title={s.smart_search_used ? "Smart Search auto-classified this query" : "Operator clicked a specific mode button"}>
+                        {s.smart_search_used ? (
+                          <span className="text-blue-600 dark:text-blue-400" aria-label="Smart Search used">✦</span>
+                        ) : (
+                          <span className="text-muted-foreground/40">—</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 max-w-[200px] truncate" title={s.query_text}>{s.query_text}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{s.elapsed_ms.toLocaleString()}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{s.input_tokens.toLocaleString()}</td>
@@ -3690,7 +3702,7 @@ export function SearchStatsPane() {
                     </tr>
                     {expanded === s.stat_id && (
                       <tr key={`${s.stat_id}-exp`} className="bg-blue-50 dark:bg-blue-950/20">
-                        <td colSpan={12} className="px-4 py-3">
+                        <td colSpan={14} className="px-4 py-3">
                           <div className="space-y-2">
                             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Query</div>
                             <div className="text-sm text-foreground">{s.query_text}</div>
@@ -3705,6 +3717,8 @@ export function SearchStatsPane() {
                               <span>📥 {s.input_tokens.toLocaleString()} input tokens</span>
                               <span>📤 {s.output_tokens.toLocaleString()} output tokens</span>
                               <span>Total: {s.total_tokens.toLocaleString()} tokens</span>
+                              {s.model_used && <span>Model: <code className="font-mono text-xs">{s.model_used}</code></span>}
+                              {s.smart_search_used && <span className="text-blue-600 dark:text-blue-400">✦ Smart Search dispatched</span>}
                               {s.matched_hsls > 0 && <span>HSLs matched: {s.matched_hsls}</span>}
                               {s.matched_aios > 0 && <span>AIOs matched: {s.matched_aios}</span>}
                               {s.cue_count > 0 && <span>Cues: {s.cue_count}</span>}

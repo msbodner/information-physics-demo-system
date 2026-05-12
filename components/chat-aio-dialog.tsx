@@ -623,6 +623,12 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   // cached MRO findings WITH fresh retrieval rather than pick one.
   // Costs more tokens; default off.
   const [thoroughRecall, setThoroughRecall] = useState(false)
+  // V6 sync — "Skip MRO" toggle for Recall Search. Strict superset of
+  // Force Fresh: bypasses the short-circuit, drops priors from the
+  // context bundle (maxPriors=0), and disables the MRO save step.
+  // Use for ephemeral / one-off / A-B / privacy-sensitive queries
+  // where neither the read nor write MRO paths should run.
+  const [skipMro, setSkipMro] = useState(false)
   // V5.0 — "Exhaustive" toggle for Live Search. When true, the backend
   // routes the request through the chunked map-reduce path
   // (api/exhaustive.py): every matched AIO is processed by per-chunk
@@ -1046,18 +1052,23 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
   const handleRecallSearch = useCallback(async (smartOpts?: {
     forceFresh?: boolean
     thorough?: boolean
+    skipMro?: boolean
     smartLabel?: string
   }) => {
     const text = chatInput.trim()
     if (!text || isChatLoading) return
-    const effectiveForceFresh = smartOpts?.forceFresh ?? forceFresh
+    const effectiveSkipMro = smartOpts?.skipMro ?? skipMro
+    // Skip-MRO implies Force Fresh (the short-circuit must be bypassed
+    // since priors are also stripped). Operators can still flip Force
+    // Fresh on its own without Skip MRO.
+    const effectiveForceFresh = effectiveSkipMro || (smartOpts?.forceFresh ?? forceFresh)
     const effectiveThorough = smartOpts?.thorough ?? thoroughRecall
     const next: ChatMessage[] = [...chatMessages, { role: "user", content: text }]
     // Pane header chip: search type + suffix + timestamp. Assigned
     // BEFORE the assistant slot is appended so PaneHeaderChip renders
-    // immediately. Suffix mirrors the footer (-T for Thorough, -F for
-    // Force fresh).
-    const recallSuffix = effectiveThorough ? "-T" : (effectiveForceFresh ? "-F" : "")
+    // immediately. Suffix mirrors the footer (-N for No MRO, -T for
+    // Thorough, -F for Force fresh).
+    const recallSuffix = effectiveSkipMro ? "-N" : (effectiveThorough ? "-T" : (effectiveForceFresh ? "-F" : ""))
     const recallLabel = smartOpts?.smartLabel ?? `Recall Search${recallSuffix}`
     setHeaderAt(next.length, makePaneHeader(recallLabel, new Date()))
     setChatMessages([...next, { role: "assistant", content: "" }])
@@ -1076,9 +1087,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     const queryHsls: HslDataRecord[] = []
     const result = await runChatPipeline(text, recallAios, {
       history,
-      // Thorough mode raises priors 3 → 8 so more cached findings flow
-      // into the LLM context section as framing.
-      maxPriors: effectiveThorough ? 8 : 3,
+      // Skip-MRO strips priors entirely; Thorough raises 3 → 8;
+      // default keeps the legacy 3-prior context bundle.
+      maxPriors: effectiveSkipMro ? 0 : (effectiveThorough ? 8 : 3),
       // V4.5 update: raised from 40 → 200 to close the substrate-cap
       // gap with Live Search's adaptive 100–300 cap. Thorough mode
       // raises further to 600 — useful for fuzzy/typo-laden queries
@@ -1088,7 +1099,10 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
       // /v1/settings/caps. Defaults: 500 / 1500. Hard clamp [50, 5000]
       // is enforced server-side.
       maxAios: effectiveThorough ? recallThoroughCap : recallCap,
-      saveMRO: true,
+      // Skip-MRO disables the write side too — the query runs as
+      // ephemeral, no new MRO is persisted. Force Fresh + Thorough
+      // still save (wider retrieval results are useful priors later).
+      saveMRO: !effectiveSkipMro,
       // Force fresh OR Thorough both bypass the score-≥-0.85 short-circuit.
       // Force fresh: just disables the cache early-return. Thorough: also
       // raises caps so Recall captures everything the cache would have
@@ -1259,7 +1273,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
         }
       }
     }
-  }, [chatInput, chatMessages, isChatLoading, recallAios, hslCatalog, recallCache, forceFresh, thoroughRecall])
+  }, [chatInput, chatMessages, isChatLoading, recallAios, hslCatalog, recallCache, forceFresh, thoroughRecall, skipMro])
 
   // ── V5.0+ Smart Search ──────────────────────────────────────────
   //
@@ -1312,9 +1326,17 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
     try {
       switch (effectiveMode) {
         case "recall":
+          // V6 sync — thread classifier-detected flags into Recall
+          // instead of hardcoding to false. Auto-detected from query
+          // intent: forceFresh ("ignore prior", "re-check", "after
+          // the update"); thorough ("comprehensive", "fuzzy match",
+          // capitalized person names); skipMro (strict superset of
+          // forceFresh — "skip mro", "no mro", "from scratch",
+          // "ephemeral", "ad-hoc", "private mode").
           await handleRecallSearch({
-            forceFresh: false,
-            thorough: false,
+            forceFresh: cls.forceFresh ?? false,
+            thorough: cls.thorough ?? false,
+            skipMro: cls.skipMro ?? false,
             smartLabel,
           })
           return
@@ -1344,8 +1366,9 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
           // a combined report. Tracked as V5.1+ work.
           toast.info("Compare Modes — running Recall now; re-ask with /live-search to compare.")
           await handleRecallSearch({
-            forceFresh: false,
-            thorough: false,
+            forceFresh: cls.forceFresh ?? false,
+            thorough: cls.thorough ?? false,
+            skipMro: cls.skipMro ?? false,
             smartLabel: `${smartLabel} · step 1 of N (Recall)`,
           })
           return
@@ -1840,7 +1863,7 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                     type="checkbox"
                     checked={forceFresh}
                     onChange={(e) => setForceFresh(e.target.checked)}
-                    disabled={isChatLoading || thoroughRecall}
+                    disabled={isChatLoading || thoroughRecall || skipMro}
                     className="h-3.5 w-3.5 accent-purple-600 cursor-pointer"
                   />
                   Force fresh
@@ -1853,10 +1876,32 @@ export function ChatAioDialog({ open, onOpenChange }: Props) {
                     type="checkbox"
                     checked={thoroughRecall}
                     onChange={(e) => setThoroughRecall(e.target.checked)}
-                    disabled={isChatLoading}
+                    disabled={isChatLoading || skipMro}
                     className="h-3.5 w-3.5 accent-amber-600 cursor-pointer"
                   />
                   Thorough
+                </label>
+                {/* V6 sync — Skip MRO override. Strict superset of Force
+                    Fresh: bypasses the short-circuit, drops priors from
+                    the context bundle (maxPriors=0), AND disables the
+                    MRO save step (saveMRO=false). The query runs as
+                    ephemeral — no memory in, no memory out. Useful for
+                    A/B testing retrieval changes, exploratory probing
+                    without polluting the MRO store, or privacy-sensitive
+                    one-off lookups. Disables Force Fresh / Thorough
+                    while Skip MRO is on; Skip MRO supersedes both. */}
+                <label
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground select-none cursor-pointer h-9 px-2 rounded-md border border-border hover:bg-muted/40"
+                  title="Skip MRO: bypass every MRO read AND write path for this query. No priors as input (maxPriors=0), no short-circuit, no save as a new MRO. The fresh retrieval still runs against the AIO/HSL substrate. Use for ephemeral / one-off / A-B testing / privacy-sensitive queries. Supersedes Force Fresh + Thorough."
+                >
+                  <input
+                    type="checkbox"
+                    checked={skipMro}
+                    onChange={(e) => setSkipMro(e.target.checked)}
+                    disabled={isChatLoading}
+                    className="h-3.5 w-3.5 accent-rose-600 cursor-pointer"
+                  />
+                  Skip MRO
                 </label>
                 <Button size="sm" onClick={() => handleRecallSearch()}
                   disabled={!chatInput.trim() || isChatLoading || !recallReady}

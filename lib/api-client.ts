@@ -530,6 +530,10 @@ export interface ChatStatRecord {
   neighborhood_size: number
   prior_count: number
   mro_saved: boolean
+  /** Which LLM model handled the call (e.g. "claude-haiku-4-5"). Nullable on rows written before the audit-columns migration. */
+  model_used: string | null
+  /** True if Smart Search auto-classified this query into a mode rather than the operator clicking a specific mode button. */
+  smart_search_used: boolean
   created_at: string
 }
 

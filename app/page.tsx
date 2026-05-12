@@ -21,6 +21,7 @@ import { PaperIII } from "@/components/views/PaperIII"
 import { BulkHslTechnote } from "@/components/views/BulkHslTechnote"
 import { BulkHslProcessTechnoteV51 } from "@/components/views/BulkHslProcessTechnoteV51"
 import { SearchModesTechnote } from "@/components/views/SearchModesTechnote"
+import { OverviewView } from "@/components/views/OverviewView"
 import { createIO, listIOs, createAioData, loginUser, rebuildHslsFromAios, pruneHsls, type IORecord, type LoginResult } from "@/lib/api-client"
 import {
   Database, ArrowRight, Layers, Cpu, Globe, BookOpen, FileText, Zap,
@@ -39,6 +40,7 @@ import { parseCSV, csvToAio, reconstructCsvFromAios, parseAioLine, type Converte
 type View =
   | "home" | "converter" | "guide" | "workflow" | "reference"
   | "processor" | "paper" | "mro-paper" | "paper-iii" | "bulk-hsl-technote" | "bulk-hsl-process-v51" | "search-modes-technote" | "sysadmin" | "rnd" | "pdf-import" | "image-import" | "search-stats"
+  | "overview"
 
 // ── Main Page ────────────────────────────────────────────────────────
 
@@ -338,6 +340,7 @@ export default function HomePage() {
   if (currentView === "rnd") return <ResearchAndDevelopment onBack={() => setCurrentView("home")} backendIsOnline={backendIsOnline} onSysAdmin={handleSystemClick} />
   if (currentView === "pdf-import") return <PdfImportView onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} onImportCsv={(csvData) => { setConvertedFiles((prev) => [...prev, csvData]); setCurrentView("converter") }} />
   if (currentView === "image-import") return <ImageImportView onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} onImportCsv={(csvData) => { setConvertedFiles((prev) => [...prev, csvData]); setCurrentView("converter") }} />
+  if (currentView === "overview") return <OverviewView onBack={() => setCurrentView("home")} onSysAdmin={handleSystemClick} backendIsOnline={backendIsOnline} />
   if (currentView === "search-stats") return (
     <div className="min-h-screen bg-background">
       <header className="bg-[#1e3a5f] text-white px-6 py-4 flex items-center justify-between">
@@ -455,6 +458,12 @@ export default function HomePage() {
             {/* Small "ChatAIO" button removed — the prominent "Launch
                 ChatAIO" CTA below covers this action and the duplicate
                 in the action row only added clutter. */}
+            {backendIsOnline && (
+              <Button size="lg" variant="outline" onClick={() => setCurrentView("overview")} className="gap-2 px-8"
+                title="Comprehensive AI-generated overview of the full AIO corpus — industry/categories/files/entities/patterns/data-quality. Print, save as PDF, or download as Markdown.">
+                <BookOpen className="w-4 h-4" />Overview
+              </Button>
+            )}
             {backendIsOnline && (
               <Button size="lg" variant="outline" onClick={() => setCurrentView("search-stats")} className="gap-2 px-8">
                 <BarChart2 className="w-4 h-4" />Search Statistics Analytics

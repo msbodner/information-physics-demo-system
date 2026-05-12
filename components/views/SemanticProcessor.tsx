@@ -230,10 +230,11 @@ export function SemanticProcessor({ files, downloadedFiles, onBack, backendIsOnl
                   View HSL Database
                 </Button>
               )}
-              <Button variant="outline" size="sm" onClick={handleSummarize} disabled={isSummarizing || !backendIsOnline} className="gap-2 shrink-0">
-                {isSummarizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cpu className="w-4 h-4" />}
-                Summarize All
-              </Button>
+              {/* Corpus summary moved to the front-screen "Overview"
+                  button (renders all AIOs from the backend, with Print /
+                  Save as PDF / Download .md options). The handleSummarize
+                  callback below is kept for any future per-screen-subset
+                  summarize use, but the button trigger is gone from here. */}
               {backendIsOnline && (
                 <Button variant="outline" size="sm" onClick={() => setShowChat(true)} className="gap-2 shrink-0">
                   <MessageSquare className="w-4 h-4" />
