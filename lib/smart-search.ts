@@ -200,20 +200,54 @@ const SKIP_MRO_PATTERNS: RegExp[] = [
 // "Perkins Will") is a strong Thorough signal — these queries
 // almost always need wider fan-out (multi-CSV, fuzzy aliasing) than
 // the cheap MRO short-circuit provides.
+//
+// Refusals:
+//   - Capitalized pair immediately followed by a company suffix
+//     (LLC, Inc, Corp, Co, Ltd, LLP, PLC, GmbH, etc.) — that's an
+//     entity name, not a person. "Cedar Ridge LLC" should not flip
+//     the query into Thorough mode.
+//   - Common geographic / institutional pairs (United States, New
+//     York, …).
 function looksLikePersonName(query: string): boolean {
   // Match "FirstName LastName" — two adjacent capitalized words,
   // ignoring leading verbs ("who is", "tell me about", etc.).
   // Avoid matching project keys like "VEND-0055" or "AIA305".
-  const m = query.match(/\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b/)
-  if (!m) return false
-  // Filter out obvious non-name capitalized pairs by guarding against
-  // common business terms.
+  // Use a global walk so we examine every candidate pair; if any
+  // pair survives the company-suffix and stop-list filters, the
+  // query gets Thorough. Otherwise (e.g. all pairs are followed by
+  // "LLC"), it stays in plain Recall.
+  const re = /\b([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})\b/g
   const stop = new Set([
     "United States", "New York", "San Francisco", "Los Angeles",
     "Pull Request", "Product Manager", "Hyper Semantic",
     "Information Physics", "Standard Model",
   ])
-  return !stop.has(`${m[1]} ${m[2]}`)
+  // Company-suffix pattern that follows the capitalized pair —
+  // matches abbreviations with or without periods. Case-insensitive
+  // here because operators may type "llc" or "L.L.C.".
+  const companySuffix = /^\s*(?:[,.]?\s*)?(?:LLC|L\.L\.C\.?|Inc\.?|Corp\.?|Corporation|Co\.?|Company|Ltd\.?|LLP|LP|PLC|PC|PA|GmbH|S\.A\.?|AG|AB|NV|BV|Pty|Holdings|Group|Partners|Associates|Solutions|Industries|Enterprises|Trust|Foundation)\b/i
+  // Standalone company-suffix word (Inc, Corp, Holdings, …). When
+  // this is the second word of the pair, the pair is an entity name
+  // ("Acme Inc", "Northwind Holdings") — not a person.
+  const companyWord = /^(?:LLC|Inc|Corp|Corporation|Co|Company|Ltd|LLP|LP|PLC|PC|PA|GmbH|AG|AB|NV|BV|Pty|Holdings|Group|Partners|Associates|Solutions|Industries|Enterprises|Trust|Foundation|Capital|Ventures|Properties|Realty|Realtors)$/i
+  let m: RegExpExecArray | null
+  while ((m = re.exec(query)) !== null) {
+    const pair = `${m[1]} ${m[2]}`
+    if (stop.has(pair)) continue
+    // Reject when word #2 of the pair is itself a company suffix
+    // ("Acme Inc", "Northwind Holdings", "Liberty Group").
+    if (companyWord.test(m[2])) continue
+    // Reject when what immediately follows the pair is a company
+    // suffix ("Cedar Ridge LLC", "Smith Brothers, Inc.").
+    const rest = query.slice(m.index + m[0].length)
+    if (companySuffix.test(rest)) continue
+    // Reject business-descriptor first words ("Customer Profitability",
+    // "Source Files") — we only want genuine proper names.
+    const businessFirstWord = /^(Customer|Source|Total|Sub|Final|Direct|Indirect|Gross|Net|Sales|Service|Product|Account|Budget|Payment|Project|Vendor|Invoice|Bill|Report|Status|Issue|Submittal|Transaction|Margin)$/i
+    if (businessFirstWord.test(m[1])) continue
+    return true
+  }
+  return false
 }
 
 // ── Helpers ──────────────────────────────────────────────────────

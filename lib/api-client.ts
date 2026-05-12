@@ -433,7 +433,11 @@ async function consumeSSE<MetaT>(
     } else if (msg.includes("sse_total_timeout")) {
       cb.onError?.("Request exceeded 3-minute hard ceiling. The query is unusually large — try Live or a tighter scope.")
     } else if (msg.includes("Load failed") || msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
-      cb.onError?.(`Network error: ${msg}. Check the backend at /api/health.`)
+      // Pass the raw browser-supplied message through; the chat-aio
+      // dialog's formatBackendError() adds the "Network error:" prefix
+      // and the remediation list. Wrapping here too produced doubled
+      // "Network error: Network error: …" output.
+      cb.onError?.(msg)
     } else {
       cb.onError?.(msg)
     }
