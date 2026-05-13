@@ -35,12 +35,19 @@ if not url:
     print('No DATABASE_URL — skipping seed')
     sys.exit(0)
 conn = psycopg.connect(url)
-pw_hash = bcrypt.hashpw(b'Admin@1234', bcrypt.gensalt()).decode()
+pw_hash = bcrypt.hashpw(b'Admin&123', bcrypt.gensalt()).decode()
 with conn.cursor() as cur:
+    # Hard-coded admin credential — by operator request the seed is
+    # authoritative for THIS specific email regardless of prior DB
+    # state. DO UPDATE (not DO NOTHING) so every backend startup
+    # forces the password back to Admin&123.
     cur.execute('''
         INSERT INTO users (username, email, password_hash, role)
         VALUES (%s, %s, %s, %s)
-        ON CONFLICT (email) DO NOTHING
+        ON CONFLICT (email) DO UPDATE
+          SET password_hash = EXCLUDED.password_hash,
+              role          = EXCLUDED.role,
+              username      = COALESCE(NULLIF(users.username, ''), EXCLUDED.username)
     ''', ('Michael Bodner', 'bodner.michael@gmail.com', pw_hash, 'System Admin'))
 conn.commit()
 conn.close()
