@@ -391,11 +391,14 @@ export default function HomePage() {
 
         {/* Edge-to-edge title banner — sits between header and hero so
             it spans the full viewport, not just the section's max-width.
-            No rounded corners since it now meets the page edges. */}
+            No rounded corners since it now meets the page edges.
+            Icon is stacked ABOVE the title (vertical flex) so the title
+            text is dead-centered on the page rather than visually
+            offset to the right of the icon. */}
         <div className="w-full bg-gradient-to-r from-[#0b2a4a] via-[#0f3460] to-[#0b2a4a] shadow-lg ring-1 ring-white/10 py-8 sm:py-10">
-          <div className="flex items-center justify-center gap-3 sm:gap-5 text-white px-6">
+          <div className="flex flex-col items-center justify-center gap-3 sm:gap-4 text-white px-6 text-center">
             <Globe className="w-8 h-8 sm:w-10 sm:h-10 lg:w-12 lg:h-12 shrink-0 opacity-90" />
-            <h1 className="font-serif font-semibold tracking-tight leading-none text-3xl sm:text-5xl md:text-6xl lg:text-7xl">
+            <h1 className="font-serif font-semibold tracking-tight leading-tight text-3xl sm:text-5xl md:text-6xl lg:text-7xl">
               Information Physics Standard Model
             </h1>
           </div>
