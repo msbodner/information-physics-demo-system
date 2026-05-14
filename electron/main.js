@@ -442,6 +442,7 @@ async function startBackend() {
   backendProcess.stdout.on("data", (d) => log(`backend: ${d.toString().trim()}`));
   backendProcess.stderr.on("data", (d) => log(`backend: ${d.toString().trim()}`));
   backendProcess.on("close", (code) => log(`Backend exited: ${code}`));
+  recordChildPid("backend", backendProcess.pid);
 
   await waitForHealth(`http://127.0.0.1:${ports.backend}/`);
   log("Backend healthy");
@@ -490,6 +491,7 @@ async function startFrontend() {
   frontendProcess.stdout.on("data", (d) => log(`frontend: ${d.toString().trim()}`));
   frontendProcess.stderr.on("data", (d) => log(`frontend: ${d.toString().trim()}`));
   frontendProcess.on("close", (code) => log(`Frontend exited: ${code}`));
+  recordChildPid("frontend", frontendProcess.pid);
 
   await waitForHealth(`http://127.0.0.1:${ports.frontend}/`);
   log("Frontend healthy");
@@ -528,22 +530,103 @@ function createMainWindow() {
   });
 }
 
-// ── Graceful Shutdown ────────────────────────────────────────────
-function killProcess(proc, name) {
-  if (!proc || proc.killed) return;
-  log(`Killing ${name} (pid ${proc.pid})...`);
+// ── Orphan guard ─────────────────────────────────────────────────
+//
+// The bundled Next.js + uvicorn + Postgres processes can outlive the
+// Electron host if the host gets force-killed (Cmd+Option+Esc, SIGKILL,
+// macOS shutdown, etc.) — `before-quit` doesn't fire in those cases,
+// and the children are reparented to launchd. They then squat on
+// well-known ports (3100, 9080, 5433) and the next launch picks higher
+// ports, leaving the operator looking at the previous session's UI on
+// the well-known port.
+//
+// Defense: persist child PIDs to userData every time we spawn one, and
+// on the NEXT launch check the file and clean up any orphans before
+// spawning fresh processes.
+
+const ORPHAN_GUARD_PATH = path.join(userData, "running-pids.json");
+
+function recordChildPid(name, pid) {
+  if (!pid) return;
   try {
-    treeKill(proc.pid, "SIGTERM");
+    const cur = fs.existsSync(ORPHAN_GUARD_PATH)
+      ? JSON.parse(fs.readFileSync(ORPHAN_GUARD_PATH, "utf8"))
+      : {};
+    cur[name] = pid;
+    fs.writeFileSync(ORPHAN_GUARD_PATH, JSON.stringify(cur));
+  } catch (e) {
+    log(`orphan-guard write error: ${e.message}`);
+  }
+}
+
+function clearChildPids() {
+  try { fs.unlinkSync(ORPHAN_GUARD_PATH); } catch { /* ok if absent */ }
+}
+
+// Cheap check: signal 0 doesn't deliver, only queries existence.
+function isAlive(pid) {
+  if (!pid || pid <= 1) return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+function killStaleOrphans() {
+  let stale;
+  try {
+    if (!fs.existsSync(ORPHAN_GUARD_PATH)) return;
+    stale = JSON.parse(fs.readFileSync(ORPHAN_GUARD_PATH, "utf8"));
+  } catch (e) {
+    log(`orphan-guard read error: ${e.message}`);
+    clearChildPids();
+    return;
+  }
+  for (const [name, pid] of Object.entries(stale || {})) {
+    if (!isAlive(pid)) continue;
+    log(`Found orphan ${name} pid=${pid} from previous session — killing`);
+    try { treeKill(pid, "SIGKILL"); } catch (e) { log(`  failed: ${e.message}`); }
+  }
+  clearChildPids();
+}
+
+// ── Graceful Shutdown ────────────────────────────────────────────
+//
+// SIGTERM is asynchronous — `treeKill(pid, "SIGTERM")` only enqueues
+// the signal and returns immediately. If the Electron host process
+// then exits before the child has actually died, the child becomes an
+// orphan. Wait briefly for graceful exit, then escalate to SIGKILL.
+function killProcessSync(proc, name) {
+  if (!proc || proc.killed || !proc.pid) return;
+  const pid = proc.pid;
+  log(`Killing ${name} (pid ${pid})...`);
+  try {
+    treeKill(pid, "SIGTERM");
+    // Poll up to ~1.5s for the process to actually exit. Synchronous
+    // sleep via execSync is acceptable here — we're shutting down.
+    const deadline = Date.now() + 1500;
+    while (Date.now() < deadline) {
+      if (!isAlive(pid)) return; // exited cleanly
+      try { execSync("sleep 0.1"); } catch { /* signal interrupt — keep going */ }
+    }
+    if (isAlive(pid)) {
+      log(`${name} still alive after 1.5s SIGTERM grace — escalating to SIGKILL`);
+      treeKill(pid, "SIGKILL");
+    }
   } catch (e) {
     log(`Kill ${name} error: ${e.message}`);
   }
 }
 
+// Back-compat alias — older call sites may still reference killProcess.
+const killProcess = killProcessSync;
+
+let _shutdownRan = false;
 function shutdown() {
+  if (_shutdownRan) return; // idempotent — before-quit + window-all-closed both fire
+  _shutdownRan = true;
   log("Shutting down...");
-  killProcess(frontendProcess, "frontend");
-  killProcess(backendProcess, "backend");
+  killProcessSync(frontendProcess, "frontend");
+  killProcessSync(backendProcess, "backend");
   stopPostgres();
+  clearChildPids(); // graceful shutdown — no orphans for next launch to clean
   log("Shutdown complete.");
 }
 
@@ -626,6 +709,14 @@ ipcMain.handle("storage:saveFile", async (_event, { target, filename, content })
 // ── App Lifecycle ────────────────────────────────────────────────
 app.on("ready", async () => {
   log(`${APP_NAME} starting (dev=${isDev}, cloudMode=${CLOUD_MODE})`);
+  // Defensive: before spawning anything fresh, clean up any child
+  // processes still alive from a previous session that exited
+  // ungracefully (Cmd+Option+Esc force-quit, OS crash, etc.) and
+  // didn't get a chance to run before-quit. Without this, orphans
+  // squat on the well-known ports (3100, 9080) and the new session
+  // picks higher ports, leaving the operator looking at the stale
+  // previous-session UI on the well-known port.
+  killStaleOrphans();
   createSplash();
 
   try {
@@ -664,6 +755,31 @@ app.on("ready", async () => {
 });
 
 app.on("before-quit", shutdown);
+
+// `before-quit` only fires when the app initiates its own quit cycle
+// (Cmd+Q, app.quit()). It does NOT fire when the operator sends SIGTERM
+// to the Electron main process from outside (e.g. Activity Monitor →
+// Force Quit, `kill <pid>` from terminal, or some OS shutdown paths).
+// Listen for the POSIX signals on the main process so child cleanup
+// still runs in those cases.
+function signalShutdown(sig) {
+  log(`Received ${sig} on main process — shutting down children`);
+  shutdown();
+  // Re-raise the same signal so the parent sees the expected exit code,
+  // OR just app.quit() for graceful Electron teardown. quit() is safer.
+  app.quit();
+}
+process.on("SIGTERM", () => signalShutdown("SIGTERM"));
+process.on("SIGINT",  () => signalShutdown("SIGINT"));
+process.on("SIGHUP",  () => signalShutdown("SIGHUP"));
+
+// Belt-and-suspenders: `quit` fires AFTER before-quit and after all
+// windows are closed. If for any reason before-quit was skipped
+// (programmatic app.exit, uncaught exception path, etc.), shutdown
+// still runs here. shutdown() is idempotent via the _shutdownRan flag.
+app.on("quit", () => {
+  shutdown();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
