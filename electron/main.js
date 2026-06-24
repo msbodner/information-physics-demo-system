@@ -33,7 +33,11 @@ let splashWindow = null;
 let pgProcess = null;
 let backendProcess = null;
 let frontendProcess = null;
-let ports = { pg: 5433, backend: 9080, frontend: 3100 };
+// Postgres + frontend use UNIQUE ports (5435/3101) so the Demo System can run
+// alongside EigenspaceAI Local (which uses pg 5433 / frontend 3100) without the
+// two apps' freeStalePorts() killing each other's database. Backend stays 9080
+// (the informationphysics-local MCP connector targets it).
+let ports = { pg: 5435, backend: 9080, frontend: 3101 };
 
 // ── Port Finding ─────────────────────────────────────────────────
 function findPort(startPort) {
@@ -118,10 +122,10 @@ function freeStalePorts(portList) {
 }
 
 async function findPorts() {
-  await freeStalePorts([5433, 9080, 3100]);
-  ports.pg = await findPort(5433);
+  await freeStalePorts([5435, 9080, 3101]);
+  ports.pg = await findPort(5435);
   ports.backend = await findPort(9080);
-  ports.frontend = await findPort(3100);
+  ports.frontend = await findPort(3101);
   log(`Ports: PG=${ports.pg}, Backend=${ports.backend}, Frontend=${ports.frontend}`);
 }
 
