@@ -476,7 +476,7 @@ contractors_0007.aio contractors  7       2024-01-15 10:30:00`}
             {activeSection === "structure-models" && (
               <Card><CardHeader><CardTitle className="flex items-center gap-2"><Binary className="w-5 h-5" />AIO / HSL / MRO Structure Models</CardTitle></CardHeader><CardContent className="space-y-6 text-sm text-muted-foreground leading-relaxed">
                 <div>
-                  <h4 className="text-foreground font-semibold text-base mb-3">AIO — Atomic Information Object</h4>
+                  <h4 className="text-foreground font-semibold text-base mb-3">AIO — Associated Information Object</h4>
                   <h5 className="text-foreground font-medium mt-3">Grammar</h5>
                   <div className="p-3 rounded-lg bg-muted font-mono text-xs whitespace-pre">
 {`AIO     ::= Element+

@@ -196,7 +196,7 @@ export function UserGuide({ onBack }: UserGuideProps) {
           <Card>
             <CardContent className="pt-6 space-y-4">
               <p className="leading-relaxed">
-                An Atomic Information Object (AIO) is a self-contained unit of structured data based on semantic triples.
+                An Associated Information Object (AIO) is a self-contained unit of structured data based on semantic triples.
                 Each AIO contains elements that follow the Subject-Predicate-Object pattern from RDF and linked data principles.
               </p>
               <div className="bg-muted rounded-lg p-4 font-mono text-sm space-y-1">

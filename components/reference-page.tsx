@@ -31,7 +31,7 @@ export function ReferencePage({ onBack }: ReferencePageProps) {
           <h2 className="text-2xl font-bold">Information Physics &amp; Semantic Architecture</h2>
           <p className="text-muted-foreground leading-relaxed">
             This reference guide provides an overview of the theoretical foundations and technical specifications
-            behind the ACC Semantic Layer and Atomic Information Objects (AIOs).
+            behind the ACC Semantic Layer and Associated Information Objects (AIOs).
           </p>
         </section>
 
